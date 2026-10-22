@@ -1,0 +1,17 @@
+[package]
+name = "daggerfall-crafting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Crafting organ — MAGIC.DEF parser, enchantment accounting and classic potion recipes (M24)"
+
+[dependencies]
+# M24: the pure formulas for per-material potency and recipe hash live in
+# `behavior::crafting` — 0 duplicated logic. The effect registry
+# (`effect_by_key`) and the effect settings are consumed from
+# `behavior::magic` (hard edge M23→M24).
+daggerfall-behavior = { path = "../behavior" }
+# M24: item instances (`Item`) and templates (`ItemTemplate`, with
+# `enchantment_points` and `is_ingredient`) are M21 — enchantment and
+# alchemy consume them, they do not define them.
+daggerfall-inventory = { path = "../inventory" }

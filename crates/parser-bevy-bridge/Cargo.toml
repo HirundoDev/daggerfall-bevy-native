@@ -1,0 +1,35 @@
+# daggerfall-parser-bevy-bridge — parser↔Bevy bridge crate (M1).
+#
+# Contract: addendum PRE-2 §8 (game-process-contract-addendum-CR-bbd5db82.md)
+# + PRE-3 decisions (bevy-bridge-matrix-CR-bbd5db82.md §10.1: MeshSpec is
+# kept as a pure intermediate type).
+# - DAG: app → bridge → daggerfall_parser_rs; the parser stays a
+#   0-dependency leaf (clean-room AB-11). The bridge does NOT modify the parser.
+# - Bevy 0.20.0 = single workspace version (0 drift, PRE-2 §8).
+# - default-features=false: the bridge compiles and is tested HEADLESS
+#   (PRE-2 §8 rule 4). Windowing/winit are NOT a bridge feature
+#   (PRE-2 §8 rule 5, D1 CR57: 0 winit types outside the action layer).
+# - 0 asset persistence/packaging: runtime-only conversion
+#   (INV-L99-6, PRE-2 §8 rule 2; BUILD-CONTENT-SCAN-001 = release gate).
+[package]
+name = "daggerfall-parser-bevy-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Daggerfall parser ↔ Bevy bridge: MeshSpec conversion (runtime-only)"
+
+[dependencies]
+daggerfall-parser-rs = { path = "../daggerfall_parser_rs" }
+bevy = { version = "0.20.0", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_mesh",
+    "bevy_image",
+    "bevy_material",
+    "bevy_camera",
+    "bevy_light",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+] }

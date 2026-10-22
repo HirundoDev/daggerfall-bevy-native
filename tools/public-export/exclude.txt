@@ -1,0 +1,31 @@
+# NON-exportable surface (CR-f9a78b9a). One pattern per line; '#' starts a comment.
+# Prefix-matched directories: excludes everything inside them.
+# --- Sintergic harness: internal process, registries, telemetry, logs ---
+.sintergic/
+.omp/
+.omp-di/
+.omp-fw/
+.opencode/
+sessions/
+transcripts/
+# --- Internal framework documentation (includes handoffs, packs, plans, audits) ---
+docs/sintergic/
+# --- Owner plans at the repo root (Spanish, internal governance; they stay in the private repo) ---
+MASTER-PLAN-100J-*.md
+dfu-improvement-catalog-*.md
+prototype-gap-*.md
+# --- Internal publication checklist: holds the owner's email and is not product ---
+tools/public-export/CHECKLIST.md
+# --- Local translations are NOT published: the public tree is English-only ---
+*.es.md
+# --- Build / runtime / editor artifacts ---
+target/
+saves/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+# --- Retired retail capture (H1): must never ship ---
+docs/sintergic/game/validation/m18-demo-20261021/m17-ui-fixed.png

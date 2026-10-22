@@ -1,0 +1,11 @@
+[package]
+name = "daggerfall-inventory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Inventory organ — configuration, dependency wiring and asset/path bookkeeping (F0 scaffold)"
+
+[dependencies]
+# M21: the effective weight (`max_encumbrance`, M19) and the wear
+# `Dice100` (M21 §4) live in `behavior` — 0 duplicated logic.
+daggerfall-behavior = { path = "../behavior" }

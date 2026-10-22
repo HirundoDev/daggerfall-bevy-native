@@ -1,0 +1,34 @@
+# CI guardrails — content and trademark scans.
+#
+# Two static checks run on every push and pull request:
+#   1. content scan — the repository must never contain packaged game data
+#      (retail archive extensions or container signatures);
+#   2. trademark check — no third-party marks on public surfaces.
+#
+# The same battery runs locally, with no GitHub runner required:
+#   bash scripts/ci/run-ci.sh
+#
+# Build, clippy and test jobs are intentionally out of scope here: they belong
+# to the release pipeline, not to the content guardrails.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guardrails:
+    name: guardrails (content scan + trademark check)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Content scan (no packaged game data)
+        run: bash scripts/ci/content-scan.sh
+
+      - name: Trademark check (no third-party marks on public surfaces)
+        run: bash scripts/ci/trademark-check.sh

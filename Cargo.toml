@@ -1,0 +1,25 @@
+# daggerfall-bevy-native — workspace root (F0 scaffold)
+# 9 organ crates (Sintergic canon, ADR-FW-104; M22 adds combat) + app crate (Bevy, ADR-GAME-004 posture: Bevy >= 0.19).
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/app",
+    "crates/nervous",
+    "crates/heart",
+    "crates/memory",
+    "crates/behavior",
+    "crates/perception",
+    "crates/skills",
+    "crates/inventory",
+    "crates/crafting",
+    "crates/combat",
+    "crates/antibodies",
+    "crates/daggerfall_parser_rs",
+    "crates/parser-bevy-bridge",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"

@@ -1,0 +1,6 @@
+[package]
+name = "daggerfall-heart"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Heart organ — attention focus and long-running coordination (F0 scaffold)"

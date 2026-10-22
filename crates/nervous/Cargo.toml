@@ -1,0 +1,6 @@
+[package]
+name = "daggerfall-nervous"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Nervous organ — lattice events and inter-organ messaging (F0 scaffold)"

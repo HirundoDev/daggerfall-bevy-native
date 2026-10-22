@@ -1,0 +1,6 @@
+[package]
+name = "daggerfall-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Memory organ — persistence, saves and data access (F0 scaffold)"

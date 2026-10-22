@@ -1,0 +1,9 @@
+[package]
+name = "daggerfall-parser-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PHASE 1 parity-first parser: Daggerfall BSA container + ARCH3D mesh headers (clean-room from UESP dfbsa.txt)"
+
+# Zero dependencies (incl. 0 native deps — platform D4).
+# PARITY-FIRST: additive crate; 0 modification of the core until Mode A parity.

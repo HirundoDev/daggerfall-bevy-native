@@ -1,0 +1,6 @@
+[package]
+name = "daggerfall-antibodies"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Antibodies organ — invariants and guardrails (F0 scaffold)"

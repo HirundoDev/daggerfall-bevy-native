@@ -1,0 +1,98 @@
+# NOTICE
+
+This repository contains original source code and a small, licensed third-party
+specification corpus. It contains no Daggerfall game data files (no `.BSA`,
+`.DAT`, `.RSC`, `.IMG/.CIF`, `.FNT`, `.CFG`, `.QBN/.QRC` or book text): the engine
+reads a copy the user already owns. The only game-derived material is the
+Daggerfall Unity MIT corpus described below (`reference/dfu-spec/`), reproduced
+verbatim from upstream under its own licence.
+
+## Original code
+
+daggerfall-bevy-native
+Copyright (c) 2026 HirundoDev
+Licensed under the MIT License. See LICENSE.
+
+## Third-party source retained in this repository
+
+### Daggerfall Unity
+
+`reference/dfu-spec/` contains 119 C# source files and one data file (`NameGen.txt`)
+from Daggerfall Unity, retained as an executable specification. They are not compiled,
+linked or copied into any product crate.
+
+Copyright (c) 2009-2023 Daggerfall Workshop
+Licensed under the MIT License.
+
+Upstream: https://github.com/Interkarma/daggerfall-unity
+Pinned release: v1.1.1
+Pinned commit: 0038a1e61999ad2c73fb1f33b706cae9a88ec66f
+Upstream license: https://github.com/Interkarma/daggerfall-unity/blob/v1.1.1/LICENSE
+
+Provenance is mixed and is declared exactly in
+`reference/dfu-spec/CLASSIFICATION.md`: **112 files** were taken at commit
+`2343305d1d83ccc0de57a81e3b1e61188a997e34` and **8 files** at
+`0038a1e61999ad2c73fb1f33b706cae9a88ec66f`; per-file SHA-256 hashes are listed in
+`reference/dfu-spec/PROVENANCE.md`.
+
+`reference/dfu-spec/Assets/Resources/NameGen.txt` is retained byte-identical to
+upstream (its file SHA-256 matches the DFU original). Its content is a name
+model derived from the game's `NAMEGEN.DAT`; it is included here **as part of the
+MIT-licensed DFU corpus**, not as an original work of this project.
+
+The 62 region names in `crates/parser-bevy-bridge/src/npc_spec.rs` are
+reproduced from the same MIT corpus
+(`reference/dfu-spec/Assets/Scripts/API/MapsFile.cs`). No additional game bytes
+are added by this project.
+
+The full MIT text for this corpus is preserved verbatim at
+`reference/dfu-spec/LICENSE.txt`. Provenance and per-file SHA-256 hashes are recorded in
+`reference/dfu-spec/PROVENANCE.md` and
+`reference/dfu-spec/CLASSIFICATION.md`.
+
+## Projects consulted as references (no code or assets included)
+
+### DaggerfallJS / DFO Online
+
+Copyright (c) 2026 Lattymoy
+Licensed under the MIT License.
+Upstream: https://github.com/Lattymoy/daggerfall-js-source
+License: https://github.com/Lattymoy/daggerfall-js-source/blob/main/LICENSE
+
+Cited as design inspiration for bring-your-own-data distribution and feature-switch
+registry patterns. No source code or assets from this project are included here.
+
+### UESP — Daggerfall's BSA File Formats
+
+"Daggerfall's BSA File Formats" by Dave Humphrey (dave@uesp.net), 6 April 2002.
+https://en.uesp.net/dagger/dfbsa.txt
+
+Used as the public format specification for the clean-room parser. No text from the
+document is redistributed; citations identify sections by name.
+
+UESP wiki format documentation:
+https://en.uesp.net/wiki/Daggerfall_Mod:BSA_file_formats
+
+## Runtime dependencies
+
+The Rust crates declared in `Cargo.toml` / `Cargo.lock` (including Bevy) retain their
+own licenses. Run `cargo metadata` or consult each crate's distribution for the
+authoritative license terms. This NOTICE does not override them.
+
+## Game data
+
+Daggerfall and its data files are the property of Bethesda Softworks. Daggerfall was
+released as freeware in 2009; freeware does not grant redistribution rights for the
+game's assets. No Daggerfall game data file, asset, screenshot or verbatim game
+text is included in this repository: probes identify retail records by offset,
+length and SHA-256 only, and documentation does not reproduce them. The engine
+reads a copy that the user already owns, resolved at runtime by `PathChecker`.
+The sole exception is the MIT-licensed DFU specification corpus described above,
+including `NameGen.txt` and the region table, retained verbatim from upstream.
+
+Asset paths, sizes and SHA-256 hashes are recorded in `ASSET-REGISTRY.json` for
+verification. See `DATA-CLASSIFICATION.md` for the full policy.
+
+This project is not affiliated with, endorsed by, or sponsored by Bethesda Softworks
+or ZeniMax Media. Daggerfall and all related marks are trademarks of their respective
+owners.

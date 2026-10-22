@@ -1,0 +1,58 @@
+# ── Bethesda game data: runtime-only, NEVER committed (see DATA-CLASSIFICATION.md) ──
+data/
+ARENA2/
+arena2/
+*.BSA
+*.bsa
+*.VID
+*.vid
+*.pal
+*.PAL
+
+# ── Retail payload formats (ARENA2 set): never package original game bytes ──
+*.EXE
+*.exe
+*.DAT
+*.dat
+*.CFG
+*.cfg
+*.BIO
+*.bio
+*.FLC
+*.flc
+
+# ── Sintergic harness internals (local process, registries, telemetry) ──
+.sintergic/
+.omp/
+.omp-di/
+.omp-fw/
+.opencode/
+sessions/
+transcripts/
+*.session.jsonl
+
+# ── Local environment / tooling ──
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+
+# ── Build artifacts ──
+target/
+
+# ── Editor / OS noise ──
+.idea/
+.vscode/
+*.swp
+.DS_Store
+*.log
+*.tmp
+
+# ── Captura retail retirada (H1, CR-f9a78b9a): render de .IMG/.CIF de 1996 ──
+docs/sintergic/game/validation/m18-demo-20261021/m17-ui-fixed.png
+
+# ── Save de runtime (M6, CR-f9a78b9a): se escribe al jugar, nunca se versiona ──
+saves/

@@ -1,0 +1,6 @@
+[package]
+name = "daggerfall-perception"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Perception organ — rendering, input and sensory pipelines (F0 scaffold)"

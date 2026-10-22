@@ -1,0 +1,12 @@
+[package]
+name = "daggerfall-skills"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Skills organ — reusable capabilities composed into gameplay flows (F0 scaffold)"
+
+[dependencies]
+# M20: the `PlayerBody` consumed by the M19 locomotion engine is built
+# from the real `Character`; the shared formulas (weight, air)
+# live in `behavior::locomotion` (0 duplicated logic).
+daggerfall-behavior = { path = "../behavior" }

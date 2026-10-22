@@ -1,0 +1,11 @@
+[package]
+name = "daggerfall-combat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Combat organ — M22 attack/death engine (rng/actor/engine, per-actor DFRandom)"
+
+[dependencies]
+# M22: the engine consumes the pure formulas from
+# `behavior::combat` (hit/damage/cadence/death, spec M22 §1-§4).
+daggerfall-behavior = { path = "../behavior" }
