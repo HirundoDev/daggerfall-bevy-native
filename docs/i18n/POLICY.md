@@ -6,6 +6,8 @@ repository text. It does not apply to code identifiers, which are English by con
 **Decision: English is the canonical language of this repository.** The public export ships English
 only; `*.es.md` translations are local-only and excluded from it. The export gate rejects Spanish in
 the published tree. Spanish is a *derived* surface, produced on demand and never a source of truth.
+Prose is written in English **when it is created** — a file is English from its first commit, never
+translated into English after the fact.
 
 ## Why English is canonical
 
@@ -34,6 +36,23 @@ Consequences a reader should expect:
   excluded; the export gate rejects Spanish in the published tree. Spanish prose that reaches the
   published tree is a defect to fix by translating that file into English — never by shipping a
   translation alongside it.
+
+## Enforcement
+
+The invariant has two barriers, both scoped to the exportable surface (everything
+`tools/public-export/exclude.txt` does not exclude):
+
+- **CI gate.** `bash scripts/ci/language-check.sh`, wired into `scripts/ci/run-ci.sh` and the
+  `guardrails` workflow, fails when a prose block on that surface reads as Spanish. What it reads
+  and how the density decision is made are documented in
+  [`CONTRIBUTING.md`](../../CONTRIBUTING.md#the-english-gate); its regression probe is
+  `scripts/ci/test-language-check.sh`.
+- **Publication gate.** `tools/public-export/export-public.py` re-checks the exported tree and
+  stays the last barrier: a file that reaches it in Spanish is a defect even when the CI gate
+  passed on the private tree.
+
+A line the gate reports is fixed by writing that prose in English, not by shipping a translation
+next to it.
 
 ## Naming convention
 
@@ -115,11 +134,12 @@ The diff is checked for these invariants, in this order:
 
 ## Current state
 
-The Spanish translation of the tree is **in progress** and is done by hand, without scripts: files are
-translated one at a time, claims unchanged, and no automated sweep exists yet. One derived file exists
-today — `DATA-CLASSIFICATION.es.md` of `DATA-CLASSIFICATION.md`, local-only — and nothing is stale.
+Translations are written **by hand, on demand, without scripts**: files are translated one at a
+time, claims unchanged, and no automated translator is used. One derived file exists today —
+`DATA-CLASSIFICATION.es.md` of `DATA-CLASSIFICATION.md`, local-only — and nothing is stale.
 
-**The push is blocked until the sweep reports 0 Spanish files in the published tree.** Until then,
-this policy states the invariant, not a finished result: the published markdown surface is English at
-this snapshot, and the export gate is what must prove it. The inventory of documents, their language
-and their priority is in [`STATUS.md`](STATUS.md).
+The sweep condition is met at this snapshot: the CI gate of [Enforcement](#enforcement) reports
+**0 Spanish prose blocks** on the exportable surface, and the code comments, Python docstrings and
+manifest descriptions are English. The published markdown surface is English, the two gates keep it
+that way, and the export gate re-measures the exported tree at publication. The inventory of
+documents, their language, their priority and the measurement are in [`STATUS.md`](STATUS.md).

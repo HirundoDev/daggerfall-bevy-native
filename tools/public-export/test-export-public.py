@@ -7,20 +7,27 @@ pii / retail_text / secret:* / internal_name) was rebound to a *list* of Spanish
 tokens, so the first `hits.get(...)` after the loop raised AttributeError and the
 export never reached its verdict.
 
-Two hermetic scenarios, each on a throwaway git repository (the exporter only
+The gate measures human prose only, with the extraction and word list owned by
+`scripts/ci/language-check.py` (CR-abe5ff3d): counting raw file tokens flagged
+identifiers such as `y_rotation`, `i32_le` or `z1`, which are homographs of
+Spanish function words.
+
+Three hermetic scenarios, each on a throwaway git repository (the exporter only
 reads `git HEAD` of the repo that owns the script):
 
-  spanish  the exporter must finish and report FAIL, with the check
-           `spanish_stopwords_absent` carrying `file:line:phrase`, while every
-           other check keeps the values of the dict-based scan (proof that `hits`
-           survived the stopword loop).
-  clean    the exporter must finish and report PASS with 0 flagged files
-           (delta 0) and an exported file set identical to HEAD.
+  spanish      the exporter must finish and report FAIL, with the check
+               `spanish_stopwords_absent` carrying `file:line:phrase`, while every
+               other check keeps the values of the dict-based scan (proof that `hits`
+               survived the language loop).
+  clean        the exporter must finish and report PASS with 0 flagged files
+               (delta 0) and an exported file set identical to HEAD.
+  identifiers  English Rust whose only Spanish-looking tokens are identifiers and
+               short English words must PASS: the gate may not read code as prose.
 
 Usage:
   python3 tools/public-export/test-export-public.py [--keep]
 
-Exit 0 = both scenarios behave as specified. No network, no cargo, no writes
+Exit 0 = every scenario behaves as specified. No network, no cargo, no writes
 outside the temporary fixtures.
 """
 import argparse, json, os, shutil, subprocess, sys, tempfile
@@ -29,6 +36,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 EXPORT = HERE / "export-public.py"
 EXCLUDE = HERE / "exclude.txt"
+LANG_GATE = "scripts/ci/language-check.py"
 
 # Minimal source tree the exporter demands: README.md and LICENSE are read
 # unconditionally; NOTICE is optional. None of them carries a declared transform,
@@ -45,7 +53,29 @@ SPANISH_LINES = [
     "pub fn vida() -> u32 { 1 }",
 ]
 SPANISH_FILE = "src/notes.rs"
-SPANISH_WHERE = "%s:1:%s" % (SPANISH_FILE, SPANISH_LINES[0].strip())
+# The gate reports the extracted prose line: comments lose their `//` marker.
+SPANISH_WHERE = "%s:1:%s" % (SPANISH_FILE, SPANISH_LINES[0].strip().lstrip("/").lstrip())
+
+# English Rust whose only Spanish-looking tokens live in identifiers and short English
+# words ("y", "le", "no", "se", "al"): the token-level gate flagged these as Spanish
+# (CR-abe5ff3d). The prose gate must ignore code entirely and flag none of it.
+IDENTIFIER_FILES = {
+    "crates/parser-bevy-bridge/src/interior_spec.rs":
+        "//! - Daggerfall: Y up, left-handed; Bevy: Y up, right-handed.\n"
+        "//! Y is the vertical axis, so no rotation is applied here.\n"
+        "pub fn point(data: &[u8], at: usize) -> i32 {\n"
+        "    let (x1, y1, z1) = (0, 1, 2);\n"
+        "    let _ = (x1, y1, z1);\n"
+        "    i32_le(data, at + 4)\n"
+        "}\n",
+    "crates/parser/src/woods.rs":
+        "pub fn clamp_y(y: i32) -> i32 {\n"
+        "    let y = y.clamp(0, 100);\n"
+        "    let value = i32_le(&[y as u8], 0);\n"
+        "    // Clamp y so the axis stays inside the map.\n"
+        "    value.clamp(0, 100)\n"
+        "}\n",
+}
 # Composed piecewise like the exporter's own COMMIT_ID: this file is part of the
 # exported surface, and the `emails_other_absent` check scans tools/public-export/
 # before its SCAN_SKIP cut, so a literal address here would fail the gate.
@@ -61,10 +91,12 @@ def git(root, *args):
     return res.stdout
 
 
-def make_repo(root, spanish):
+def make_repo(root, spanish, identifiers=False):
     files = dict(BASE_FILES)
     if spanish:
         files[SPANISH_FILE] = "\n".join(SPANISH_LINES) + "\n"
+    if identifiers:
+        files.update(IDENTIFIER_FILES)
     for rel, text in files.items():
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -75,6 +107,12 @@ def make_repo(root, spanish):
     tool_dir.mkdir(parents=True, exist_ok=True)
     for src in (EXPORT, EXCLUDE):
         (tool_dir / src.name).write_bytes(src.read_bytes())
+    # The exporter reuses the CI gate's prose extraction; the fixture keeps the same
+    # relative path so the import resolves exactly as it does in this repository.
+    lang_src = HERE.parents[1] / "scripts" / "ci" / "language-check.py"
+    lang_dst = root / "scripts" / "ci" / "language-check.py"
+    lang_dst.parent.mkdir(parents=True, exist_ok=True)
+    lang_dst.write_bytes(lang_src.read_bytes())
     git(root, "init", "-q", "-b", "main")
     git(root, "add", "--force", "--", ".")
     git(root, "commit", "-q", "--no-verify", "-m", "fixture")
@@ -91,13 +129,13 @@ def exported_paths(out):
                   if p.is_file() and ".git" not in p.relative_to(out).parts)
 
 
-def run_scenario(name, spanish, keep):
+def run_scenario(name, spanish, keep, identifiers=False):
     """Export a fixture; returns (report, returncode, stderr, exported set, HEAD set)."""
     root = Path(tempfile.mkdtemp(prefix="export-probe-%s-" % name))
     try:
         repo = root / "repo"
         repo.mkdir()
-        make_repo(repo, spanish)
+        make_repo(repo, spanish, identifiers)
         out = root / "export"
         res = subprocess.run([sys.executable,
                               str(repo / "tools" / "public-export" / "export-public.py"),
@@ -130,9 +168,11 @@ def check_spanish(report, code):
     expect(report["verdict"] == "FAIL", "[spanish] verdict %r, expected FAIL" % report["verdict"])
     chk = report["checks"]["spanish_stopwords_absent"]
     expect(chk["pass"] is False, "[spanish] spanish_stopwords_absent must not pass")
-    expect(chk["files"] == 1 and chk["scanned"] == 3,
-           "[spanish] files=%r scanned=%r, expected 1 / 3" % (chk.get("files"), chk.get("scanned")))
-    expect(chk["thresholds"] == {"min_es_tokens": 3, "max_es_ratio": 0.15},
+    # scanned counts prose-bearing files: README.md, src/lib.rs, src/notes.rs and the
+    # CI extractor copied at scripts/ci/language-check.py.
+    expect(chk["files"] == 1 and chk["scanned"] == 4,
+           "[spanish] files=%r scanned=%r, expected 1 / 4" % (chk.get("files"), chk.get("scanned")))
+    expect(chk["thresholds"] == {"min_es_tokens": 2, "max_es_ratio": 0.15, "min_accents": 2},
            "[spanish] thresholds drifted: %r" % (chk["thresholds"],))
     expect(chk["sample"] == [SPANISH_WHERE],
            "[spanish] sample %r, expected [%r]" % (chk["sample"], SPANISH_WHERE))
@@ -155,14 +195,34 @@ def check_clean(report, code, stderr, exported, head):
     lang = report["surface"]["language"]
     expect(lang["flagged_count"] == 0 and lang["flagged"] == [],
            "[clean] delta != 0: %r" % (lang["flagged"],))
-    expect(report["surface"]["spanish_surface"]["files"] == 0,
-           "[clean] spanish_surface delta != 0: %r" % (report["surface"]["spanish_surface"],))
+    # The extractor ships an accent character class: pattern data, not prose
+    # (docs/i18n/STATUS.md). No other file may carry Spanish-specific accents.
+    surface = report["surface"]["spanish_surface"]
+    unexpected = [f for f in surface["sample"] if f != LANG_GATE]
+    expect(not unexpected and surface["files"] <= 1,
+           "[clean] spanish_surface delta != 0: %r" % (surface,))
     chk = report["checks"]["spanish_stopwords_absent"]
-    expect(chk["pass"] is True and chk["scanned"] == 2,
-           "[clean] spanish_stopwords_absent %r, expected pass with 2 scanned" % (chk,))
+    expect(chk["pass"] is True and chk["scanned"] == 3,
+           "[clean] spanish_stopwords_absent %r, expected pass with 3 scanned" % (chk,))
     expect(report["files_dropped"] == 0,
            "[clean] dropped %d files, expected 0" % report["files_dropped"])
     expect(exported == head, "[clean] file-set drift\nexported=%r\nHEAD=%r" % (exported, head))
+
+
+def check_identifiers(report, code, stderr):
+    expect(code == 0, "[identifiers] expected exit 0 (PASS verdict), got %d: %s"
+           % (code, (stderr or "").strip()[-400:]))
+    expect(report["verdict"] == "PASS",
+           "[identifiers] verdict %r, expected PASS" % report["verdict"])
+    lang = report["surface"]["language"]
+    expect(lang["flagged"] == [] and lang["flagged_count"] == 0,
+           "[identifiers] identifiers flagged as Spanish prose: %r" % (lang["flagged"],))
+    chk = report["checks"]["spanish_stopwords_absent"]
+    # README.md, src/lib.rs, the two identifier files and scripts/ci/language-check.py.
+    expect(chk["pass"] is True and chk["scanned"] == 5,
+           "[identifiers] spanish_stopwords_absent %r, expected pass with 5 scanned" % (chk,))
+    others = [k for k, v in report["checks"].items() if v["pass"] is not True]
+    expect(not others, "[identifiers] unrelated checks failed: %r" % (others,))
 
 
 def main():
@@ -178,6 +238,11 @@ def main():
     report, code, stderr, exported, head = run_scenario("clean", False, a.keep)
     check_clean(report, code, stderr, exported, head)
     print("PASS clean: PASS verdict, delta 0, %d files match HEAD" % len(head))
+
+    report, code, stderr = run_scenario("identifiers", False, a.keep, identifiers=True)[:3]
+    check_identifiers(report, code, stderr)
+    print("PASS identifiers: PASS verdict, 0 of %d prose files flagged"
+          % report["checks"]["spanish_stopwords_absent"]["scanned"])
     print("OK: export-public.py stopword gate behaves as specified")
 
 

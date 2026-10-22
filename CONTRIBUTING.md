@@ -110,9 +110,38 @@ work right now is not adding features; it is proving the ones the original game 
   verbatim: never copy, compile or link its `.cs` files into a crate, and never edit the corpus.
 - **MIT in, MIT out.** By contributing you agree your contribution is licensed under the MIT License
   ([LICENSE](LICENSE)). Do not paste code from projects under other terms.
-- **English.** Code, comments, commit messages, docs and pull-request text are written in English.
-  See the language policy in [`docs/i18n/POLICY.md`](docs/i18n/POLICY.md).
+- **English from the first commit.** Code, comments, commit messages, docs and pull-request text
+  are written in English — written that way, not translated later. The rule covers `crates/**`,
+  `scripts/**`, `tools/**`, the Cargo manifests, `README.md`, `ARCHITECTURE.md`, this file, the
+  public docs and the CI workflows. Exemptions are declared, never implicit: `docs/sintergic/**`
+  (internal engineering record, not published), `*.es.md` (local translations, excluded from the
+  export), `reference/dfu-spec/**` (vendored MIT corpus, never edited), and quoted text or
+  identifiers. The policy is [`docs/i18n/POLICY.md`](docs/i18n/POLICY.md); the executable gate is
+  described in [The English gate](#the-english-gate).
 - **Be proportionate.** A typo fix needs a diff. A new rule needs the full loop below.
+
+### The English gate
+
+The rule above is enforced, not merely stated:
+
+```bash
+bash scripts/ci/language-check.sh       # exit 0 = the exportable surface is English-only
+bash scripts/ci/test-language-check.sh  # exit 0 = the gate behaves (Spanish fixture fails, English passes)
+```
+
+The gate scans the surface the public export can ship — everything
+`tools/public-export/exclude.txt` does **not** exclude — and reads human text only: markdown prose
+(fenced code, inline code and HTML comments are skipped), Rust `//` and `/* */` comments, whole-line
+`#` comments in shell, Python, TOML and YAML, and the `description` value of a manifest. Per
+contiguous prose block it measures the density of unambiguous Spanish function words against English
+ones, and treats Spanish-specific letters and inverted punctuation as a second signal. A borrowed
+word never fails a file; identifiers, paths, probe IDs and English words that coincide with Spanish
+ones (`no`, `sin`, `son`) are not signals.
+
+The gate does not replace the publication gate:
+`tools/public-export/export-public.py` re-checks the exported tree and remains the last barrier. A
+line the gate reports is fixed by writing that prose in English, never by shipping a translation
+next to it.
 
 ## Setup
 
@@ -148,12 +177,13 @@ What each one proves:
 |---|---|
 | `cargo test --workspace` | Unit and integration behaviour, including the golden vectors |
 | `cargo clippy ... -D warnings` | The build is warning-free in **both** configurations, headless and windowed |
-| `scripts/ci/run-ci.sh` | Zero retail content tracked or embedded, zero unauthorised marks |
+| `scripts/ci/run-ci.sh` | Zero retail content tracked or embedded, zero unauthorised marks, zero Spanish prose on the exportable surface |
 | `--probe ALL-001` | The headless behaviour suite passes and its digests match |
 
-**CI is not the whole battery today.** The workflow in `.github/workflows/ci.yml` runs the two
-guardrails only. Tests, clippy and probes are still the contributor's job; saying so is part of the
-honesty rule. If you touch the workflow, do not claim a gate that is not wired.
+**CI is not the whole battery today.** The workflow in `.github/workflows/ci.yml` runs the three
+guardrails only: content scan, trademark check and the [language gate](#the-english-gate). Tests,
+clippy and probes are still the contributor's job; saying so is part of the honesty rule. If you
+touch the workflow, do not claim a gate that is not wired.
 
 ## Adding a module: the loop
 

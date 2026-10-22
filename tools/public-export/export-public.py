@@ -11,7 +11,7 @@ applies exclude.txt, applies the declared public surface (public name + links to
 paths), runs `git init` + a single commit with a deterministic date, and executes the checks.
 Exit 0 = all PASS.
 """
-import argparse, fnmatch, json, os, re, shutil, subprocess, sys, tempfile, time
+import argparse, fnmatch, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -20,6 +20,34 @@ REPO = Path(subprocess.run(["git", "-C", str(HERE), "rev-parse", "--show-topleve
                            capture_output=True, text=True, check=True).stdout.strip())
 EXCLUDE_FILE = HERE / "exclude.txt"
 
+
+def load_language_gate():
+    """Prose extraction + Spanish detection, owned by scripts/ci/language-check.py.
+
+    Measuring raw file bytes here was the bug (CR-abe5ff3d): identifiers such as
+    `y_rotation`, `i32_le` or `z1` are homographs of Spanish function words, so a
+    token-level stopword count flagged English Rust code. The gate counts human prose
+    only (markdown text outside code spans, comments, docstrings) using the CI gate's
+    unambiguous word list, so both surfaces apply one rule.
+    """
+    path = REPO / "scripts/ci/language-check.py"
+    if not path.is_file():
+        sys.exit("ABORT: prose extractor missing: " + str(path))
+    spec = importlib.util.spec_from_file_location("language_check", path)
+    module = importlib.util.module_from_spec(spec)
+    # No __pycache__: the import runs before the dirty-tree check, and a stray cache
+    # directory would make the exporter abort on its own source tree.
+    previous, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+LANG = load_language_gate()
+LANG_LANGS = LANG.PROSE_EXT | LANG.COMMENT_EXT
+
 RETAIL_EXT = {".bsa", ".dat", ".cfg", ".bio", ".vid", ".flc", ".img", ".cif",
               ".exe", ".rsc", ".qbn", ".qrc", ".fnt", ".pal", ".sav", ".dfa"}
 
@@ -27,16 +55,8 @@ RETAIL_EXT = {".bsa", ".dat", ".cfg", ".bio", ".vid", ".flc", ".img", ".cif",
 # betrays untranslated prose (the letters/signs stay in SPANISH_RX below as pattern data).
 SPANISH_RX = re.compile(r"[áéíóúñÁÉÍÓÚÑ¿¡]")
 
-# Stopword language detector: accented letters alone give false PASSes (a Spanish line can carry
-# not a single accent). Tokens from each list are counted per file and FAIL is raised if
-# ES >= 3 and ES/(ES+EN) > 0.15. The upstream MIT corpus is excluded: it is not our prose.
-STOP_ES = set("""el la los las de del que para con por una uno unos unas se en es son al como
-pero mas más este esta estos estas su sus lo le les y o no""".split())
-STOP_EN = set("""the of and to in is for with on that this are be as at by or from""".split())
-LANG_EXT = {".rs", ".toml", ".md", ".sh", ".yml", ".yaml", ".py", ".txt"}
+# The upstream MIT corpus is excluded from the language gate: it is not our prose.
 LANG_SKIP = ("reference/dfu-spec/",)
-LANG_MIN_ES, LANG_RATIO = 3, 0.15
-TOKEN_RX = re.compile(r"[a-záéíóúñ]+")
 RETAIL_MARKERS = [b"Temple Treasurers", b"Castle Daggerfall", b"throughout your youth"]
 # User absolute paths only. The `hirundodev` handle is the public signature chosen
 # by the owner (D1/D4 audit) and is NOT data to redact.
@@ -354,21 +374,18 @@ def main():
         text = data.decode("utf-8", "replace")
         if SPANISH_RX.search(text):
             spanish_files.append(rel)
-        if rel.endswith(tuple(LANG_EXT)) and not rel.startswith(LANG_SKIP):
+        if rel.endswith(tuple(LANG_LANGS)) and not rel.startswith(LANG_SKIP):
             lang_scanned += 1
-            toks = [t for t in TOKEN_RX.findall(text.lower())]
-            es = sum(1 for t in toks if t in STOP_ES)
-            en = sum(1 for t in toks if t in STOP_EN)
-            ratio = es / (es + en) if (es + en) else 0.0
-            if es >= LANG_MIN_ES and ratio > LANG_RATIO:
-                line_no, phrase = None, ""
-                for i, line in enumerate(text.splitlines(), 1):
-                    stopword_hits = [t for t in TOKEN_RX.findall(line.lower()) if t in STOP_ES]
-                    if len(stopword_hits) >= 2:
-                        line_no, phrase = i, line.strip()[:120]
-                        break
-                lang_flagged.append({"file": rel, "es": es, "en": en, "ratio": round(ratio, 3),
-                                     "where": f"{rel}:{line_no}:{phrase}" if line_no else rel})
+            prose = LANG.human_lines(rel, text)
+            for block in LANG.blocks(prose):
+                es, en, accents = LANG.stats(" ".join(t for _, t in block))
+                if not LANG.is_spanish(es, en, accents):
+                    continue
+                line_no, phrase = next(((n, t.strip()) for n, t in block if t.strip()),
+                                       (block[0][0], ""))
+                lang_flagged.append({"file": rel, "es": es, "en": en,
+                                     "ratio": round(es / (es + en), 3) if (es + en) else 0.0,
+                                     "where": f"{rel}:{line_no}:{phrase[:120]}"})
     for p in files_out:
         if p.stat().st_size > LIMIT_BYTES:
             big.append(str(p.relative_to(out)))
@@ -430,7 +447,8 @@ def main():
     check("excluded_es_md_absent", bool(es_md), {"found": es_md[:20]})
     check("spanish_stopwords_absent", bool(lang_flagged),
           {"files": len(lang_flagged), "scanned": lang_scanned,
-           "thresholds": {"min_es_tokens": LANG_MIN_ES, "max_es_ratio": LANG_RATIO},
+           "thresholds": {"min_es_tokens": LANG.MIN_ES, "max_es_ratio": LANG.MAX_RATIO,
+                          "min_accents": LANG.MIN_ACCENT},
            "sample": [x["where"] for x in lang_flagged[:10]]})
 
     head1 = run(["git", "-C", str(REPO), "rev-parse", "HEAD"], REPO).stdout.strip()

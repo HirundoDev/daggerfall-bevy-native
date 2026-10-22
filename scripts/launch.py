@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""launch.py — wrapper Python del launcher de release (CR-b8a547ad).
+"""launch.py — Python wrapper around the release launcher (CR-b8a547ad).
 
-Fuente única de verdad = scripts/launch.sh: este wrapper solo re-ejecuta el
-mismo argv con bash y propaga su exit code (0 ok · 1 build · 2 uso · 3 entorno
-· 124 timeout · >124 código del probe). 0 lógica duplicada, 0 deps fuera de la
-stdlib.
+Single source of truth = scripts/launch.sh: this wrapper only re-executes the
+same argv with bash and propagates its exit code (0 ok · 1 build · 2 usage ·
+3 environment · 124 timeout · >124 probe code). 0 duplicated logic, 0
+dependencies outside the stdlib.
 
-Uso:
+Usage:
   python3 scripts/launch.py --mode preview --headless
   python3 scripts/launch.py --probe ALL-001
   python3 scripts/launch.py --help
@@ -23,11 +23,11 @@ LAUNCH_SH = os.path.join(SCRIPT_DIR, "launch.sh")
 
 def main(argv: list[str]) -> int:
     if not os.path.isfile(LAUNCH_SH):
-        sys.stderr.write(f"launch.py: ERROR: no existe {LAUNCH_SH}\n")
+        sys.stderr.write(f"launch.py: ERROR: missing {LAUNCH_SH}\n")
         return 1
     os.execvp("bash", ["bash", LAUNCH_SH, *argv])
-    # os.execvp solo retorna si falla al lanzar bash.
-    sys.stderr.write("launch.py: ERROR: no se pudo ejecutar bash\n")
+    # os.execvp only returns if launching bash failed.
+    sys.stderr.write("launch.py: ERROR: could not execute bash\n")
     return 1
 
 

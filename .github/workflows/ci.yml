@@ -1,9 +1,12 @@
-# CI guardrails — content and trademark scans.
+# CI guardrails — content scan, trademark check and the English-only gate.
 #
-# Two static checks run on every push and pull request:
+# Three static checks run on every push and pull request:
 #   1. content scan — the repository must never contain packaged game data
 #      (retail archive extensions or container signatures);
-#   2. trademark check — no third-party marks on public surfaces.
+#   2. trademark check — no third-party marks on public surfaces;
+#   3. language check — the exportable surface carries no Spanish prose
+#      (policy: docs/i18n/POLICY.md, CONTRIBUTING.md "Language"). The public
+#      export re-checks the exported tree and stays the last barrier.
 #
 # The same battery runs locally, with no GitHub runner required:
 #   bash scripts/ci/run-ci.sh
@@ -21,7 +24,7 @@ permissions:
 
 jobs:
   guardrails:
-    name: guardrails (content scan + trademark check)
+    name: guardrails (content scan + trademark check + language check)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,3 +35,6 @@ jobs:
 
       - name: Trademark check (no third-party marks on public surfaces)
         run: bash scripts/ci/trademark-check.sh
+
+      - name: Language check (English-only exportable surface)
+        run: bash scripts/ci/language-check.sh

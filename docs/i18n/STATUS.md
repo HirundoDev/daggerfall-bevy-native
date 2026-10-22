@@ -5,8 +5,9 @@ in [`POLICY.md`](POLICY.md#when-a-translation-is-produced): **P0** entry door, *
 still in Spanish, **P2** nice to have, **—** not a translation target.
 
 **Summary: 15 published markdown documents · 0 stale · 1 local-only translation (not published).**
-The public export ships English only. The Spanish translation of the tree is **in progress** (manual,
-no scripts) and the push is **blocked until the sweep reports 0 Spanish files in the published tree**.
+The public export ships English only and the tree is English: the sweep reports **0 Spanish prose
+blocks** on the exportable surface (`bash scripts/ci/language-check.sh`, §E). Translations are written
+by hand, on demand; the push is gated by the export gate, which re-measures the exported tree.
 
 ## A. Project documentation — English canonical (P0)
 
@@ -14,7 +15,7 @@ no scripts) and the push is **blocked until the sweep reports 0 Spanish files in
 |---|---:|:---:|:---:|
 | `README.md` | 400 | — | current |
 | `ARCHITECTURE.md` | 250 | — | current |
-| `CONTRIBUTING.md` | 328 | — | current |
+| `CONTRIBUTING.md` | 358 | — | current |
 | `docs/ACKNOWLEDGMENTS.md` (index) | 45 | — | current |
 | `docs/acknowledgments/credits.md` | 54 | — | current |
 | `docs/acknowledgments/legal-and-trademarks.md` | 38 | — | current |
@@ -24,11 +25,11 @@ no scripts) and the push is **blocked until the sweep reports 0 Spanish files in
 | `docs/acknowledgments/roadmap.md` | 23 | — | current |
 | `docs/acknowledgments/launcher.md` | 45 | — | current |
 | `docs/acknowledgments/crates-and-determinism.md` | 40 | — | current |
-| `docs/i18n/POLICY.md` | 125 | — | current |
+| `docs/i18n/POLICY.md` | 144 | — | current |
 | `docs/i18n/STATUS.md` (this file) | — | — | current |
 | `DATA-CLASSIFICATION.md` | 47 | local `es` only (not published) | current |
 
-Canonical English prose on the published surface: **1,904 lines**, the sum of §A and §C. `LICENSE` and `NOTICE` are legal text and are not translation targets.
+Canonical English prose on the published surface: **1,919 lines**, the sum of §A and §C. `LICENSE` and `NOTICE` are legal text and are not translation targets.
 
 ## B. Third-party corpus — verbatim, never translated
 
@@ -45,7 +46,7 @@ sha256 and byte counts, and the system legend).
 
 | Item | Lines | Note |
 |---|---:|---|
-| `reference/dfu-spec/PROVENANCE.md` | 118 | English translation of the original Spanish custody record. Only internal process identifiers were dropped; upstream commits, line references, byte counts, hashes and clean-room rules are as recorded. |
+| `reference/dfu-spec/PROVENANCE.md` | 84 | English translation of the original Spanish custody record. Only internal process identifiers were dropped; upstream commits, line references, byte counts, hashes and clean-room rules are as recorded. |
 | `reference/dfu-spec/CLASSIFICATION.md` | 191 | English translation of the original Spanish classification record: 113 mapping rows with sha256 and byte counts, copied verbatim from the original table and verified row by row. |
 
 Both files carry the fidelity note at the top. The Spanish originals remain in the repository
@@ -57,27 +58,37 @@ history.
 |---|---:|---|---|---|
 | `DATA-CLASSIFICATION.es.md` | 50 | `DATA-CLASSIFICATION.md` @ `261a1b5` | current | **local-only**: excluded from the export, not linked from any published file |
 
-Translating the tree to English is **in progress** and done by hand, file by file: there is no
-automated sweep yet. Sections A–C list what has been translated so far; the working record kept
-outside the published surface is not a translation target. The unfinished part is a condition for the
-push, not for the documents already published: the export gate must report 0 Spanish files in the
-published tree before anything is published.
+The tree is English: every document in §A–§C was translated **by hand, file by file**; no automated
+translator is used, and the working record kept outside the published surface is not a translation
+target. What is translated is prose, not code: identifiers, paths, probe IDs, commands and commit
+hashes stay byte-identical. The export gate must still report 0 Spanish files in the published tree
+before anything is published.
 
-## E. Code-surface residual - measured, still open
+## E. Code-surface residual - measured
 
-The published tree is not code-free: Rust sources, `Cargo.toml` files and the export scripts ship
-with the documentation, and some of their comments are still Spanish. Measured at this snapshot with
-the export gate's rule - the accented Latin characters Spanish uses (U+00E1, U+00E9, U+00ED, U+00F3,
-U+00FA, U+00F1 and their capitals, plus U+00BF and U+00A1) - over `git ls-files` minus the export
-exclusions: **61 files, 2,484 accented characters**, all in code: `crates/**` (55), `scripts/**` (3),
-`tools/public-export/**` (2 exported files) and one `Cargo.toml`. The vendored corpus
-(`reference/dfu-spec/**`) contains none.
+The published tree is not code-free: Rust sources, `Cargo.toml` files, the scripts and the export
+tooling ship with the documentation. Measured at this snapshot with the language gate
+(`bash scripts/ci/language-check.sh`), which reads comments, Python docstrings and manifest
+descriptions over `git ls-files` minus the export exclusions:
 
-The export report counts **59** rather than 61 for the same tree: its scanner skips
-`tools/public-export/`, because the export tooling is not product. 61 is the published-surface number.
+- **0 Spanish prose blocks** on the exportable surface, and 0 accented characters inside comments,
+  docstrings or descriptions.
+- **1 file carries accented characters**, `tools/public-export/export-public.py`, and they are
+  pattern data — the Spanish accent character class — not prose. The Spanish word list lives in
+  `scripts/ci/language-check.py`, which the export gate now imports instead of keeping a second
+  detector, so the private tree and the exported tree are measured by one rule. The vendored
+  corpus (`reference/dfu-spec/**`) is exempt from the gate and is English.
 
-Translation of those comments is **in progress, by hand**; no script rewrites them. Until this
-section reads 0, the push stays blocked, and no file in this repository claims the code is English.
+An earlier snapshot counted 61 files and 2,484 accented characters in code comments. That count is
+superseded: the code comments are English, and the gate is what keeps them that way. It fails on
+prose, so it reads `#`, `//` and `/* */` comments, Python docstrings and `description` values;
+string literals are not read, because a data string is not a sentence and reading them would flag
+the fixtures of `scripts/ci/test-language-check.sh` and `tools/public-export/test-export-public.py`,
+which exist to prove the gate rejects Spanish.
+
+The export gate re-measures the exported tree and remains the last barrier: publication is no longer
+held back by language on the measured surface, and a file that reaches the export in Spanish is a
+defect even when the CI gate passed on the private tree.
 
 ## Staleness register
 
@@ -96,7 +107,10 @@ wc -l README.md ARCHITECTURE.md CONTRIBUTING.md DATA-CLASSIFICATION*.md \
       docs/ACKNOWLEDGMENTS.md docs/acknowledgments/*.md docs/i18n/*.md
 git ls-files 'reference/' | wc -l                 # third-party corpus (123)
 git log -1 --format=%h -- DATA-CLASSIFICATION.md  # canonical commit of the only translation
-# section E: files with accented characters in the exported code surface
+# section E: Spanish prose blocks on the exportable surface (0) and its size
+bash scripts/ci/language-check.sh
+bash scripts/ci/language-check.sh --list-surface | wc -l
+# section E: files carrying accented characters in the exported code surface (1, pattern data)
 git ls-files crates scripts tools Cargo.toml | grep -v '^tools/public-export/CHECKLIST.md$' | xargs grep -lP '[\x{e1}\x{e9}\x{ed}\x{f3}\x{fa}\x{f1}\x{c1}\x{c9}\x{cd}\x{d3}\x{da}\x{d1}\x{bf}\x{a1}]' | wc -l
 ```
 
