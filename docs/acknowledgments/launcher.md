@@ -37,6 +37,9 @@ cargo run -p daggerfall-app --features window
 cargo run -p daggerfall-app -- --probe ALL-001
 ```
 
+Keys per demo, how to read a probe and the 37-member probe matrix: see
+[`HOW-TO-PLAY.md`](../../HOW-TO-PLAY.md).
+
 Exit codes: `0` success · `1` build/binary/feature failure · `2` invalid usage · `3` window
 requested without a display · `124` timeout · other codes come from the probe itself.
 

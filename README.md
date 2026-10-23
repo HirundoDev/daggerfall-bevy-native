@@ -358,6 +358,47 @@ export DF_APP_ROOT="$HOME/Games/Daggerfall/app"
 The launcher, its modes, flags and exit codes are documented in
 [The launcher](docs/acknowledgments/launcher.md).
 
+## Try it: probes and how to play
+
+Two things you can do with this tree: play the current build, and measure it. Both start from the same
+entry point.
+
+```bash
+# Play the integrated demo (opens directly in the world: this alpha has no title screen)
+./scripts/launch.sh --mode complete
+
+# The same composition, measured headless instead of shown
+./scripts/launch.sh --probe DEMO-001
+
+# The whole Anti-Screen suite: 37 members, M2-M29, exit 0 only if all pass
+./scripts/launch.sh --probe ALL-001
+
+# Prove what would run, without building or executing anything
+./scripts/launch.sh --mode complete --print-plan
+```
+
+**What you should see.** A probe prints one row per check (`[OK]`/`[PASS]`, or `[FAIL]`) and one
+decisive verdict line, for example `VERDICT: PROBE-CITY-001 PASS - ...`, followed by the launcher's
+`launch: exit 0`. Exit codes: `0` pass, `1` a failed check or unreadable data, `2` retail data
+unavailable (the probes that declare that contract), `3` window without a display, `124` timeout. A
+green suite prints `VERDICT: ANTI-SCREEN SUITE PASS (37/37 probes, exit 0)`.
+
+**What it does not do.** The panels are retail images with **no interactive widgets** (nothing is
+clickable; there is no character creation and no menu flow), the demo has no seamless
+exterior-to-interior transition and no dialogue outside the commerce window, audio stays silent unless
+you build the `audio` feature (`--features audio,window`), and the current composition logs
+`0 ocean samples`, so there is no sea to walk into. `CITY-001` is **not** the integrated city: it is
+the M3 probe scene (a 3x3 street grid with six `ARCH3D.BSA` landmarks, low-poly by design), while the
+retail city is the `--mode complete` demo above.
+
+**Where this build stands.** This is `v0.1.0-alpha` and none of it is a parity claim. The M18
+acceptance review is **unsigned** (3 PASS, 6 PARCIAL, 12 NO; owner signature pending). M30 is frozen;
+M31, M32, M33 and M34 are specified but **not implemented**; M35 is out of scope for this alpha. No
+date is promised.
+
+**[How to play and how to probe](HOW-TO-PLAY.md)** has the verified key map, the 37-member probe
+matrix (M2-M29) with its expected PASS lines, how to triage a failure, and the full known-issue list.
+
 ## Bring your own data (BYOA)
 
 **Nothing is downloaded and nothing is redistributed.** The repository ships code, tests, probes and
