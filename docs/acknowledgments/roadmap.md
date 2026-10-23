@@ -2,6 +2,12 @@
 
 *Case file split from [`docs/ACKNOWLEDGMENTS.md`](../ACKNOWLEDGMENTS.md) — split mechanically; only relative link targets and heading levels were rebased.*
 
+> **The complete plan lives elsewhere.** This page is the stage-by-stage public summary. The single
+> canonical plan — M18 to M48 plus E8, with the atomic work breakdown, gates, dependencies, risks and
+> closure criteria — is [Roadmap M18–M48 + E8](roadmap-m18-m48.md). The operating rules for contributors
+> and agents (source of truth, real state, limits, how to continue) are in the
+> [Agent entry point](agent-entrypoint.md).
+
 | Stage | State | What closes it |
 |---|---|---|
 | M0–M17 | Closed and tagged | Annotated tags `M<n>-YYYY-MM-DD` with matching `release/M<n>` branches (`M13b` is a tagged parity follow-up) |
@@ -12,7 +18,12 @@
 | **M27 — guilds and factions** | Technical closure PASS (2026-10-21); owner signature and tag pending | `behavior::factions` / `behavior::guild` over the `FACTION.TXT` graph (365 ids), reputation with tree propagation, ranks 0–9 and per-rank services; `PROBE-FACTION-001` (17/17), `PROBE-GUILD-001` (33/33), `M27-DEMO-001` (15/15) |
 | **M28 — crime, law and courts** | Technical closure PASS (2026-10-22); owner signature and tag pending | `behavior::law` (penalty clamps, legal reputation through the M27 graph, the court and prison clock) plus the production composition layer that turns a guard request into an executable order; `PROBE-CRIME-001` and `PROBE-LAW-001` (sentence 262 steps, `5480/375 → 2740/187`, `clock_advanced=16,156,800`) |
 | **M29 — playable retail quests** | Technical closure PASS (2026-10-22); owner signature and tag pending | `behavior::quests` — the `QBN` opcode interpreter, clock/time formulas, journal and lifecycle; `PROBE-QUEST-EXEC-001` (24 golden vectors, a 20-quest determinism trace), `LIFECYCLE-001`, `JOURNAL-001`; census 11/11 over 247 `.QBN` / 244 `.QRC` |
-| **M30–M34 — gameplay parity, third tramo** | **M30 frozen**; M31–M34 specified, not implemented | Economy and banking (M30, frozen by owner decision: specification only, no code), travel/weather/calendar (M31), conditions/death/rest (M32), total savegame (M33), end-to-end integration and full UI (M34). One written specification each |
+| **M30–M32 — gameplay parity, third tramo** | Technical closure PASS each; owner signature and tag pending | Economy and banking (M30), travel/weather/calendar (M31), conditions/death/rest (M32), each with its probes |
+| **M33 — total savegame (v2)** | In flight | Save v2 checkpoint; no probe executed yet |
+| **M34 — end-to-end integration + presentation** | Specified, not implemented | The E2E spine plus the full presentation pass; its acceptance probes have not run. **Closes Plan A** |
+| **M35 — biomes, 2D vegetation, sky** | Specified, not implemented | **Optional annex**, non-blocking, delivered within the `0.1.0` surface. Not a gate for closing Plan A |
+| **M36–M48 — Plan B (E1–E7)** | Not started | Full UI (M36–M40), system depth (M41–M43), dungeon content (M44), declarative mods (M45), optional online with an owner go (M46), platform and distribution (M47), opt-in modern layer (M48). See [the plan](roadmap-m18-m48.md) |
+| **E8 — Starfield-like horizon** | Not started; not estimable | A **separate program** after M48, with its own genesis contract. Never "M49" |
 | After M18 — content packs | Design | Declarative packs, a manifest with dependencies, load order, per-pack settings; no code execution |
 | Android | Next platform, not started | Free distribution is the point: APK, F-Droid and plain sideloading, offline and online, phone-first interface and performance envelope. No build has been validated |
 | Web / WASM | Exploratory, after Android | Bevy's WebGL2 path; bounded by the renderer and by the data requirement. Not on the critical path |

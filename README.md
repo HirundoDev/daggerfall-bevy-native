@@ -469,6 +469,8 @@ the per-milestone status, the verification method, the legal position and the ro
 - [Status: what is actually done](docs/acknowledgments/status.md) — full M0–M29 record, the campaign
   re-audit and the known gaps.
 - [Roadmap](docs/acknowledgments/roadmap.md) · [The launcher](docs/acknowledgments/launcher.md) — stage detail; modes, flags, exit codes.
+- [Complete plan: M18 to M48 + E8](docs/acknowledgments/roadmap-m18-m48.md) — the single canonical plan: atomic work breakdown, gates, dependencies, risks, estimates in `u` and zero dates.
+- [Agent entry point](docs/acknowledgments/agent-entrypoint.md) — source of truth, measured state, closure rule, next gate, hard limits and how to continue.
 - [Crates, data custody and determinism](docs/acknowledgments/crates-and-determinism.md) — 13 members, Mode A/B, determinism rules.
 - [Architecture](ARCHITECTURE.md) — the construction method, the alternatives it rejects and why, its costs and open gaps.
 - [Contributing](CONTRIBUTING.md) — the full battery, the module pattern and the pull-request checklist.
