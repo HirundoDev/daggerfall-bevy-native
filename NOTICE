@@ -17,9 +17,11 @@ Licensed under the MIT License. See LICENSE.
 
 ### Daggerfall Unity
 
-`reference/dfu-spec/` contains 119 C# source files and one data file (`NameGen.txt`)
-from Daggerfall Unity, retained as an executable specification. They are not compiled,
-linked or copied into any product crate.
+`reference/dfu-spec/` contains 120 C# source files and one data file (`NameGen.txt`)
+from Daggerfall Unity, retained as an executable specification. The corpus directory
+holds 124 tracked files in total: those 121, the upstream MIT licence and the two
+project-owned custody records (`PROVENANCE.md`, `CLASSIFICATION.md`). None of them is
+compiled, linked or copied into any product crate.
 
 Copyright (c) 2009-2023 Daggerfall Workshop
 Licensed under the MIT License.
@@ -31,9 +33,9 @@ Upstream license: https://github.com/Interkarma/daggerfall-unity/blob/v1.1.1/LIC
 
 Provenance is mixed and is declared exactly in
 `reference/dfu-spec/CLASSIFICATION.md`: **112 files** were taken at commit
-`2343305d1d83ccc0de57a81e3b1e61188a997e34` and **8 files** at
-`0038a1e61999ad2c73fb1f33b706cae9a88ec66f`; per-file SHA-256 hashes are listed in
-`reference/dfu-spec/PROVENANCE.md`.
+`2343305d1d83ccc0de57a81e3b1e61188a997e34` and **9 files** (8 `.cs` plus
+`NameGen.txt`) at `0038a1e61999ad2c73fb1f33b706cae9a88ec66f` — 121 upstream files
+in total. Per-file SHA-256 hashes are listed in `reference/dfu-spec/PROVENANCE.md`.
 
 `reference/dfu-spec/Assets/Resources/NameGen.txt` is retained byte-identical to
 upstream (its file SHA-256 matches the DFU original). Its content is a name

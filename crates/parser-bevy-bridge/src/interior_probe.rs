@@ -26,7 +26,9 @@ use crate::interior_spec::{
     build_shop_mesh, world_mesh, ShopMesh, DOOR_Z_MAX, DOOR_Z_MIN, SHOP_X_MAX,
 };
 use crate::mesh_spec::MeshSpec;
-use crate::view_probe::{run_view_probe, ProbeCheck, EYE_HEIGHT_M, PLAYER_RADIUS_M};
+use crate::view_probe::{
+    run_view_probe, swept_step_oracle, ProbeCheck, TriAabbIndex, EYE_HEIGHT_M, PLAYER_RADIUS_M,
+};
 
 /// Probe march step (m) — same grain as PROBE-VIEW-001/CITY-001.
 const MARCH_STEP_M: f32 = 0.25;
@@ -44,8 +46,14 @@ pub struct InteriorProbeReport {
 
 /// Single-axis march to `target` or until hitting something (no sliding: the
 /// delta is pure per axis, same as the M2/M3 marches). Exported `pub`
-/// since M5: PROBE-COMMERCE-001 reuses the same street→door→
-/// interior march (0 helper duplication; 0 touching its logic).
+/// since M5: PROBE-COMMERCE-001 and PROBE-WORLD-001 reuse the same
+/// street→door→interior march (0 helper duplication; 0 touching its logic).
+///
+/// **No-traversal oracle (N1):** every step the grid accepts is judged against
+/// the **exact geometry** ([`swept_step_oracle`]) — sampling the swept segment,
+/// not re-asking the grid about a position the grid just approved (that counter
+/// was tautological: `resolve_step` guarantees `is_free`). `spec` is the mesh the
+/// grid was built from; a grid that fails to index a wall is caught here.
 #[derive(Debug, Clone)]
 pub struct March {
     /// Final position (always `is_free` — INV-L99-5).
@@ -56,14 +64,21 @@ pub struct March {
     pub reached: bool,
     /// Blocking reason if it could not advance further.
     pub blocked: Option<CellStatus>,
-    /// Resulting positions that are NOT free (must be 0).
+    /// Accepted steps whose swept segment reached geometry (must be 0).
     pub violations: usize,
+    /// Sphere-clearance samples the independent oracle took (proof it sampled).
+    pub oracle_samples: usize,
     /// Crossings of the plane `x = SHOP_X_MAX` (door), with their direction.
     pub crossings: Vec<[f32; 3]>,
 }
 
-/// Single-axis march (M5: exported for PROBE-COMMERCE-001; see [`March`]).
+/// Single-axis march (M5/M6: exported for PROBE-COMMERCE-001 and
+/// PROBE-WORLD-001; see [`March`]).
+///
+/// `spec` MUST be the [`MeshSpec`] `grid` was built from: the oracle reads the
+/// real walls, so it can witness an unindexed one.
 pub fn march_axis(
+    spec: &MeshSpec,
     grid: &CollisionGrid,
     from: [f32; 3],
     axis: usize,
@@ -73,9 +88,11 @@ pub fn march_axis(
     let mut pos = from;
     let mut steps = 0usize;
     let mut violations = 0usize;
+    let mut oracle_samples = 0usize;
     let mut blocked = None;
     let mut reached = false;
     let mut crossings = Vec::new();
+    let index = TriAabbIndex::build(spec);
     for _ in 0..MARCH_MAX_STEPS {
         let mut delta = [0.0f32; 3];
         delta[axis] = sign * MARCH_STEP_M;
@@ -85,11 +102,13 @@ pub fn march_axis(
             break;
         }
         let was_inside = pos[0] < SHOP_X_MAX;
-        pos = outcome.pos;
-        steps += 1;
-        if !grid.is_free(pos, PLAYER_RADIUS_M) {
+        let step = swept_step_oracle(spec, &index, pos, outcome.pos, PLAYER_RADIUS_M);
+        oracle_samples += step.samples;
+        if step.blocked() {
             violations += 1;
         }
+        pos = outcome.pos;
+        steps += 1;
         if axis == 0 && (pos[0] < SHOP_X_MAX) != was_inside {
             crossings.push(pos);
         }
@@ -109,6 +128,7 @@ pub fn march_axis(
         reached,
         blocked,
         violations,
+        oracle_samples,
         crossings,
     }
 }
@@ -152,9 +172,9 @@ pub fn run_interior_probe(
     // ── Street → lane → door route ───────────────────────────────────────
     //    R1 -Z to the south perimeter · R2 -X to the west lane (x=7) ·
     //    R3 +Z up to z=13 in the lane (under the door).
-    let r1 = march_axis(&grid, eye, 2, -1.0, 6.0);
-    let r2 = march_axis(&grid, r1.pos, 0, -1.0, 7.0);
-    let r3 = march_axis(&grid, r2.pos, 2, 1.0, 13.0);
+    let r1 = march_axis(&world, &grid, eye, 2, -1.0, 6.0);
+    let r2 = march_axis(&world, &grid, r1.pos, 0, -1.0, 7.0);
+    let r3 = march_axis(&world, &grid, r2.pos, 2, 1.0, 13.0);
     let street_violations = r1.violations + r2.violations + r3.violations;
     checks.push(ProbeCheck {
         id: "street_to_door_walk",
@@ -175,7 +195,7 @@ pub fn run_interior_probe(
     });
 
     // ── Wall WITHOUT a door: entry attempt at z=13 → must block ─────────
-    let r4 = march_axis(&grid, r3.pos, 0, -1.0, SHOP_X_MAX);
+    let r4 = march_axis(&world, &grid, r3.pos, 0, -1.0, SHOP_X_MAX);
     checks.push(ProbeCheck {
         id: "wall_blocks_without_door",
         ok: r4.blocked == Some(CellStatus::Solid)
@@ -193,8 +213,8 @@ pub fn run_interior_probe(
     });
 
     // ── R4/R5: +Z to the door line (z=18) and -X crossing through the opening ──
-    let r5 = march_axis(&grid, r4.pos, 2, 1.0, 18.0);
-    let r6 = march_axis(&grid, r5.pos, 0, -1.0, 3.0);
+    let r5 = march_axis(&world, &grid, r4.pos, 2, 1.0, 18.0);
+    let r6 = march_axis(&world, &grid, r5.pos, 0, -1.0, 3.0);
     checks.push(ProbeCheck {
         id: "interior_reached",
         ok: r5.reached
@@ -257,9 +277,9 @@ pub fn run_interior_probe(
     });
 
     // ── Contained interior: wall + counter block, aisle free ────────────
-    let r7 = march_axis(&grid, r6.pos, 0, -1.0, 1.0);
-    let r8 = march_axis(&grid, r7.pos, 2, -1.0, 15.0);
-    let r9 = march_axis(&grid, r8.pos, 2, 1.0, 18.0);
+    let r7 = march_axis(&world, &grid, r6.pos, 0, -1.0, 1.0);
+    let r8 = march_axis(&world, &grid, r7.pos, 2, -1.0, 15.0);
+    let r9 = march_axis(&world, &grid, r8.pos, 2, 1.0, 18.0);
     let inner_violations = r7.violations + r8.violations + r9.violations;
     checks.push(ProbeCheck {
         id: "interior_walk_contained",
@@ -286,7 +306,7 @@ pub fn run_interior_probe(
     });
 
     // ── Exit through the same door ───────────────────────────────────────
-    let r10 = march_axis(&grid, r9.pos, 0, 1.0, 7.0);
+    let r10 = march_axis(&world, &grid, r9.pos, 0, 1.0, 7.0);
     let exited = !shop.contains_interior(r10.pos);
     checks.push(ProbeCheck {
         id: "exit_to_street",
@@ -297,8 +317,9 @@ pub fn run_interior_probe(
             && r10.crossings.iter().all(|c| z_ok(c[2])),
         detail: format!(
             "+X from the interior {s}p → x={x:.2} · region=interior={inside} (must be false) · \
-             exit crossing z=[{cz}] · traversals={} (0 req)",
+             exit crossing z=[{cz}] · traversals={} (0 req) · oracle samples={}",
             r10.violations,
+            r10.oracle_samples,
             s = r10.steps,
             x = r10.pos[0],
             inside = shop.contains_interior(r10.pos),
@@ -364,6 +385,70 @@ pub fn world_from_landmarks(blocks: usize, landmarks: &[MeshSpec]) -> (CityLayou
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Appends a 2-triangle quad to a spec (test-local geometry builder).
+    fn push_quad(
+        spec: &mut MeshSpec,
+        a: [f32; 3],
+        b: [f32; 3],
+        c: [f32; 3],
+        d: [f32; 3],
+        normal: [f32; 3],
+    ) {
+        let base = spec.positions.len() as u32;
+        spec.positions.extend([a, b, c, d]);
+        spec.normals.extend([normal; 4]);
+        spec.indices
+            .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+
+    /// NEGATIVE CONTROL (N1) — `march_axis` is not tautological.
+    ///
+    /// The grid is built from the ORIGINAL world; the march is judged against a
+    /// CLONE with a thin wall across the street at eye height, 1 m in front of
+    /// the spawn. The grid never indexed that wall (`is_free` approves every
+    /// destination — the removed counter could only report 0), so only the
+    /// independent geometry oracle can flag the crossing. If this reports
+    /// `violations == 0`, the march is blind again and the N1 regression is back.
+    #[test]
+    fn march_axis_oracle_flags_a_wall_the_grid_never_indexed() {
+        let (layout, city, shop) = synthetic_world(3);
+        let world = world_mesh(&city, &shop);
+        let grid = CollisionGrid::from_mesh_spec(&world, DEFAULT_CELL_M);
+        let (street_point, _) = street_spawn(&layout, 1);
+        let eye = [
+            street_point[0],
+            street_point[1] + EYE_HEIGHT_M,
+            street_point[2],
+        ];
+        let wall_z = eye[2] - 1.0;
+        assert!(
+            grid.is_free([eye[0], eye[1], wall_z], PLAYER_RADIUS_M),
+            "precondition: the grid built before the wall is free at the wall's cell"
+        );
+
+        let mut mutated = world.clone();
+        let (x0, x1) = (eye[0] - 2.0, eye[0] + 2.0);
+        let (y0, y1) = (0.3, 2.6);
+        push_quad(
+            &mut mutated,
+            [x0, y0, wall_z],
+            [x1, y0, wall_z],
+            [x1, y1, wall_z],
+            [x0, y1, wall_z],
+            [0.0, 0.0, 1.0],
+        );
+        let march = march_axis(&mutated, &grid, eye, 2, -1.0, 6.0);
+
+        assert!(
+            march.oracle_samples > 0,
+            "the oracle must actually sample: {march:?}"
+        );
+        assert!(
+            march.violations >= 1,
+            "a grid-accepted step crossing the unindexed wall is a real traversal: {march:?}"
+        );
+    }
 
     #[test]
     fn probe_interior_001_passes_on_synthetic_world() {

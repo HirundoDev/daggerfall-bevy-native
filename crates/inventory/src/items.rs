@@ -731,6 +731,35 @@ pub fn weapon_material_modifier(material: i32) -> i32 {
         .unwrap_or(0)
 }
 
+/// `FormulaHelper.CalculateWeaponMinDamage` (`FormulaHelper.cs:455-486`),
+/// keyed by the DFU `Weapons` enum id = item template index
+/// (`ItemEnums.cs:210-231`).
+pub fn weapon_min_damage(template_index: usize) -> i32 {
+    match template_index {
+        113 | 114 | 117 | 116 | 118 | 115 | 124 => 1,
+        120 | 122 | 127 | 128 | 125 => 2,
+        119 | 121 | 123 | 126 => 3,
+        129 | 130 => 4,
+        _ => 0,
+    }
+}
+
+/// `FormulaHelper.CalculateWeaponMaxDamage` (`FormulaHelper.cs:490-524`).
+pub fn weapon_max_damage(template_index: usize) -> i32 {
+    match template_index {
+        113 => 6,
+        // Tanto (114), Staff (115), Shortsword (116).
+        114..=116 => 8,
+        117 => 10,
+        118 | 119 | 127 | 124 => 12,
+        125 => 14,
+        120 | 121 | 128 | 129 => 16,
+        122 | 126 | 130 => 18,
+        123 => 21,
+        _ => 0,
+    }
+}
+
 /// `GetMaterialArmorValue` (`DaggerfallUnityItem.cs:1007-1058`): material
 /// table for armor, shield table for shields (Buckler 1, Round 2, Kite 3,
 /// Tower 4), artifact armor halved.
@@ -1235,6 +1264,47 @@ mod tests {
         assert_eq!(weapon_material_modifier(99), 0);
         assert_eq!(TO_HIT_MOD[9], 60);
         assert_eq!(TO_HIT_MOD[0], -10);
+    }
+
+    #[test]
+    fn weapon_base_damage_tables_are_the_dfu_switch() {
+        // `CalculateWeaponMinDamage` / `CalculateWeaponMaxDamage`
+        // (`FormulaHelper.cs:455-486`, `:490-524`), `(template, min, max)`
+        // for every `Weapons` id (`ItemEnums.cs:210-231`).
+        let expected = [
+            (113, 1, 6),  // Dagger
+            (114, 1, 8),  // Tanto
+            (115, 1, 8),  // Staff
+            (116, 1, 8),  // Shortsword
+            (117, 1, 10), // Wakazashi
+            (118, 1, 12), // Broadsword
+            (119, 3, 12), // Saber
+            (120, 2, 16), // Longsword
+            (121, 3, 16), // Katana
+            (122, 2, 18), // Claymore
+            (123, 3, 21), // Dai_Katana
+            (124, 1, 12), // Mace
+            (125, 2, 14), // Flail
+            (126, 3, 18), // Warhammer
+            (127, 2, 12), // Battle_Axe
+            (128, 2, 16), // War_Axe
+            (129, 4, 16), // Short_Bow
+            (130, 4, 18), // Long_Bow
+            (131, 0, 0),  // Arrow: `default` arm
+        ];
+        for (index, min, max) in expected {
+            assert_eq!(weapon_min_damage(index), min, "min of template {index}");
+            assert_eq!(weapon_max_damage(index), max, "max of template {index}");
+        }
+
+        // Non-weapon templates reach the switch `default` (`:486`, `:524`).
+        for index in [0, 102, 287] {
+            assert_eq!(weapon_min_damage(index), 0, "min of template {index}");
+            assert_eq!(weapon_max_damage(index), 0, "max of template {index}");
+        }
+
+        assert_eq!(weapon_min_damage(120), 2, "Longsword min");
+        assert_eq!(weapon_max_damage(120), 16, "Longsword max");
     }
 
     #[test]

@@ -462,13 +462,18 @@ impl Side {
 /// Result of a march with a parametric plane (like
 /// [`crate::march_axis`], but the crossing is measured against the block face
 /// plane — the M4 march with `SHOP_X_MAX` remains intact).
+///
+/// **No local traversal counter (N1):** `resolve_step` guarantees the resulting
+/// position is `is_free`, so a local `!grid.is_free` counter can only report 0.
+/// The no-traversal invariant of this variant is judged ONCE by the generic
+/// `view_no_traversal_walk` (independent geometry oracle over the same world) —
+/// the duplicate counter was removed instead of kept as dead evidence.
 #[derive(Debug, Clone)]
 struct RealMarch {
     pos: [f32; 3],
     steps: usize,
     reached: bool,
     blocked: Option<CellStatus>,
-    violations: usize,
     /// Positions that crossed the face plane (either direction).
     crossings: Vec<[f32; 3]>,
 }
@@ -486,7 +491,6 @@ fn march_real(
 ) -> RealMarch {
     let mut pos = from;
     let mut steps = 0usize;
-    let mut violations = 0usize;
     let mut blocked = None;
     let mut reached = false;
     let mut crossings = Vec::new();
@@ -502,9 +506,6 @@ fn march_real(
         let was_inside = (pos[axis] - plane) * sign > 0.0;
         pos = outcome.pos;
         steps += 1;
-        if !grid.is_free(pos, PLAYER_RADIUS_M) {
-            violations += 1;
-        }
         let now_inside = (pos[axis] - plane) * sign > 0.0;
         if was_inside != now_inside {
             crossings.push(pos);
@@ -524,7 +525,6 @@ fn march_real(
         steps,
         reached,
         blocked,
-        violations,
         crossings,
     }
 }
@@ -639,9 +639,9 @@ fn scan_side(grid: &CollisionGrid, side: Side, x: (f32, f32), z: (f32, f32)) -> 
         from[lat] = l;
         from[1] = EYE_HEIGHT_M;
         let march = march_real(grid, from, axis, sign, plane + sign * ENTER_DEPTH_M, plane);
-        let sample = if march.reached && march.violations == 0 {
+        let sample = if march.reached {
             Sample::Entered
-        } else if march.blocked == Some(CellStatus::Solid) && march.violations == 0 {
+        } else if march.blocked == Some(CellStatus::Solid) {
             Sample::Wall
         } else {
             Sample::Other
@@ -863,14 +863,13 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
     checks.push(ProbeCheck {
         id: "retail_street_to_door",
         ok: enter.reached
-            && enter.violations == 0
             && enter.crossings.len() == 1
             && enter.crossings.iter().all(|c| in_gap(c[lat_axis]))
             && entered_inside,
         detail: format!(
             "street {:.1} → interior through the door on {}: {steps}p at {MARCH_STEP_M} m · \
              pos=({:.1},{:.1},{:.1}) · inside_footprint={inside} · crossings={ncross} (expected 1) · \
-             z crossing [{zs}] · traversals={viol} (0 req)",
+             z crossing [{zs}]",
             plane - sign * APPROACH_M,
             side.label(),
             enter.pos[0],
@@ -885,7 +884,6 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
                 .map(|c| format!("{:.2}", c[lat_axis]))
                 .collect::<Vec<_>>()
                 .join(", "),
-            viol = enter.violations,
         ),
     });
 
@@ -909,17 +907,15 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
                 id: "retail_wall_blocks_without_door",
                 ok: m.blocked == Some(CellStatus::Solid)
                     && !m.reached
-                    && !inside_footprint(m.pos, (x0, x1), (z0, z1))
-                    && m.violations == 0,
+                    && !inside_footprint(m.pos, (x0, x1), (z0, z1)),
                 detail: format!(
                     "march on {} toward face {} at lateral {l:.1}: blocked at {:.2} \
-                     (reason {:?}) · entered={} · traversals={} (0 req)",
+                     (reason {:?}) · entered={}",
                     side.label(),
                     side.label(),
                     m.pos[axis],
                     m.blocked,
                     inside_footprint(m.pos, (x0, x1), (z0, z1)),
-                    m.violations,
                 ),
             }
         }
@@ -957,21 +953,18 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
         if lat_axis == 2 { z0 - 2.0 } else { x0 - 2.0 },
         plane,
     );
-    let inner_violations = deep.violations + lat_plus.violations + lat_minus.violations;
     let inner_blocked = [deep.blocked, lat_plus.blocked, lat_minus.blocked]
         .iter()
         .filter(|b| **b == Some(CellStatus::Solid))
         .count();
     checks.push(ProbeCheck {
         id: "retail_interior_walk_contained",
-        ok: inner_violations == 0
-            && inner_blocked >= 1
+        ok: inner_blocked >= 1
             && inside_footprint(deep.pos, (x0, x1), (z0, z1)),
         detail: format!(
             "inside: {} {d_steps}p → {:.2} (block {:?}, target {:.1}) · +lateral {p_steps}p → \
              {:.2} (block {:?}) · −lateral {m_steps}p → {:.2} (block {:?}) · lateral \
-             [{lat_min:.1},{lat_max:.1}] · solid blocks {inner_blocked}/3 (≥1 req) · \
-             traversals={inner_violations} (0 req)",
+             [{lat_min:.1},{lat_max:.1}] · solid blocks {inner_blocked}/3 (≥1 req)",
             side.label(),
             deep.pos[axis],
             deep.blocked,
@@ -999,13 +992,12 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
     checks.push(ProbeCheck {
         id: "retail_exit_through_door",
         ok: exit.reached
-            && exit.violations == 0
             && exit.crossings.len() == 1
             && exit.crossings.iter().all(|c| in_gap(c[lat_axis]))
             && exited,
         detail: format!(
             "exit {} from {:.1}: {steps}p · lateral {:.1} · outside_footprint={exited} · \
-             crossings={ncross} (expected 1) · z crossing [{zs}] · traversals={viol} (0 req)",
+             crossings={ncross} (expected 1) · z crossing [{zs}]",
             side.label(),
             enter.pos[axis],
             exit.pos[lat_axis],
@@ -1018,7 +1010,6 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
                 .map(|c| format!("{:.2}", c[lat_axis]))
                 .collect::<Vec<_>>()
                 .join(", "),
-            viol = exit.violations,
         ),
     });
 

@@ -11,21 +11,32 @@
 //!   app since M20, ORDER: 0 crate cycle) and [`Weapon`] (view composed
 //!   since M21).
 //! - [`engine`] — [`resolve_attack`] (material gate with 0 rolls; roll order
-//!   part → critical → success → damage range), [`EnemyAttack`]
-//!   (`ResetMeleeTimer`) and [`DeathSequence`] (latch `deathInProgress` +
-//!   fall/fade/reset).
+//!   part → critical → success → damage range), [`resolve_monster_attack`]
+//!   (monster branch: part once, up to three reflex-gated bands),
+//!   [`EnemyAttack`] (`ResetMeleeTimer`) and [`DeathSequence`] (latch
+//!   `deathInProgress` + fall/fade/reset).
+//!
+//! - [`enchantments`] — M23 seam: the out-of-band item callbacks of a
+//!   **resolved** strike (`Strikes` on the weapon, `WeaponManager.cs:618` /
+//!   `EnemyAttack.cs:267,382`; `Struck` on the defender's artifacts,
+//!   `FormulaHelper.cs:704-719`). The M22 formula stays pure; the
+//!   app composes [`enchantments::strike_callbacks`] right after it, so the
+//!   effect layer runs from the game's strike step and not only from a probe.
 //!
 //! Pure: 0 Bevy, 0 I/O; the PRNG enters by seed, never `thread_rng` nor
 //! wall clock (spec §6 "Determinism").
 
 pub mod actor;
+pub mod enchantments;
 pub mod engine;
 pub mod rng;
 
 pub use actor::{Combatant, EntityKind, Weapon};
 pub use engine::{
-    resolve_attack, AttackInput, AttackOutcome, DeathSequence, EnemyAttack, MATERIAL_SILVER,
+    resolve_attack, resolve_monster_attack, AttackInput, AttackOutcome, DeathSequence, EnemyAttack,
+    MonsterAttackInput, MonsterAttackOutcome, MATERIAL_SILVER,
 };
+pub use enchantments::{strike_callbacks, StrikeCallbacks};
 pub use rng::{actor_seed, DfRandom, Dice100};
 
 /// Canonical organ id (Sintergic organ map, ADR-FW-104).

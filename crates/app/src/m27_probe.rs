@@ -1,5 +1,5 @@
 //! M27 probes — Guilds and factions: reputation, ranks and benefits
-//! (SPEC-M27-FACTIONS §7, `CR-989281d9`, REQ-L99-060).
+//! (SPEC-M27-FACTIONS §7, REQ-L99-060).
 //!
 //! `PROBE-FACTION-001` — complete `FACTION.TXT`:
 //! - **A** GV-27-01..09 formulas over a synthetic fixture (ids 77/980, 1-based
@@ -29,7 +29,7 @@
 //! different function. Mode A: 0 retail bytes in the repository.
 
 use daggerfall_behavior::factions::{
-    FactionGraph, FactionType, PROVINCE_TYPE, RESOLVER_ID_START, SHOP_FACTION_ID,
+    FactionGraph, FactionType, FACTION_FILENAME, PROVINCE_TYPE, RESOLVER_ID_START, SHOP_FACTION_ID,
 };
 use daggerfall_behavior::guild::{
     calculate_cost, can_access_service, can_access_library, cure_price, day_since_zero,
@@ -86,21 +86,14 @@ fn print_rows(title: &str, rows: &[Row]) -> bool {
     ok
 }
 
-/// Loads a Mode A ARENA2 file through the shared resolver.
+/// Loads a Mode A ARENA2 file through the shared resolver, which matches the
+/// source's case-insensitive open (DFU `FactionFile.cs:740-741`): the GOG
+/// installation ships `faction.txt` where the corpus declares `FACTION.TXT`,
+/// and both resolve to the same file.
 fn load(name: &str) -> Result<(std::path::PathBuf, Vec<u8>), String> {
     let path = crate::mode_a_arena2_path(name)?;
     let bytes = std::fs::read(&path).map_err(|err| format!("read {path:?}: {err}"))?;
     Ok((path, bytes))
-}
-
-/// Loads `FACTION.TXT`. The canonical name is the one declared by the source
-/// (`FACTION_FILENAME`); the GOG installation ships it lowercase
-/// (`faction.txt`), so the resolver tries both before failing.
-fn load_faction() -> Result<(std::path::PathBuf, Vec<u8>), String> {
-    match load(daggerfall_behavior::factions::FACTION_FILENAME) {
-        Ok(found) => Ok(found),
-        Err(declared) => load("faction.txt").map_err(|_| declared),
-    }
 }
 
 /// §7 GV-27-01..09 fixture: `#77` repeated (⇒ 980), region 18 and -1, flats.
@@ -208,7 +201,7 @@ pub fn run_faction_001() -> i32 {
     let mut all_ok = print_rows("A · formulas (GV-27-01..09)", &rows);
 
     // ── B · determinism ×2 ─────────────────────────────────────────────────
-    let Ok((path, bytes)) = load_faction() else {
+    let Ok((path, bytes)) = load(FACTION_FILENAME) else {
         println!("EXIT=2 FACTION.TXT unreadable in ARENA2 (Mode A)");
         return 2;
     };
@@ -584,7 +577,7 @@ const FIGHTERS_FACTION_ID: i32 = 41;
 pub fn run_demo_001() -> i32 {
     println!("M27-DEMO-001 - guilds: join + rank + measured benefit (M27, CR-989281d9 · spec §9)");
 
-    let Ok((_, bytes)) = load_faction() else {
+    let Ok((_, bytes)) = load(FACTION_FILENAME) else {
         println!("EXIT=2 FACTION.TXT unreadable in ARENA2 (Mode A)");
         return 2;
     };

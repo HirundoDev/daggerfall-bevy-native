@@ -32,6 +32,13 @@ pub fn mesh_from_spec(spec: &MeshSpec, meshes: &mut Assets<Mesh>) -> Handle<Mesh
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, spec.positions.clone());
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, spec.normals.clone());
+    // M12 (DoD §c): retail UVs in `[0,1]` (already normalized by
+    // [`scale_uvs`]) must reach the `Mesh` — without `ATTRIBUTE_UV_0` the
+    // textured material samples one texel and the texture never shows.
+    // Synthetic meshes (`uvs` empty) keep the exact M1 vertex layout.
+    if !spec.uvs.is_empty() {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, spec.uvs.clone());
+    }
     mesh.insert_indices(Indices::U32(spec.indices.clone()));
     meshes.add(mesh)
 }

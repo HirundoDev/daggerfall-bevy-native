@@ -11,7 +11,10 @@
 //! M24/audio, and the inventory collection that owns stacks (`SplitStack`)
 //! lives in M33 persistence; this table only models the equipped slots.
 
-use crate::items::{fresh_uid, is_shield, Item, ItemGroup};
+use daggerfall_behavior::durability::{apply_wear, WearOutcome};
+use daggerfall_behavior::locomotion::Dice100;
+
+use crate::items::{fresh_uid, is_shield, material_armor_value, Item, ItemGroup};
 
 /// Number of legacy equip slots (`ItemEquipTable.cs:23`).
 pub const EQUIP_TABLE_LENGTH: usize = 27;
@@ -136,6 +139,89 @@ pub fn item_hands(item: &Item) -> ItemHands {
     } else {
         ItemHands::None
     }
+}
+
+/// The 7 DFU `BodyParts` (`ItemEnums.cs:140-150`): `Head = 0`, `RightArm = 1`,
+/// `LeftArm = 2`, `Chest = 3`, `Hands = 4`, `Legs = 5`, `Feet = 6`. These are
+/// the indices of `DaggerfallEntity.ArmorValues` (`DaggerfallEntity.cs:270`),
+/// not a freshly invented order.
+///
+/// **This module yields the delta, never the entity vector:** the summary here
+/// is the wear reduction of the equipped table (`UpdateEquippedArmorValues`,
+/// `DaggerfallEntity.cs:589-636`). A player entity's `ArmorValues` starts at
+/// **100** on every part (`SerializablePlayer.cs:355-366`,
+/// `PlayerEntity.cs:1188-1191`) and the app adds that seed in
+/// `Fighter::refresh_equipment`; the 0-based reading of these indices is the
+/// M21 *delta* convention, not the player's array.
+pub const BODY_PART_COUNT: usize = 7;
+
+/// `DaggerfallUnityItem.GetBodyPartForEquipSlot`
+/// (`DaggerfallUnityItem.cs:1131-1153`): which of the 7 body parts an equip
+/// slot protects; `None` for slots that map to `BodyParts.None` (jewelry,
+/// weapons, cloaks, clothes).
+pub fn body_part_for_equip_slot(slot: EquipSlot) -> Option<usize> {
+    match slot {
+        EquipSlot::Head => Some(0),
+        EquipSlot::RightArm => Some(1),
+        EquipSlot::LeftArm => Some(2),
+        EquipSlot::ChestArmor => Some(3),
+        EquipSlot::Gloves => Some(4),
+        EquipSlot::LegsArmor => Some(5),
+        EquipSlot::Feet => Some(6),
+        _ => None,
+    }
+}
+
+/// `DaggerfallUnityItem.GetEquipSlotForBodyPart`
+/// (`DaggerfallUnityItem.cs:1103-1125`): the armour slot damaged by a strike
+/// on `body_part`; [`EquipSlot::None`] outside `0..BODY_PART_COUNT`.
+pub fn equip_slot_for_body_part(body_part: usize) -> EquipSlot {
+    match body_part {
+        0 => EquipSlot::Head,
+        1 => EquipSlot::RightArm,
+        2 => EquipSlot::LeftArm,
+        3 => EquipSlot::ChestArmor,
+        4 => EquipSlot::Gloves,
+        5 => EquipSlot::LegsArmor,
+        6 => EquipSlot::Feet,
+        _ => EquipSlot::None,
+    }
+}
+
+/// `DaggerfallUnityItem.GetShieldProtectedBodyParts`
+/// (`DaggerfallUnityItem.cs:1082-1097`): Buckler covers `LeftArm` + `Hands`;
+/// Round and Kite add `Legs`; Tower adds `Head`. Non-shields protect nothing.
+pub fn shield_protected_body_parts(item: &Item) -> &'static [usize] {
+    match item.template_index {
+        109 => &[2, 4],
+        110 | 111 => &[2, 4, 5],
+        112 => &[0, 2, 4, 5],
+        _ => &[],
+    }
+}
+
+/// Report of one `ApplyConditionDamageThroughPhysicalHit`
+/// (`FormulaHelper.cs:1123-1138`) — the wear of an armour piece
+/// ([`ItemEquipTable::damage_equipment`]) or of the attacker's weapon
+/// ([`ItemEquipTable::damage_item`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemWear {
+    /// Slot the damaged item occupied: the shield's `LeftHand`, the struck
+    /// body part's armour slot, or the attacker's weapon hand.
+    pub slot: EquipSlot,
+    /// UID of the damaged item (stable after a break removes it).
+    pub item_uid: u64,
+    /// Condition points lost (`0` when the wear roll is zero and the item is
+    /// still intact, `FormulaHelper.cs:1130-1132`).
+    pub wear: i32,
+    /// Condition left after the wear (`0` when broken).
+    pub condition: i32,
+    /// The item reached zero (`ItemBreaks`, `DaggerfallUnityItem.cs:1170-1182`).
+    pub broke: bool,
+    /// Broken piece taken out of the slot (DFU `ItemBreaks → UnequipItem`,
+    /// `DaggerfallUnityItem.cs:1170-1190`, `:1212-1218`), so the owner can
+    /// hand it to its inventory collection (M33). `None` when it survived.
+    pub removed: Option<Item>,
 }
 
 /// Result of [`ItemEquipTable::equip`].
@@ -358,6 +444,176 @@ impl ItemEquipTable {
         Some(item)
     }
 
+    /// Armour **delta** of the 7 `ArmorValues`
+    /// (`PlayerEntity.UpdateEquippedArmorValues`, `DaggerfallEntity.cs:589-636`):
+    /// each worn piece subtracts `GetMaterialArmorValue() * 5` from the body
+    /// part it covers (`:608-615`), and a shield subtracts
+    /// `GetShieldArmorValue() * 5` from every part it protects (`:616-636`).
+    ///
+    /// The source mutates the live array incrementally on equip/unequip;
+    /// recomputing it from the occupied slots is the same function because
+    /// every update is a signed sum of the same terms and this projection
+    /// starts at `0`. **That `0` is the delta convention of this table, not an
+    /// `ArmorValues` value**: DFU seeds every body part at `100` "no armour"
+    /// — player `SerializablePlayer.cs:355-366` / `PlayerEntity.cs:1188-1191`,
+    /// enemy `EnemyEntity.cs:409-413` — and the entity vector is therefore
+    /// `100 + delta` (the app rebases it in
+    /// `Fighter::refresh_equipment`). DFU also admits clothing groups 6-8 /
+    /// 4-6 into the branch, but those items resolve to `BodyParts.None`
+    /// (`DaggerfallUnityItem.cs:1131-1153`) and therefore contribute nothing;
+    /// restricting to [`ItemGroup::Armor`] is behaviourally identical.
+    pub fn armor_values(&self) -> [i32; BODY_PART_COUNT] {
+        let mut values = [0i32; BODY_PART_COUNT];
+        for item in self.slots.iter().flatten() {
+            self.add_armor_contribution(item, &mut values);
+        }
+        values
+    }
+
+    /// Armour contribution of the items occupying the slot range
+    /// `[first, last_exclusive)`.
+    ///
+    /// `EnemyEntity.SetEnemyEquipment` recomputes an enemy's `ArmorValues`
+    /// with `for (i = (int)EquipSlots.Head; i < (int)EquipSlots.Feet; i++)`
+    /// (`EnemyEntity.cs:415-422`): slots `12..=25`, so the `Feet` slot (26)
+    /// is **never** enumerated and a spawned enemy's boots contribute no
+    /// armour even though they are equipped. Same arithmetic as
+    /// [`Self::armor_values`], which is the player's full-table projection
+    /// (`DaggerfallEntity.UpdateEquippedArmorValues`, `:589-636`).
+    pub fn armor_values_over_slots(
+        &self,
+        first: EquipSlot,
+        last_exclusive: EquipSlot,
+    ) -> [i32; BODY_PART_COUNT] {
+        let mut values = [0i32; BODY_PART_COUNT];
+        let (Some(first), Some(last)) = (first.index(), last_exclusive.index()) else {
+            return values;
+        };
+        for index in first..last {
+            if let Some(item) = self.slots.get(index).and_then(Option::as_ref) {
+                self.add_armor_contribution(item, &mut values);
+            }
+        }
+        values
+    }
+
+    /// One worn piece's contribution
+    /// (`DaggerfallEntity.UpdateEquippedArmorValues`, `DaggerfallEntity.cs:589-636`):
+    /// armour subtracts `GetMaterialArmorValue() * 5` from the body part its
+    /// own slot covers, a shield subtracts `GetShieldArmorValue() * 5` from
+    /// every part it protects. Clothing groups are excluded because they
+    /// resolve to `BodyParts.None` (see [`Self::armor_values`]).
+    fn add_armor_contribution(&self, item: &Item, values: &mut [i32; BODY_PART_COUNT]) {
+        if item.item_group != ItemGroup::Armor {
+            return;
+        }
+        let bonus = material_armor_value(item) * 5;
+        if is_shield(item) {
+            for &part in shield_protected_body_parts(item) {
+                values[part] -= bonus;
+            }
+            return;
+        }
+        // DFU asks the table for the item's own slot
+        // (`ItemEquipTable.GetEquipSlot(armor)`, `DaggerfallEntity.cs:601`),
+        // not the array index, so the projection matches the source even if
+        // an item was placed by another path.
+        if let Some(part) = body_part_for_equip_slot(self.get_equip_slot(item)) {
+            values[part] -= bonus;
+        }
+    }
+
+    /// `FormulaHelper.DamageEquipment` (`FormulaHelper.cs:1080-1121`) through
+    /// `ApplyConditionDamageThroughPhysicalHit` (`:1123-1138`): wear the armour
+    /// piece that covers `struck_body_part`. A shield in the left hand takes the
+    /// hit when it protects that part; otherwise the part's armour slot does
+    /// (`DaggerfallUnityItem.cs:1103-1125`). No armour piece there ⇒ `None`.
+    ///
+    /// The caller's contract mirrors DFU's guard: `DamageEquipment` only runs
+    /// for a weapon hit with `damage > 0` (`FormulaHelper.cs:1090`), so a
+    /// non-positive damage returns `None` without consuming a roll. Attacker
+    /// weapon wear (`ApplyConditionDamageThroughPhysicalHit(weapon, attacker, …)`,
+    /// `:1093`) is applied through [`Self::damage_item`] on the attacker's own
+    /// table.
+    pub fn damage_equipment(
+        &mut self,
+        struck_body_part: usize,
+        damage: i32,
+        dice: &mut Dice100,
+    ) -> Option<ItemWear> {
+        if damage <= 0 {
+            return None;
+        }
+        let slot = self.armor_slot_for_struck_part(struck_body_part)?;
+        self.damage_item(slot, damage, dice)
+    }
+
+    /// `ApplyConditionDamageThroughPhysicalHit` (`FormulaHelper.cs:1123-1138`):
+    /// wear the item in `slot` by `damage`. `damage <= 0` returns `None` without
+    /// consuming a roll (`DamageEquipment` guard `:1090`). A break unequips
+    /// (`ItemBreaks -> UnequipItem`, `DaggerfallUnityItem.cs:1170-1190`).
+    ///
+    /// The wear is `(10 * damage + 50) / 100` with the 20 % "minimum one point"
+    /// re-roll at zero (`FormulaHelper.cs:1130-1132`), applied through
+    /// `behavior::durability::apply_wear` — the arithmetic lives in exactly one
+    /// place (M21 §4).
+    pub fn damage_item(
+        &mut self,
+        slot: EquipSlot,
+        damage: i32,
+        dice: &mut Dice100,
+    ) -> Option<ItemWear> {
+        if damage <= 0 {
+            return None;
+        }
+        let index = slot.index()?;
+        let item = self.slots[index].as_mut()?;
+        let item_uid = item.uid;
+        let outcome = apply_wear(&mut item.current_condition, damage, dice);
+        let (wear, broke) = match outcome {
+            WearOutcome::Unchanged => (0, false),
+            WearOutcome::Worn { amount, .. } => (amount, false),
+            WearOutcome::Broke { amount } => (amount, true),
+        };
+        let condition = item.current_condition;
+        let removed = if broke { self.unequip(slot) } else { None };
+        Some(ItemWear {
+            slot,
+            item_uid,
+            wear,
+            condition,
+            broke,
+            removed,
+        })
+    }
+
+    /// Slot of the melee weapon this table holds: right hand first, then left
+    /// (`DaggerfallUnityItem` hands; a two-hander lands in `RightHand` per
+    /// `ItemEquipTable.GetWeaponSlot`, `ItemEquipTable.cs:435-456`).
+    ///
+    /// Only [`ItemGroup::Weapons`] items count (an Arrow is refused by
+    /// [`Self::equip`], so it is never here).
+    pub fn equipped_weapon_slot(&self) -> Option<EquipSlot> {
+        [EquipSlot::RightHand, EquipSlot::LeftHand]
+            .into_iter()
+            .find(|slot| {
+                self.get(*slot)
+                    .is_some_and(|item| item.item_group == ItemGroup::Weapons)
+            })
+    }
+
+    /// Shield-if-it-protects → part's armour slot (`FormulaHelper.cs:1094-1110`).
+    fn armor_slot_for_struck_part(&self, struck_body_part: usize) -> Option<EquipSlot> {
+        if let Some(shield) = self.get(EquipSlot::LeftHand) {
+            if is_shield(shield) && shield_protected_body_parts(shield).contains(&struck_body_part)
+            {
+                return Some(EquipSlot::LeftHand);
+            }
+        }
+        let slot = equip_slot_for_body_part(struck_body_part);
+        (slot != EquipSlot::None).then_some(slot)
+    }
+
     /// `SerializeEquipTable` (`ItemEquipTable.cs:331-345`): UID per slot, 0
     /// for empty slots.
     pub fn serialize_uids(&self) -> [u64; EQUIP_TABLE_LENGTH] {
@@ -382,7 +638,7 @@ impl ItemEquipTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::items::{ItemTemplate, TOTAL_ITEMS};
+    use crate::items::{apply_armor_material, ItemTemplate, TOTAL_ITEMS};
 
     fn equippable(index: usize, stack: i32) -> Item {
         let mut template = ItemTemplate::empty(index);
@@ -613,6 +869,268 @@ mod tests {
         assert!(table.unequip(EquipSlot::None).is_none());
         assert_eq!(table.dump(), "");
         assert!(table.serialize_uids().iter().all(|&uid| uid == 0));
+    }
+
+    /// Armour instance with a material, as the item builder produces it
+    /// (`ItemBuilder.ApplyArmorMaterial`, `ItemBuilder.cs:488-507`).
+    fn armor(index: usize, native_material: i32) -> Item {
+        let mut item = equippable(index, 1);
+        apply_armor_material(&mut item, native_material);
+        item
+    }
+
+    #[test]
+    fn armor_values_project_each_slot_onto_its_body_part() {
+        // FormulaHelper/DaggerfallEntity: `ArmorValues[part] -= material * 5`
+        // (`DaggerfallEntity.cs:608-615`), parts Head 0 … Feet 6.
+        let mut table = ItemEquipTable::new();
+        assert_eq!(table.armor_values(), [0; BODY_PART_COUNT], "bare");
+
+        // Steel cuirass: GetMaterialArmorValue(0x0201) = 9 ⇒ −45 on Chest (3).
+        equipped(table.equip(armor(102, 0x0201), true));
+        assert_eq!(table.armor_values(), [0, 0, 0, -45, 0, 0, 0]);
+
+        // Leather helm (0x0000 ⇒ 3) and plate boots (0x0204 ⇒ 13).
+        equipped(table.equip(armor(107, 0x0000), true));
+        equipped(table.equip(armor(108, 0x0204), true));
+        assert_eq!(
+            table.armor_values(),
+            [-15, 0, 0, -45, 0, 0, -65],
+            "Head=3·5, Chest=9·5, Feet=13·5"
+        );
+
+        // Tower shield (109..=112 table ⇒ 4) covers Head, LeftArm, Hands, Legs
+        // (`DaggerfallUnityItem.cs:1091-1092`), never Chest/RightArm/Feet.
+        equipped(table.equip(armor(112, 0x0000), true));
+        assert_eq!(
+            table.armor_values(),
+            [-35, 0, -20, -45, -20, -20, -65],
+            "shield bonus is material-independent (`DaggerfallEntity.cs:618-620`)"
+        );
+
+        // A material outside the armour switch contributes nothing
+        // (`GetMaterialArmorValue` default 0, `DaggerfallUnityItem.cs:1040-1053`).
+        let before = table.armor_values();
+        let mut blank = equippable(103, 1);
+        blank.native_material = 0x0300;
+        equipped(table.equip(blank, true)); // gloves
+        assert_eq!(table.armor_values(), before, "GetMaterialArmorValue = 0");
+    }
+
+    #[test]
+    fn body_part_mappings_follow_the_source() {
+        for (slot, part) in [
+            (EquipSlot::Head, 0),
+            (EquipSlot::RightArm, 1),
+            (EquipSlot::LeftArm, 2),
+            (EquipSlot::ChestArmor, 3),
+            (EquipSlot::Gloves, 4),
+            (EquipSlot::LegsArmor, 5),
+            (EquipSlot::Feet, 6),
+        ] {
+            assert_eq!(body_part_for_equip_slot(slot), Some(part), "{slot:?}");
+            assert_eq!(equip_slot_for_body_part(part), slot);
+        }
+        assert_eq!(body_part_for_equip_slot(EquipSlot::RightHand), None);
+        assert_eq!(body_part_for_equip_slot(EquipSlot::Cloak1), None);
+        assert_eq!(equip_slot_for_body_part(BODY_PART_COUNT), EquipSlot::None);
+    }
+
+    #[test]
+    fn damage_equipment_wears_the_struck_piece() {
+        let mut table = ItemEquipTable::new();
+        let cuirass = armor(102, 0x0200); // iron plate: 7 · 5 = 35, condition 100
+        let uid = cuirass.uid;
+        equipped(table.equip(cuirass, true));
+        let mut dice = Dice100::new(7);
+
+        // Damage 20 ⇒ (10·20+50)/100 = 2 wear, no re-roll possible.
+        let wear = table
+            .damage_equipment(3, 20, &mut dice)
+            .expect("chest armour takes wear");
+        assert_eq!(wear.slot, EquipSlot::ChestArmor);
+        assert_eq!(wear.item_uid, uid);
+        assert_eq!(wear.wear, 2);
+        assert!(!wear.broke);
+        assert!(wear.removed.is_none());
+        assert_eq!(
+            table.get(EquipSlot::ChestArmor).map(|item| item.current_condition),
+            Some(98)
+        );
+        assert_eq!(wear.condition, 98);
+
+        // A strike on a bare arm hits no armour and consumes no roll.
+        assert!(table.damage_equipment(1, 20, &mut dice).is_none());
+        // DFU only calls DamageEquipment for damage > 0 (`:1089`).
+        assert!(table.damage_equipment(3, 0, &mut dice).is_none());
+        assert!(table.damage_equipment(7, 20, &mut dice).is_none());
+    }
+
+    #[test]
+    fn shield_takes_the_hit_when_it_protects_the_part() {
+        let mut table = ItemEquipTable::new();
+        equipped(table.equip(armor(102, 0x0200), true)); // cuirass
+        let shield = armor(110, 0x0000); // Round shield: protects 2, 4, 5
+        let shield_uid = shield.uid;
+        equipped(table.equip(shield, true));
+        let mut dice = Dice100::new(11);
+
+        let wear = table
+            .damage_equipment(5, 30, &mut dice) // legs are protected
+            .expect("shield absorbs the hit");
+        assert_eq!(wear.slot, EquipSlot::LeftHand);
+        assert_eq!(wear.item_uid, shield_uid);
+        assert_eq!(wear.wear, 3, "(10·30+50)/100");
+        assert_eq!(
+            table.get(EquipSlot::ChestArmor).map(|item| item.current_condition),
+            Some(100),
+            "cuirass untouched (`FormulaHelper.cs:1104-1113`)"
+        );
+
+        // RightArm is not protected by a Round shield: the arm has no armour.
+        assert!(table.damage_equipment(1, 30, &mut dice).is_none());
+    }
+
+    #[test]
+    fn breaking_damage_zeroes_removes_and_unequips() {
+        let mut table = ItemEquipTable::new();
+        let mut cuirass = armor(102, 0x0200);
+        cuirass.current_condition = 3;
+        let uid = cuirass.uid;
+        equipped(table.equip(cuirass, true));
+        let mut dice = Dice100::new(3);
+
+        let wear = table
+            .damage_equipment(3, 300, &mut dice) // wear 30 ≫ 3
+            .expect("chest armour takes wear");
+        assert!(wear.broke);
+        assert_eq!(wear.wear, 30);
+        assert_eq!(wear.condition, 0);
+        assert_eq!(wear.item_uid, uid);
+        let removed = wear.removed.expect("broken piece leaves the slot");
+        assert_eq!(removed.uid, uid);
+        assert_eq!(removed.current_condition, 0);
+        assert!(!removed.equipped);
+        assert!(table.get(EquipSlot::ChestArmor).is_none(), "ItemBreaks → UnequipItem");
+        assert_eq!(table.armor_values(), [0; BODY_PART_COUNT], "bonus removed");
+    }
+
+    #[test]
+    fn zero_wear_reroll_matches_the_dfu_dice_stream() {
+        // damage 3 ⇒ (10·3+50)/100 = 0, then a 20 % re-roll of 1 point.
+        // Same explicit seed ⇒ the outcome must equal `wear_amount_rolled`.
+        let mut table = ItemEquipTable::new();
+        equipped(table.equip(armor(102, 0x0200), true));
+        let mut dice = Dice100::new(42);
+        let mut expected_dice = Dice100::new(42);
+        let expected = daggerfall_behavior::durability::wear_amount_rolled(3, &mut expected_dice);
+        let wear = table.damage_equipment(3, 3, &mut dice).expect("wear report");
+        assert_eq!(wear.wear, expected);
+        assert_eq!(
+            table.get(EquipSlot::ChestArmor).map(|item| item.current_condition),
+            Some(100 - expected)
+        );
+    }
+
+    #[test]
+    fn damage_item_wears_the_weapon_in_the_attacker_hand() {
+        // First hit of a Longsword (template 120) with condition 600:
+        // `(10·15 + 50) / 100 = 2` (`FormulaHelper.cs:1130-1132`).
+        let mut table = ItemEquipTable::new();
+        let mut sword = equippable(120, 1);
+        sword.current_condition = 600;
+        let uid = sword.uid;
+        equipped(table.equip(sword, true));
+        let mut dice = Dice100::new(5);
+
+        let wear = table
+            .damage_item(EquipSlot::RightHand, 15, &mut dice)
+            .expect("the wielded weapon takes wear");
+        assert_eq!(wear.slot, EquipSlot::RightHand);
+        assert_eq!(wear.item_uid, uid);
+        assert_eq!(wear.wear, 2);
+        assert_eq!(wear.condition, 598);
+        assert!(!wear.broke);
+        assert!(wear.removed.is_none());
+        assert_eq!(
+            table.get(EquipSlot::RightHand).map(|item| item.current_condition),
+            Some(598)
+        );
+    }
+
+    #[test]
+    fn damage_item_guards_non_positive_damage_and_empty_slots() {
+        let mut table = ItemEquipTable::new();
+        let mut sword = equippable(120, 1);
+        sword.current_condition = 600;
+        equipped(table.equip(sword, true));
+        let mut dice = Dice100::new(9);
+
+        assert!(table.damage_item(EquipSlot::RightHand, 0, &mut dice).is_none());
+        assert!(table.damage_item(EquipSlot::RightHand, -5, &mut dice).is_none());
+        assert_eq!(
+            table.get(EquipSlot::RightHand).map(|item| item.current_condition),
+            Some(600),
+            "no wear on damage <= 0 (`DamageEquipment` guard `:1090`)"
+        );
+        assert!(table.damage_item(EquipSlot::LeftHand, 20, &mut dice).is_none());
+        assert!(table.damage_item(EquipSlot::None, 20, &mut dice).is_none());
+    }
+
+    #[test]
+    fn weapon_break_unequips_the_attacker_hand() {
+        let mut table = ItemEquipTable::new();
+        let mut sword = equippable(120, 1);
+        sword.current_condition = 3;
+        let uid = sword.uid;
+        equipped(table.equip(sword, true));
+        let mut dice = Dice100::new(3);
+
+        let wear = table
+            .damage_item(EquipSlot::RightHand, 300, &mut dice) // wear 30 ≫ 3
+            .expect("the wielded weapon takes wear");
+        assert!(wear.broke);
+        assert_eq!(wear.wear, 30);
+        assert_eq!(wear.condition, 0);
+        assert_eq!(wear.item_uid, uid);
+        let removed = wear.removed.expect("broken weapon leaves the slot");
+        assert_eq!(removed.uid, uid);
+        assert_eq!(removed.current_condition, 0);
+        assert!(!removed.equipped);
+        assert!(
+            table.get(EquipSlot::RightHand).is_none(),
+            "ItemBreaks → UnequipItem"
+        );
+    }
+
+    #[test]
+    fn equipped_weapon_slot_prefers_the_right_hand() {
+        let mut table = ItemEquipTable::new();
+        assert_eq!(table.equipped_weapon_slot(), None, "empty table");
+
+        // Longsword (template 120, `Either` hands → first open slot = right).
+        equipped(table.equip(equippable(120, 1), true));
+        assert_eq!(table.equipped_weapon_slot(), Some(EquipSlot::RightHand));
+
+        // A second longsword lands in the left hand; the right one reports.
+        equipped(table.equip(equippable(120, 1), true));
+        assert_eq!(table.equipped_weapon_slot(), Some(EquipSlot::RightHand));
+
+        // Shield-only: `ItemGroup::Armor` never counts as a weapon.
+        let mut shields = ItemEquipTable::new();
+        equipped(shields.equip(equippable(109, 1), true));
+        assert_eq!(shields.equipped_weapon_slot(), None);
+
+        // Off-hand only: two daggers (template 113, `Either`) fill right then
+        // left; emptying the right one leaves the weapon in the left hand.
+        let mut left = ItemEquipTable::new();
+        equipped(left.equip(equippable(113, 1), true));
+        equipped(left.equip(equippable(113, 1), true));
+        assert_eq!(
+            left.unequip(EquipSlot::RightHand).map(|item| item.template_index),
+            Some(113)
+        );
+        assert_eq!(left.equipped_weapon_slot(), Some(EquipSlot::LeftHand));
     }
 
     #[test]

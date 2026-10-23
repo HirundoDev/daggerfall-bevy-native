@@ -2,7 +2,7 @@
 //! (REQ-L99-054): `PROBE-ITEM-001` (blocks A + C), `PROBE-EQUIP-001`
 //! (block B) and `PROBE-LOOT-001` (block D).
 //!
-//! Contract: `docs/sintergic/game/programming/m21-items-equipment-loot-spec-CR-5243af63.md`
+//! Contract: `docs/sintergic/game/programming/m21-items-equipment-loot-spec.md`
 //! §0 (units), §1.4 (GV-IT), §2.4-2.6 (GV-MAT/CND), §4.2 (GV-DUR),
 //! §3.1 (GV-EQP), §5.1-5.3 (GV-LOT) and **§7 probe contract**. The goldens
 //! are transcribed here; the GV-IT and the census are measured at runtime

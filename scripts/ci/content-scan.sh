@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # content-scan.sh — BUILD-CONTENT-SCAN-001 · gate L99-REL/CI (M0 PRE-6)
-# CR-bbd5db82-f194-4772-932d-364206dca16b
 #
 # Deterministic: 0 .BSA file and 0 BSA file signature packaged into
 # binaries/artifacts.

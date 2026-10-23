@@ -5,7 +5,7 @@
 //! it receives `dt` and a [`LocomotionWorld`] (ground height + collision + wall +
 //! water) that the caller implements. The demo and the probe use **the same** engine.
 //!
-//! **Measured spec:** `docs/sintergic/game/programming/m19-locomotion-spec-CR-8313e821.md`,
+//! **Measured spec:** `docs/sintergic/game/programming/m19-locomotion-spec.md`,
 //! with `file:line` from `daggerfall-unity@0038a1e61` (MIT). Every constant below
 //! carries its citation; none was invented.
 //!
@@ -108,6 +108,10 @@ pub struct PlayerBody {
     pub enhanced_climbing: bool,
     pub slow_falling: bool,
     pub water_breathing: bool,
+    /// `PlayerEntity.IsWaterWalking` (`WaterWalking.cs:98`): swimming keeps the
+    /// normal walking speed and does not sink under encumbrance
+    /// (`LevitateMotor.cs:83-85,116-121`, `PlayerMotor.cs:385-388`).
+    pub water_walking: bool,
     /// Carried weight (kg) — `PlayerEntity.CarriedWeight`
     /// (`DFU-UP:Game/Entities/PlayerEntity.cs:184`).
     pub carried_weight_kg: f32,
@@ -140,6 +144,7 @@ impl Default for PlayerBody {
             enhanced_climbing: false,
             slow_falling: false,
             water_breathing: false,
+            water_walking: false,
             carried_weight_kg: 0.0,
             level: 1,
         }
@@ -506,6 +511,25 @@ pub struct Frame {
     pub drowned: bool,
     /// The engine is gripping a wall.
     pub climbing: bool,
+    /// A climbing die was consumed in this step — the flag is raised once per
+    /// executed skill check, failed checks included
+    /// (`ClimbingMotor.ClimbingSkillCheck`, `ClimbingMotor.cs:823`). Consumed
+    /// by the M20 progression driver to tally the Climbing skill.
+    pub climb_check: bool,
+    /// A **jump started** on this step: the frame the jump input is consumed
+    /// and `AcrobatMotor.jumping` is set (`AcrobatMotor.cs:109`), exactly once
+    /// per started jump. Falls, ledge drops, levitation exits and climbing
+    /// aborts never raise it — the grounded-time guard returns **before** the
+    /// input is read (`AcrobatMotor.cs:76-77`), so `PlayerEntity`'s
+    /// `!CheckedCurrentJump && IsJumping` edge (`PlayerEntity.cs:425-438`)
+    /// never fires for them.
+    pub jumped: bool,
+    /// Resolved `PlayerSpeedChanger.isRunning` (`PlayerSpeedChanger.cs:106-118`):
+    /// the run mode latched **while grounded** and kept untouched in the air
+    /// ("you can't switch running on/off while in mid air"). It carries no
+    /// movement test (`CanRun()` is `CanRunUnlessRiding()`, `:137-140`), so
+    /// holding Run standing still still reports `true`.
+    pub running: bool,
 }
 
 /// Complete locomotion + body state.
@@ -531,6 +555,18 @@ pub struct Locomotion {
     pub breath_tally: f32,
     /// DFU air control (`AcrobatMotor.cs:21`, `false` by default).
     pub air_control: bool,
+    /// Latched run mode — the resolved `PlayerSpeedChanger.isRunning`
+    /// (`PlayerSpeedChanger.cs:106-118`): `runningMode && CanRun()` is sampled
+    /// **only while grounded** and the previous value is kept in the air, so
+    /// releasing or pressing Run mid-air only takes effect on the ground — and
+    /// from the **next** step, because the resolution happens at step entry
+    /// with the mode the body ended the previous step in.
+    ///
+    /// `CanRun()` in the pinned source is `CanRunUnlessRiding()`
+    /// (`:137-140`): the `!IsRiding` conjunct is vacuous here because the demo
+    /// has no mounts, so the latch is `input.run`. No movement and no crouch
+    /// test, by source order.
+    pub running_mode: bool,
 }
 
 impl Locomotion {
@@ -550,6 +586,7 @@ impl Locomotion {
             breath: 0,
             breath_tally: 0.0,
             air_control: false,
+            running_mode: false,
         }
     }
 
@@ -595,6 +632,17 @@ impl Locomotion {
         }
         let submerged = world.submerged(self.position);
         let water_mode = input.levitating || (submerged && self.mode != MotionMode::Climbing);
+
+        // `PlayerSpeedChanger.ApplyInputSpeedAdjustment` (`PlayerSpeedChanger.cs:106-118`):
+        // the run mode is resolved **only while grounded** (`isRunning =
+        // CanRun() && runningMode`); anywhere else the previous resolution is
+        // kept — "you can't switch running on/off while in mid air". The state
+        // sampled is the mode the body ended the previous step in (DFU reads
+        // `playerMotor.IsGrounded`, i.e. the motor's last grounded check).
+        if self.mode == MotionMode::Grounded && !water_mode {
+            self.running_mode = input.run;
+        }
+        frame.running = self.running_mode;
 
         // DFU PlayerMotor.cs:323 — levitating/swimming take over the engine and
         // cancel accumulated velocity.
@@ -645,6 +693,8 @@ impl Locomotion {
             self.climb_timer += dt;
             if self.climb_timer >= climb_check_interval_s(ClimbCheckKind::Start) {
                 self.climb_timer = 0.0;
+                // The die is consumed ⇒ the check ran (`ClimbingMotor.cs:823`).
+                frame.climb_check = true;
                 let base_chance = if self.mode == MotionMode::Airborne {
                     GRASP_WALL_MIN_CHANCE
                 } else {
@@ -686,7 +736,9 @@ impl Locomotion {
         frame: &mut Frame,
     ) {
         self.grounded_time += dt;
-        let speed = resolve_speed(body, input.crouch, input.run, input.sneak, false);
+        // The speed path consumes the **resolved** run mode, not the raw key
+        // (`PlayerSpeedChanger.cs:120-123`: `if (isRunning) RefreshRunSpeed()`).
+        let speed = resolve_speed(body, input.crouch, self.running_mode, input.sneak, false);
         frame.speed = speed;
         let velocity = self.input_velocity(input, speed);
         self.horizontal_velocity = velocity;
@@ -702,6 +754,10 @@ impl Locomotion {
 
         let ground_eye = world.ground_height(self.position[0], self.position[2]) + self.eye_height;
         if input.jump && self.grounded_time >= GROUNDED_JUMP_DELAY_S {
+            // Only here is `AcrobatMotor.jumping` raised (`AcrobatMotor.cs:109`):
+            // the guard above is the source's `GroundedTime < 0.1f` early
+            // return (`:77-78`), so this edge is one started jump, never a fall.
+            frame.jumped = true;
             self.vertical_velocity = jump_velocity(body, input.crouch);
             self.falling = true;
             self.fall_start_y = self.position[1];
@@ -757,23 +813,45 @@ impl Locomotion {
         }
         self.position[1] += self.vertical_velocity * dt;
 
+        // `AcrobatMotor.cs:184-187`: while slow-falling `fallStartLevel` follows
+        // the player every frame, so only the current descent is accumulated
+        // and a slow fall never reaches the damage threshold.
+        if self.falling && body.slow_falling {
+            self.fall_start_y = self.position[1];
+        }
+
         let ground_eye = world.ground_height(self.position[0], self.position[2]) + self.eye_height;
         if self.position[1] <= ground_eye {
-            let fall_distance = self.fall_start_y - ground_eye;
-            if self.falling {
-                match fall_outcome(fall_distance) {
-                    FallOutcome::Damage(damage) => frame.fall_damage = damage,
-                    FallOutcome::HardFall => frame.hard_fall = true,
-                    FallOutcome::None => {}
-                }
-            }
-            self.position[1] = ground_eye;
-            self.vertical_velocity = 0.0;
-            self.falling = false;
-            self.mode = MotionMode::Grounded;
-            self.grounded_time = 0.0;
+            // A landed fall is billed unless the body is a non-slipping climb
+            // (`AcrobatMotor.cs:217`); airborne never is.
+            self.land_on_ground(ground_eye, true, frame);
             self.horizontal_velocity = [0.0, 0.0];
         }
+    }
+
+    /// Landing hand-off shared by [`Self::step_airborne`] and
+    /// [`Self::step_climbing`] — the single copy of `PlayerMotor.cs:337-341`
+    /// (`if (grounded) { Jumping = false; acrobatMotor.CheckFallingDamage(); … }`).
+    ///
+    /// `CheckFallingDamage` (`AcrobatMotor.cs:207-225`) clears `falling` and
+    /// bills `fallStartLevel - position.y` only through the gate
+    /// `!climbingMotor.IsClimbing || climbingMotor.IsSlipping` (`:217`) — a
+    /// climb that reaches the ground while holding on takes nothing, a slip
+    /// does. Callers pass that gate as `bill_fall`; `slipping` is cleared by
+    /// the climb caller, not here.
+    fn land_on_ground(&mut self, ground_eye: f32, bill_fall: bool, frame: &mut Frame) {
+        if self.falling && bill_fall {
+            match fall_outcome(self.fall_start_y - ground_eye) {
+                FallOutcome::Damage(damage) => frame.fall_damage = damage,
+                FallOutcome::HardFall => frame.hard_fall = true,
+                FallOutcome::None => {}
+            }
+        }
+        self.position[1] = ground_eye;
+        self.vertical_velocity = 0.0;
+        self.falling = false;
+        self.mode = MotionMode::Grounded;
+        self.grounded_time = 0.0;
     }
 
     fn step_water(
@@ -788,6 +866,12 @@ impl Locomotion {
         let levitating = self.mode == MotionMode::Levitating;
         let speed = if levitating {
             levitate_speed()
+        } else if body.water_walking {
+            // `LevitateMotor.cs:116-121`: swimming with `IsWaterWalking` moves at
+            // `PlayerMotor.Speed`, i.e. the **resolved normal** speed;
+            // `PlayerMotor.cs:385-388` only applies `GetSwimSpeed` when the flag
+            // is off. So the swim transform is skipped, run/sneak/crouch stay.
+            resolve_speed(body, input.crouch, self.running_mode, input.sneak, false)
         } else {
             swim_speed(walk_speed(body.live_speed), body.swimming_skill)
         };
@@ -819,8 +903,9 @@ impl Locomotion {
             } else {
                 0.0
             }
-        } else if overencumbered {
-            // `LevitateMotor.cs:83-85`: overencumbered it sinks and cannot rise.
+        } else if overencumbered && !body.water_walking {
+            // `LevitateMotor.cs:83-85`: overencumbered it sinks and cannot rise —
+            // the sink is skipped with `IsWaterWalking` (`&& !...IsWaterWalking`).
             -vertical_speed
         } else if input.jump {
             vertical_speed
@@ -840,6 +925,17 @@ impl Locomotion {
         self.position[1] = new_y;
 
         if self.mode == MotionMode::Swimming && !body.water_breathing {
+            // `PlayerEntity.cs:325-328`: the block opens by refilling an
+            // exhausted breath with `GuildManager.DeepBreath(MaxBreath)`, i.e.
+            // **before** the decrement of this same update. `DeepBreath` only
+            // folds guild memberships over the value (`GuildManager.cs:385-391`),
+            // so without memberships it is the identity and the refill is
+            // `MaxBreath` — the same `max_breath(body.live_endurance)`
+            // (`DaggerfallEntity.cs:267`) written when the immersion starts
+            // (`PlayerEntity.cs:327`).
+            if self.breath == 0 {
+                self.breath = max_breath(body.live_endurance);
+            }
             self.breath_tally += dt;
             let interval = breath_drain_interval_s();
             while self.breath_tally >= interval {
@@ -850,8 +946,11 @@ impl Locomotion {
                     self.breath -= 1;
                 }
             }
+            // `PlayerEntity.cs:339-340`: `SetHealth(0)` only when the breath is
+            // still ≤ 0 after the refill — always the case while `MaxBreath` is
+            // 0, never a second time with a positive maximum. There is no clamp:
+            // the source does not write the field back.
             if self.breath <= 0 {
-                self.breath = 0;
                 frame.drowned = true;
             }
         }
@@ -874,10 +973,15 @@ impl Locomotion {
         let abort = input.crouch || input.jump;
         if abort || !wall {
             // `ClimbingMotor.cs:324-330,399-420`: jumping/crouching or losing the
-            // wall ends the climb; the fall starts here.
+            // wall ends the climb; the fall starts here. Same `CheckInitFall`
+            // rule as the slip (`AcrobatMotor.cs:167-177`): the start level is
+            // armed only when the body is not already falling, so an abort in
+            // the middle of a slip keeps the slip's start level.
             self.mode = MotionMode::Airborne;
-            self.falling = true;
-            self.fall_start_y = self.position[1];
+            if !self.falling {
+                self.falling = true;
+                self.fall_start_y = self.position[1];
+            }
             self.vertical_velocity = 0.0;
             self.slipping = false;
             self.climb_timer = 0.0;
@@ -913,6 +1017,8 @@ impl Locomotion {
         };
         if self.climb_timer >= climb_check_interval_s(kind) {
             self.climb_timer = 0.0;
+            // Continue/regain check ran (`ClimbingMotor.cs:823`).
+            frame.climb_check = true;
             if self.slipping {
                 if dice.success(climb_chance(body, REGAIN_HOLD_MIN_CHANCE)) {
                     self.slipping = false;
@@ -921,17 +1027,28 @@ impl Locomotion {
             } else if !dice.success(climb_chance(body, CONTINUE_CLIMB_MIN_CHANCE)) {
                 self.slipping = true;
                 self.vertical_velocity = 0.0;
+                // `ClimbingMotor.cs:760-764`: the slipping branch calls
+                // `acrobatMotor.CheckInitFall` + `ApplyGravity`, so a failed
+                // continue check starts a real fall. `CheckInitFall`
+                // (`AcrobatMotor.cs:167-177`) arms it only when the body is not
+                // already falling and takes `fallStartLevel` from the position
+                // of that moment; `CheckFallingDamage` later bills exactly that
+                // descent (`AcrobatMotor.cs:215-223`).
+                if !self.falling {
+                    self.falling = true;
+                    self.fall_start_y = self.position[1];
+                }
             }
         }
 
         let ground_eye = world.ground_height(self.position[0], self.position[2]) + self.eye_height;
         if self.position[1] <= ground_eye {
-            self.position[1] = ground_eye;
-            self.mode = MotionMode::Grounded;
-            self.grounded_time = 0.0;
-            self.falling = false;
+            // `AcrobatMotor.cs:217`: reaching the ground while **climbing**
+            // takes no damage — only `IsSlipping` does, and that is the fall
+            // armed above.
+            let slipping = self.slipping;
+            self.land_on_ground(ground_eye, slipping, frame);
             self.slipping = false;
-            self.vertical_velocity = 0.0;
             frame.climbing = false;
         }
     }
@@ -1224,6 +1341,36 @@ mod tests {
     }
 
     #[test]
+    fn slow_fall_cancels_the_accumulated_fall_distance() {
+        // Same 10.4 m eye fall as `falling_ten_metres_deals_spec_damage`, but
+        // with `Entity.IsSlowFalling` set (`AcrobatMotor.cs:184-187`).
+        let world = FlatWorld::flat();
+        let body = PlayerBody {
+            slow_falling: true,
+            ..PlayerBody::default()
+        };
+        let mut dice = Dice100::new(13);
+        let mut locomotion = Locomotion::new([0.0, 12.0, 0.0], 1.6, 0.3);
+        locomotion.mode = MotionMode::Airborne;
+        locomotion.falling = true;
+        locomotion.fall_start_y = 12.0;
+        let input = MoveInput::default();
+        let mut damage = 0;
+        let mut hard_fall = false;
+        for _ in 0..600 {
+            let outcome = locomotion.step(&input, &body, &world, &mut dice, 1.0 / 60.0);
+            damage += outcome.fall_damage;
+            hard_fall |= outcome.hard_fall;
+            if outcome.mode == MotionMode::Grounded {
+                break;
+            }
+        }
+        assert_eq!(damage, 0, "slow fall never accumulates damage distance");
+        assert!(!hard_fall, "slow fall never triggers the hard-fall alert");
+        approx(locomotion.position[1], 1.6, 1e-6);
+    }
+
+    #[test]
     fn walking_into_a_wall_never_penetrates() {
         let world = FlatWorld {
             wall_x: Some(2.0),
@@ -1282,6 +1429,165 @@ mod tests {
     }
 
     #[test]
+    fn climb_check_flags_every_consumed_die() {
+        // Intervals at 1/60 s frames: start `0.768956 s` ⇒ 47 frames, so the
+        // start die is consumed at index 46 (that step also advances the climb
+        // timer once, inside `step_climbing`); the continue interval
+        // `0.823881 s` therefore needs 49 further frames ⇒ index 95. Without
+        // the flag the M20 driver cannot tally Climbing
+        // (`ClimbingMotor.cs:823`).
+        let world = FlatWorld {
+            wall_x: Some(1.0),
+            ..FlatWorld::flat()
+        };
+        let body = PlayerBody {
+            climbing_skill: 95,
+            live_luck: 100, // chance 103 → the start check never fails
+            ..PlayerBody::default()
+        };
+        let mut dice = Dice100::new(19);
+        let mut locomotion = Locomotion::new([0.6, 1.6, 0.0], 1.6, 0.3);
+        let input = MoveInput {
+            forward: 1.0,
+            yaw: -std::f32::consts::FRAC_PI_2,
+            ..Default::default()
+        };
+        let mut flagged = Vec::new();
+        for index in 0..97 {
+            let frame = locomotion.step(&input, &body, &world, &mut dice, 1.0 / 60.0);
+            if frame.climb_check {
+                flagged.push(index);
+            }
+        }
+        assert_eq!(flagged, vec![46, 95], "start check + one continue check");
+        assert_eq!(locomotion.mode, MotionMode::Climbing);
+
+        // No wall ⇒ no climbing die ⇒ no flag.
+        let open = FlatWorld::flat();
+        let mut walker = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let mut walk_dice = Dice100::new(19);
+        for _ in 0..97 {
+            assert!(!walker.step(&input, &body, &open, &mut walk_dice, 1.0 / 60.0).climb_check);
+        }
+    }
+
+    /// Climbs the flat wall from `start_y` holding on, until the continue check
+    /// fails and the body slips to the ground. Returns the fall start level the
+    /// slip armed, the damage billed on grounding and the hard-fall flag.
+    ///
+    /// Seed 3: the first continue check fails and every regain check fails until
+    /// the ground, so the descent stays a single slip.
+    fn climb_and_slip(start_y: f32) -> (f32, i32, bool) {
+        let world = FlatWorld {
+            wall_x: Some(1.0),
+            ..FlatWorld::flat()
+        };
+        // Luck 0: continue 50 %, regain 20 % (`FormulaHelper.cs:293-316`).
+        let body = PlayerBody {
+            live_luck: 0,
+            ..PlayerBody::default()
+        };
+        let mut dice = Dice100::new(3);
+        let mut locomotion = Locomotion::new([0.6, start_y, 0.0], 1.6, 0.3);
+        // Already holding the wall: this measures the continue check, the slip
+        // and the landing (the grab is `climbing_rises_after_the_start_check`).
+        locomotion.mode = MotionMode::Climbing;
+        let input = MoveInput {
+            forward: 1.0,
+            yaw: -std::f32::consts::FRAC_PI_2,
+            ..Default::default()
+        };
+        let mut slip_start = None;
+        let mut damage = 0;
+        let mut hard = false;
+        for _ in 0..600 {
+            let frame = locomotion.step(&input, &body, &world, &mut dice, 1.0 / 60.0);
+            if slip_start.is_none() && locomotion.slipping {
+                // `ClimbingMotor.cs:760-764` → `CheckInitFall`
+                // (`AcrobatMotor.cs:167-177`): the slip arms the fall with the
+                // level of that moment.
+                assert!(locomotion.falling, "the slip arms CheckInitFall");
+                slip_start = Some(locomotion.fall_start_y);
+            }
+            damage += frame.fall_damage;
+            hard |= frame.hard_fall;
+            if frame.mode == MotionMode::Grounded {
+                break;
+            }
+        }
+        assert_eq!(locomotion.mode, MotionMode::Grounded, "the slip must reach the ground");
+        assert!(!locomotion.falling, "CheckFallingDamage clears the fall");
+        (slip_start.expect("the continue check must fail"), damage, hard)
+    }
+
+    #[test]
+    fn slipping_bills_the_fall_on_grounding() {
+        // `ClimbingMotor.cs:760-764`: the slipping branch calls
+        // `acrobatMotor.CheckInitFall` + `ApplyGravity`, so a failed continue
+        // check is a real fall; `PlayerMotor.cs:337-341` calls
+        // `CheckFallingDamage` on grounding and `AcrobatMotor.cs:215-223` bills
+        // `fallStartLevel - y` through the gate
+        // `!climbingMotor.IsClimbing || climbingMotor.IsSlipping` (`:217`).
+        let ground_eye = 1.6;
+
+        // Drop above the 5 m threshold → damage, from the armed level.
+        let (start_high, damage_high, hard_high) = climb_and_slip(9.0);
+        let drop_high = start_high - ground_eye;
+        assert!(
+            drop_high > FALLING_DAMAGE_THRESHOLD_M,
+            "the slip must start above the threshold: {drop_high} m"
+        );
+        assert!(damage_high > 0, "a slip over the threshold bills: {damage_high}");
+        assert_eq!(damage_high, fall_outcome(drop_high).as_damage());
+        assert!(!hard_high, "damage replaces the alert (`AcrobatMotor.cs:219-223`)");
+
+        // Drop between threshold/2 and the threshold → hard fall, 0 damage.
+        let (start_low, damage_low, hard_low) = climb_and_slip(3.5);
+        let drop_low = start_low - ground_eye;
+        assert!(
+            drop_low > FALLING_DAMAGE_THRESHOLD_M / 2.0
+                && drop_low <= FALLING_DAMAGE_THRESHOLD_M,
+            "the slip must stay under the threshold: {drop_low} m"
+        );
+        assert_eq!(damage_low, 0, "under the threshold nothing is billed");
+        assert!(hard_low, "the billing ran and classified a hard fall");
+
+        // A **normal** climb reaching the ground takes nothing: `IsClimbing`
+        // without `IsSlipping` fails the gate (`AcrobatMotor.cs:217`).
+        let world = FlatWorld {
+            wall_x: Some(1.0),
+            ..FlatWorld::flat()
+        };
+        let body = PlayerBody {
+            climbing_skill: 95,
+            live_luck: 100, // chance 103 → continue and regain never fail
+            ..PlayerBody::default()
+        };
+        let mut dice = Dice100::new(19);
+        let mut locomotion = Locomotion::new([0.6, 3.5, 0.0], 1.6, 0.3);
+        locomotion.mode = MotionMode::Climbing;
+        let down = MoveInput {
+            forward: -1.0,
+            yaw: -std::f32::consts::FRAC_PI_2,
+            ..Default::default()
+        };
+        let mut damage = 0;
+        let mut hard = false;
+        for _ in 0..600 {
+            let frame = locomotion.step(&down, &body, &world, &mut dice, 1.0 / 60.0);
+            damage += frame.fall_damage;
+            hard |= frame.hard_fall;
+            if frame.mode == MotionMode::Grounded {
+                break;
+            }
+        }
+        assert_eq!(locomotion.mode, MotionMode::Grounded, "the descent reaches the ground");
+        assert!(!locomotion.slipping, "a held climb never slips");
+        assert_eq!(damage, 0, "climbing down is not a fall");
+        assert!(!hard, "and it is not a hard fall either");
+    }
+
+    #[test]
     fn swimming_advances_breath_and_sinks_when_overencumbered() {
         let world = FlatWorld {
             water_y: Some(20.0),
@@ -1326,6 +1632,70 @@ mod tests {
     }
 
     #[test]
+    fn exhausted_breath_refills_instead_of_drowning_forever() {
+        // `PlayerEntity.cs:325-328`: the submerged block opens with
+        // `if (currentBreath == 0) currentBreath = DeepBreath(MaxBreath)` —
+        // **before** the decrement of the same update. `DeepBreath` only folds
+        // guild memberships over the value (`GuildManager.cs:385-391`), so with
+        // no memberships it is the identity and the refill is `MaxBreath`
+        // (`DaggerfallEntity.cs:267`) = 25 for the default body. `:339-340` sets
+        // health to 0 only when the breath is still ≤ 0 after the refill.
+        let world = FlatWorld {
+            water_y: Some(20.0),
+            ..FlatWorld::flat()
+        };
+        let body = PlayerBody::default();
+        let input = MoveInput {
+            forward: 1.0,
+            ..Default::default()
+        };
+        // `dt` == the drain interval (exactly representable: 19·0.0625 = 1.1875),
+        // so every step consumes exactly one breath point.
+        let interval = breath_drain_interval_s();
+        let mut dice = Dice100::new(73);
+        let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], 1.6, 0.3);
+        let mut drowned_on = Vec::new();
+        for frame in 0..max_breath(50) as usize {
+            let outcome = locomotion.step(&input, &body, &world, &mut dice, interval);
+            if outcome.drowned {
+                drowned_on.push(frame);
+            }
+        }
+        assert_eq!(
+            drowned_on,
+            vec![24],
+            "one full drain 25→0: only the tick that reaches 0 drowns"
+        );
+        assert_eq!(locomotion.breath, 0, "the source does not clamp the field");
+
+        // The next tick enters with 0 ⇒ refill to MaxBreath **before** draining,
+        // and it is not a drowning tick. Before this fix the breath stuck at 0
+        // and every submerged tick drowned.
+        let refilled = locomotion.step(&input, &body, &world, &mut dice, interval / 2.0);
+        assert!(!refilled.drowned, "the refill runs before the death check");
+        assert_eq!(locomotion.breath, max_breath(50), "refilled to DeepBreath(MaxBreath)");
+        let drained = locomotion.step(&input, &body, &world, &mut dice, interval / 2.0);
+        assert!(!drained.drowned);
+        assert_eq!(locomotion.breath, max_breath(50) - 1, "and drains normally again");
+
+        // `MaxBreath` 0 (`LiveEndurance` 0): the refill writes 0, so every
+        // draining frame still drowns (`PlayerEntity.cs:339-340`).
+        let fragile = PlayerBody {
+            live_endurance: 0,
+            ..PlayerBody::default()
+        };
+        let mut zero = Locomotion::new([0.0, 0.0, 0.0], 1.6, 0.3);
+        let mut dice = Dice100::new(79);
+        let mut drowns = 0;
+        for _ in 0..3 {
+            if zero.step(&input, &fragile, &world, &mut dice, interval).drowned {
+                drowns += 1;
+            }
+        }
+        assert_eq!(drowns, 3, "MaxBreath 0 drowns on every draining frame");
+    }
+
+    #[test]
     fn levitation_rises_at_four_metres_per_second() {
         let world = FlatWorld::flat();
         let body = PlayerBody::default();
@@ -1352,5 +1722,192 @@ mod tests {
             assert!(!dice.success(0));
             assert!(dice.success(100));
         }
+    }
+
+    #[test]
+    fn jump_edge_is_raised_once_per_started_jump() {
+        // `AcrobatMotor.cs:109`: `jumping = true` only in the frame the input
+        // is consumed. Holding jump must not re-raise it while airborne, and
+        // the landing must not either.
+        let world = FlatWorld::flat();
+        let body = PlayerBody::default();
+        let mut dice = Dice100::new(43);
+        let mut locomotion = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let input = MoveInput {
+            jump: true,
+            ..Default::default()
+        };
+        // `GroundedTime` needs 0.1 s first (`AcrobatMotor.cs:76-77`).
+        let mut raised = Vec::new();
+        let mut takeoffs = Vec::new();
+        let mut airborne = 0;
+        let mut was_grounded = locomotion.mode == MotionMode::Grounded;
+        for frame in 0..140 {
+            let outcome = locomotion.step(&input, &body, &world, &mut dice, 1.0 / 60.0);
+            if outcome.jumped {
+                raised.push(frame);
+            }
+            if was_grounded && outcome.mode == MotionMode::Airborne {
+                takeoffs.push(frame);
+            }
+            was_grounded = outcome.mode == MotionMode::Grounded;
+            if outcome.mode == MotionMode::Airborne {
+                airborne += 1;
+            }
+        }
+        assert!(raised.len() >= 2, "several full jumps over 140 frames: {raised:?}");
+        assert_eq!(raised, takeoffs, "one edge per takeoff, never re-raised in the air");
+        assert!(
+            airborne > raised.len(),
+            "each jump spans several airborne steps: {airborne} airborne vs {} edges",
+            raised.len()
+        );
+    }
+
+    #[test]
+    fn falls_and_ledge_drops_are_not_jumps() {
+        // Falling from 12 m without ever pressing jump: `AcrobatMotor.jumping`
+        // is never set, so the M20 driver must not tally Jumping.
+        let world = FlatWorld::flat();
+        let body = PlayerBody::default();
+        let mut dice = Dice100::new(47);
+        let mut locomotion = Locomotion::new([0.0, 12.0, 0.0], 1.6, 0.3);
+        locomotion.mode = MotionMode::Airborne;
+        locomotion.falling = true;
+        locomotion.fall_start_y = 12.0;
+        let mut steps = 0;
+        for _ in 0..240 {
+            let outcome = locomotion.step(&MoveInput::default(), &body, &world, &mut dice, 1.0 / 60.0);
+            assert!(!outcome.jumped, "a ledge drop is not a jump");
+            steps += 1;
+            if outcome.mode == MotionMode::Grounded {
+                break;
+            }
+        }
+        assert!(steps > 1, "the drop spanned {steps} steps");
+        assert_eq!(locomotion.mode, MotionMode::Grounded);
+
+        // Leaving levitation also turns `Airborne` without a jump.
+        let mut floating = Locomotion::new([0.0, 3.0, 0.0], 1.6, 0.3);
+        let mut dice = Dice100::new(53);
+        let up = MoveInput {
+            levitating: true,
+            jump: true,
+            ..Default::default()
+        };
+        for _ in 0..10 {
+            let outcome = floating.step(&up, &body, &world, &mut dice, 1.0 / 60.0);
+            assert!(!outcome.jumped, "levitating up is not a jump");
+        }
+        assert_eq!(floating.mode, MotionMode::Levitating);
+        let outcome = floating.step(&MoveInput::default(), &body, &world, &mut dice, 1.0 / 60.0);
+        assert_eq!(outcome.mode, MotionMode::Airborne);
+        assert!(!outcome.jumped, "the fall after levitation is not a jump");
+    }
+
+    #[test]
+    fn jumped_jump_is_refused_by_the_grounded_delay() {
+        // `GroundedTime < 0.1f` returns before the input is read
+        // (`AcrobatMotor.cs:76-77`): no jump, no edge.
+        let world = FlatWorld::flat();
+        let body = PlayerBody::default();
+        let mut dice = Dice100::new(59);
+        let mut locomotion = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let input = MoveInput {
+            jump: true,
+            ..Default::default()
+        };
+        let refused = locomotion.step(&input, &body, &world, &mut dice, 0.05);
+        assert!(!refused.jumped, "0.05 s grounded < 0.1 s");
+        assert_eq!(refused.mode, MotionMode::Grounded);
+        let accepted = locomotion.step(&input, &body, &world, &mut dice, 0.06);
+        assert!(accepted.jumped, "0.11 s grounded ≥ 0.1 s");
+        assert_eq!(accepted.mode, MotionMode::Airborne);
+    }
+
+    #[test]
+    fn running_mode_is_latched_while_standing_still() {
+        // `isRunning = CanRun() && runningMode` (`PlayerSpeedChanger.cs:110`)
+        // carries **no** movement test: standing still with Run held is running.
+        let world = FlatWorld::flat();
+        let body = PlayerBody::default();
+        let mut dice = Dice100::new(61);
+        let mut locomotion = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let input = MoveInput {
+            run: true,
+            ..Default::default()
+        };
+        for _ in 0..60 {
+            let outcome = locomotion.step(&input, &body, &world, &mut dice, 1.0 / 60.0);
+            assert!(outcome.running, "Run held standing still");
+            assert!(!outcome.moved, "no movement input");
+        }
+        assert!(locomotion.running_mode);
+    }
+
+    #[test]
+    fn running_mode_survives_the_airborne_steps() {
+        // "you can't switch running on/off while in mid air"
+        // (`PlayerSpeedChanger.cs:113-117`): the resolution only happens on the
+        // ground, so the key released mid-air takes effect after landing.
+        let world = FlatWorld::flat();
+        let body = PlayerBody::default();
+        let mut dice = Dice100::new(67);
+        let mut locomotion = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let run = MoveInput {
+            run: true,
+            ..Default::default()
+        };
+        for _ in 0..7 {
+            assert!(locomotion.step(&run, &body, &world, &mut dice, 1.0 / 60.0).running);
+        }
+        let jump = MoveInput {
+            run: true,
+            jump: true,
+            ..Default::default()
+        };
+        assert!(locomotion.step(&jump, &body, &world, &mut dice, 1.0 / 60.0).jumped);
+        assert_eq!(locomotion.mode, MotionMode::Airborne);
+
+        // Key released in the air: the latch must not follow.
+        let mut airborne_steps = 0;
+        for _ in 0..240 {
+            let outcome = locomotion.step(&MoveInput::default(), &body, &world, &mut dice, 1.0 / 60.0);
+            assert!(outcome.running, "running is kept in the air");
+            if outcome.mode == MotionMode::Airborne {
+                airborne_steps += 1;
+            } else {
+                break;
+            }
+        }
+        assert!(airborne_steps > 0, "the jump must have airborne steps");
+        assert_eq!(locomotion.mode, MotionMode::Grounded);
+
+        // First grounded step after landing: the released key takes effect.
+        let landed = locomotion.step(&MoveInput::default(), &body, &world, &mut dice, 1.0 / 60.0);
+        assert!(!landed.running, "the key is released and the body is grounded");
+        assert!(!locomotion.running_mode);
+        // And pressing it again on the ground raises it on the next step.
+        let pressed = locomotion.step(&run, &body, &world, &mut dice, 1.0 / 60.0);
+        assert!(pressed.running);
+    }
+
+    #[test]
+    fn running_mode_stays_off_when_the_key_is_never_pressed() {
+        let world = FlatWorld::flat();
+        let body = PlayerBody::default();
+        let mut dice = Dice100::new(71);
+        let mut locomotion = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let jump = MoveInput {
+            jump: true,
+            ..Default::default()
+        };
+        let mut jumped = false;
+        for _ in 0..240 {
+            let outcome = locomotion.step(&jump, &body, &world, &mut dice, 1.0 / 60.0);
+            jumped |= outcome.jumped;
+            assert!(!outcome.running, "Run was never pressed");
+        }
+        assert!(jumped, "the jump must have happened");
     }
 }

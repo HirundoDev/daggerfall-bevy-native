@@ -67,13 +67,32 @@ pub(crate) fn starting_inventory() -> InventoryLite {
     }
 }
 
+/// DFU shop catalogue cost (`FormulaHelper.CalculateCost`,
+/// `FormulaHelper.cs:1868-1883`): `c = max(c,1)` →
+/// `ApplyRegionalPriceAdjustment` (identity without a location,
+/// `:2010-2028`) → `c = 2 * (c*(quality-10)/100 + c)` with `int` truncation.
+///
+/// **First stage of the retail price.** DFU charges
+/// `CalculateTradePrice(CalculateCost(item.value, quality), quality, selling)`:
+/// `DaggerfallTradeWindow.UpdateCostAndGold` builds the basket with
+/// `CalculateCost(item.value, buildingDiscoveryData.quality)`
+/// (`DaggerfallTradeWindow.cs:443,462-466`) and `GetTradePrice` applies the
+/// bargaining formula on top (`:493-505` → `FormulaHelper.cs:1960-1988`).
+/// This step lives in `behavior::durability` because the repair path already
+/// ports the same function (`durability.rs:93`); the app composes both stages
+/// (no organ calls another).
+pub(crate) fn dfu_shop_cost(base_value: i32) -> i32 {
+    daggerfall_behavior::durability::calculate_cost(base_value, SHOP_QUALITY)
+}
+
 /// DFU BUY price of a catalog item (`selling=false`) with the M5 parameters
-/// (shopQuality/mercantile/personality). Single source of truth: the probe
-/// (check B3/B6) and the M5 window (title bar + B key) pay exactly this
-/// number — 0 probe↔window divergence.
+/// (shopQuality/mercantile/personality): the **complete** two-stage retail
+/// price (`CalculateCost` then `CalculateTradePrice`). Single source of truth:
+/// the probe (check B3/B6) and the M5 window (title bar + B key) pay exactly
+/// this number — 0 probe↔window divergence.
 pub(crate) fn dfu_buy_price(base_cost: i32) -> i32 {
     daggerfall_skills::formula::calculate_trade_price(
-        base_cost,
+        dfu_shop_cost(base_cost),
         SHOP_QUALITY,
         false,
         PLAYER_MERCANTILE,
@@ -81,11 +100,11 @@ pub(crate) fn dfu_buy_price(base_cost: i32) -> i32 {
     )
 }
 
-/// DFU SELL price of a good (`selling=true`) — same formula and parameters;
-/// single source of truth probe (B5) ↔ window (V key).
+/// DFU SELL price of a good (`selling=true`) — same two-stage price and
+/// parameters; single source of truth probe (B5) ↔ window (V key).
 pub(crate) fn dfu_sell_price(base_value: &i32) -> i32 {
     daggerfall_skills::formula::calculate_trade_price(
-        *base_value,
+        dfu_shop_cost(*base_value),
         SHOP_QUALITY,
         true,
         PLAYER_MERCANTILE,
@@ -119,12 +138,17 @@ pub fn run_commerce_probe(
 
     // ── A1: enter the shop (street → lane → door → interior march)
     let eye0 = [street_point[0], street_point[1] + EYE_HEIGHT_M, street_point[2]];
-    let r1 = march_axis(&grid, eye0, 2, -1.0, 6.0);
-    let r2 = march_axis(&grid, r1.pos, 0, -1.0, 7.0);
-    let r3 = march_axis(&grid, r2.pos, 2, 1.0, 13.0);
-    let r4 = march_axis(&grid, r3.pos, 2, 1.0, 18.0);
-    let r5 = march_axis(&grid, r4.pos, 0, -1.0, 3.0);
+    let r1 = march_axis(&world_m5, &grid, eye0, 2, -1.0, 6.0);
+    let r2 = march_axis(&world_m5, &grid, r1.pos, 0, -1.0, 7.0);
+    let r3 = march_axis(&world_m5, &grid, r2.pos, 2, 1.0, 13.0);
+    let r4 = march_axis(&world_m5, &grid, r3.pos, 2, 1.0, 18.0);
+    let r5 = march_axis(&world_m5, &grid, r4.pos, 0, -1.0, 3.0);
     let walk_violations = r1.violations + r2.violations + r3.violations + r4.violations + r5.violations;
+    let walk_samples = r1.oracle_samples
+        + r2.oracle_samples
+        + r3.oracle_samples
+        + r4.oracle_samples
+        + r5.oracle_samples;
     let stance = r5.pos;
     checks.push(ProbeCheck {
         id: "enter_shop_walk",
@@ -134,7 +158,8 @@ pub fn run_commerce_probe(
             && grid.is_free(stance, PLAYER_RADIUS_M),
         detail: format!(
             "{street_name} → lane x=7 → z=18 → interior (5 marches of 0.25 m) · \
-             targets reached {reached}/5 · violations={walk_violations} (0 req) · \
+             targets reached {reached}/5 · violations={walk_violations} (0 req, geometry oracle) · \
+             oracle samples={walk_samples} · \
              region=interior={inside} · free={free} · interaction pos=({:.2},{:.2},{:.2}) · \
              steps R1={s1} R2={s2} R3={s3} R4={s4} R5={s5}",
             stance[0], stance[1], stance[2],
@@ -249,7 +274,7 @@ pub fn run_commerce_probe(
     // ── B1: dialogue opens ONLY on valid interaction (E key) ─────────────
     let mut session = TradeSession::new(merchant_stock(), starting_inventory());
     let mut b1_ok = hit_wall.is_none() && hit_valid.is_some();
-    let gate = session.buy("potion", 45);
+    let gate = session.buy("potion", dfu_buy_price(80));
     b1_ok &= gate == Err(TradeError::DialogueClosed);
     if hit_valid.is_some() {
         session.open_dialogue();
@@ -294,14 +319,14 @@ pub fn run_commerce_probe(
     let gold_after = session.inventory.gold;
     checks.push(ProbeCheck {
         id: "buy_deducts_gold_and_adds_item",
-        ok: bought == Ok(45)
+        ok: bought == Ok(90)
             && gold_after == gold_before - price
             && gold_after < gold_before
             && session.inventory.count("potion") == 1,
         detail: format!(
-            "DFU price = CalculateTradePrice(80,q10,buy,merc50,pers50) = {price} · \
-             buy → {bought:?} · gold {gold_before} → {gold_after} (Δ={}, req −{price}) · \
-             potions 0 → {} (req +1) · shop stock 5 → {}",
+            "DFU price = CalculateTradePrice(CalculateCost(80,q10)=160,q10,buy) = {price} \
+             (req 90) · buy → {bought:?} · gold {gold_before} → {gold_after} \
+             (Δ={}, req −{price}) · potions 0 → {} (req +1) · shop stock 5 → {}",
             gold_after - gold_before,
             session.inventory.count("potion"),
             session.merchant.item("potion").map(|i| i.stock).unwrap_or(-1),
@@ -312,15 +337,16 @@ pub fn run_commerce_probe(
     let mut poor = TradeSession::new(merchant_stock(), InventoryLite::new(5));
     poor.open_dialogue();
     let poor_gold = poor.inventory.gold;
-    let rejected = poor.buy("potion", 45);
+    let price = dfu_buy_price(80);
+    let rejected = poor.buy("potion", price);
     checks.push(ProbeCheck {
         id: "buy_insufficient_gold_rejected",
         ok: rejected == Err(TradeError::NotEnoughGold)
             && poor.inventory.gold == poor_gold
             && poor.inventory.count("potion") == 0,
         detail: format!(
-            "gold=5 < price 45 → {rejected:?} (req NotEnoughGold) · gold after attempt={} (intact) \
-             · potions={} (0 added) — 0 mutation on Err",
+            "gold=5 < price {price} → {rejected:?} (req NotEnoughGold) · gold after attempt={} \
+             (intact) · potions={} (0 added) — 0 mutation on Err",
             poor.inventory.gold,
             poor.inventory.count("potion"),
         ),
@@ -334,39 +360,59 @@ pub fn run_commerce_probe(
     let resell = session.sell("furs", sell_price);
     checks.push(ProbeCheck {
         id: "sell_credits_gold_and_removes_good",
-        ok: sold == Ok(25)
+        ok: sold == Ok(50)
             && gold_end == gold_mid + sell_price
             && session.inventory.count("furs") == 0
             && resell == Err(TradeError::NotOwned)
             && session.inventory.gold == gold_end,
         detail: format!(
-            "DFU sell price = CalculateTradePrice(50,q10,sell,50,50) = {sell_price} · sell → \
-             {sold:?} · gold {gold_mid} → {gold_end} (Δ=+{sell_price}) · furs 1 → 0 · \
-             resale → {resell:?} (req NotOwned, gold intact {gold_end})",
+            "DFU sell price = CalculateTradePrice(CalculateCost(50,q10),q10,sell,50,50) = \
+             {sell_price} (req 50) · sell → {sold:?} · gold {gold_mid} → {gold_end} \
+             (Δ=+{sell_price}) · furs 1 → 0 · resale → {resell:?} (req NotOwned, gold intact {gold_end})",
         ),
     });
 
     // ── B6: the paid prices are the pure DFU formula (N2 link) ──────────
-    let buy_price = daggerfall_skills::formula::calculate_trade_price(
+    // The item-level price is the TWO-stage DFU pipeline:
+    // `CalculateCost(value, quality)` (`DaggerfallTradeWindow.cs:443,462-466`)
+    // fed into `CalculateTradePrice(cost, quality, selling)` (`:493-505`).
+    let potion_shelf_cost = dfu_shop_cost(80);
+    let fur_shelf_cost = dfu_shop_cost(PIELES_BASE_VALUE);
+    let buy_price = dfu_buy_price(80);
+    let sell_again = dfu_sell_price(&PIELES_BASE_VALUE);
+    // Same inputs, one stage only: the number the engine charged BEFORE the
+    // fix (≈½ of retail). Kept as an explicit anti-regression anchor.
+    let buy_without_cost = daggerfall_skills::formula::calculate_trade_price(
         80, SHOP_QUALITY, false, PLAYER_MERCANTILE, PLAYER_PERSONALITY,
     );
-    let sell_again = daggerfall_skills::formula::calculate_trade_price(
-        50, SHOP_QUALITY, true, PLAYER_MERCANTILE, PLAYER_PERSONALITY,
+    let sell_without_cost = daggerfall_skills::formula::calculate_trade_price(
+        PIELES_BASE_VALUE, SHOP_QUALITY, true, PLAYER_MERCANTILE, PLAYER_PERSONALITY,
     );
-    let golden_buy = daggerfall_skills::formula::GOLDEN_VECTORS
-        .iter()
-        .any(|v| v.cost == 80 && v.shop_quality == SHOP_QUALITY && !v.selling && v.expected == buy_price);
-    let golden_sell = daggerfall_skills::formula::GOLDEN_VECTORS
-        .iter()
-        .any(|v| v.cost == 50 && v.shop_quality == SHOP_QUALITY && v.selling && v.expected == sell_again);
+    let golden_shelf_sell = daggerfall_skills::formula::GOLDEN_VECTORS.iter().any(|v| {
+        v.cost == fur_shelf_cost
+            && v.shop_quality == SHOP_QUALITY
+            && v.selling
+            && v.expected == sell_again
+    });
     checks.push(ProbeCheck {
         id: "trade_price_is_dfu_formula",
-        ok: buy_price == 45 && sell_again == 25 && buy_price == price && sell_again == sell_price
-            && golden_buy && golden_sell,
+        ok: potion_shelf_cost == 160
+            && fur_shelf_cost == 100
+            && buy_price == 90
+            && sell_again == 50
+            && buy_without_cost == 45
+            && sell_without_cost == 25
+            && buy_price == price
+            && sell_again == sell_price
+            && golden_shelf_sell,
         detail: format!(
-            "buy={buy_price} · sell={sell_again} · determinism (2nd call) identical to the \
-             prices paid in B3/B5 ✓ · present in skills GOLDEN_VECTORS: buy={golden_buy} \
-             sell={golden_sell} (INV-L99-3: outcome = rules(stats), 0 randomness, 0 state)",
+            "CalculateCost(80,q10)=160 (FormulaHelper.cs:1868-1883) → buy={buy_price} \
+             (req 90) · CalculateCost(50,q10)={fur_shelf_cost} → sell={sell_again} (req 50) · \
+             one-stage control (the pre-fix price) = {buy_without_cost}/{sell_without_cost} \
+             (45/25, ≈½ retail) · determinism (2nd call) identical to the prices paid in \
+             B3/B5 ✓ · the sell shelf cost is a skills GOLDEN_VECTORS input \
+             (cost={fur_shelf_cost}→{sell_again})={golden_shelf_sell} (INV-L99-3: outcome = \
+             rules(stats), 0 randomness, 0 state)",
         ),
     });
 
@@ -442,9 +488,9 @@ pub fn run_commerce_001() -> i32 {
     if report.pass && formula.pass {
         println!(
             "M5 VE: interactive commerce — {passed}/{total} checks · NPC Vendel (solid box) \
-             · dialogue+menu [B]/[V] with gold {STARTING_GOLD} → buy potion 45 → gold \
-             deducted + item added · sell furs +25 · prices = DFU CalculateTradePrice \
-             (11 golden vectors)"
+             · dialogue+menu [B]/[V] with gold {STARTING_GOLD} → buy potion 90 → gold \
+             deducted + item added · sell furs +50 · prices = DFU CalculateCost + \
+             CalculateTradePrice (11 golden vectors)"
         );
         println!("VERDICT: PROBE-COMMERCE-001 PASS - enter→interact→buy (gold−item) + DFU formula");
         0
@@ -543,5 +589,62 @@ mod tests {
             "the check that must break is merchant_solid_in_shop (NPC outside the interior); failed: {failed:?}"
         );
         eprintln!("anti-false-positive: failed checks with tampered NPC = {failed:?}");
+    }
+
+    /// M5 retail price is the **two-stage** DFU pipeline, in the source's order:
+    /// `CalculateCost(item.value, quality)` (`FormulaHelper.cs:1868-1883`, the
+    /// basket stage of `DaggerfallTradeWindow.cs:443,462-466`) and then
+    /// `CalculateTradePrice(cost, quality, selling)` (`FormulaHelper.cs:1960-1988`,
+    /// `DaggerfallTradeWindow.cs:493-505`).
+    ///
+    /// Each row pins the intermediate **and** the final number, so a regression
+    /// to the one-stage price (what the engine charged before the fix: ≈½ of
+    /// retail) fails on values, not on a self-comparison.
+    #[test]
+    fn shop_prices_are_the_two_stage_dfu_pipeline() {
+        // (id, base value, CalculateCost(base, 10), final retail price, one-stage price)
+        // CalculateCost(c,10) = 2*(c*(10-10)/100 + c) = 2c (FormulaHelper.cs:1868-1883).
+        // Buy  = ((192*dm>>8) + (dp>>8)) * c >> 8 with dm=144, dp=9216 ⇒ 144*c>>8.
+        // Sell = ((179*dm>>8) + (51*dp>>8)) * c >> 8 with dm=dp=144 ⇒ 128*c>>8.
+        let buy_rows = [("potion", 80, 160, 90, 45), ("torch", 12, 24, 13, 6), ("longsword", 300, 600, 337, 168)];
+        for (id, base, shelf, retail, one_stage) in buy_rows {
+            assert_eq!(dfu_shop_cost(base), shelf, "{id}: CalculateCost stage");
+            assert_eq!(dfu_buy_price(base), retail, "{id}: CalculateTradePrice stage");
+            assert_eq!(
+                daggerfall_skills::formula::calculate_trade_price(
+                    base, SHOP_QUALITY, false, PLAYER_MERCANTILE, PLAYER_PERSONALITY
+                ),
+                one_stage,
+                "{id}: the one-stage control is the pre-fix price"
+            );
+            assert_ne!(dfu_buy_price(base), one_stage, "{id}: the two stages must differ");
+        }
+        // The sale uses the same two stages with `selling = true`.
+        assert_eq!(dfu_shop_cost(PIELES_BASE_VALUE), 100);
+        assert_eq!(dfu_sell_price(&PIELES_BASE_VALUE), 50);
+        assert_eq!(
+            daggerfall_skills::formula::calculate_trade_price(
+                PIELES_BASE_VALUE, SHOP_QUALITY, true, PLAYER_MERCANTILE, PLAYER_PERSONALITY
+            ),
+            25,
+            "one-stage sale = the pre-fix price"
+        );
+        // The probe catalogue and the window share these helpers: every catalog
+        // item is priced through the same two stages (no second convention).
+        for item in merchant_stock().items {
+            assert!(
+                dfu_shop_cost(item.base_cost) >= item.base_cost,
+                "{}: the shelf stage never lowers the base value",
+                item.id
+            );
+            assert_ne!(
+                dfu_buy_price(item.base_cost),
+                daggerfall_skills::formula::calculate_trade_price(
+                    item.base_cost, SHOP_QUALITY, false, PLAYER_MERCANTILE, PLAYER_PERSONALITY
+                ),
+                "{}: the catalogue price is not the one-stage price",
+                item.id
+            );
+        }
     }
 }

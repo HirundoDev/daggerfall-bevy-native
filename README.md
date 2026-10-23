@@ -7,28 +7,60 @@ reproduction with golden vectors instead of screenshots.
 The engine itself contains **no game data**. It reads a copy of Daggerfall that you already own and
 keep outside this repository. See [Data, legal and trademarks](docs/acknowledgments/legal-and-trademarks.md).
 
-> **Project status (honest):** M0–M26 are closed at technical level. The only closure still missing is
-> the **owner-signed side-by-side review** of M18 — the global acceptance gate — so no `M18` tag exists
-> yet and the **0.0.0** release line ("living country, fully offline") remains in progress.
+> **Release status (honest): `v0.1.0-alpha` — pre-release, M18 is still open.** M0–M29 exist and
+> each has a recorded technical closure. The only closure still missing is the **owner-signed
+> side-by-side review** of M18 — the global acceptance gate — whose 21 acceptance rows measured on
+> the real window are **3 PASS · 6 PARTIAL · 12 NO**. So this alpha carries **no `M18` tag**, makes
+> **no claim of full visual parity** with the original game, and the **0.0.0** release line ("living
+> country, fully offline") remains in progress. A technical closure is not an accepted milestone,
+> and this README does not blur the two.
+
+## What `v0.1.0-alpha` means
+
+This is the first public pre-release. The mechanism is playable end to end and every claim below is
+backed by an executable probe or golden vector, but the acceptance gate is unsigned and part of the
+presentation is not at parity. Concretely:
+
+- **In the alpha:** the retail data layer (M10–M18, including the full-map index over all 15,251
+  locations); the gameplay organs from M19–M29 — locomotion, character, items, combat, magic,
+  enchanting, monsters, NPCs, factions, law and quests; the 1996-style UI shell; save/load; and the
+  probe/CI harness that measures all of it.
+- **Measured and below the acceptance bar:** M2, M5, M11, M12 and M19 on named parity defects, and
+  M18 because its closure is the owner's signature (**3 PASS · 6 PARTIAL · 12 NO**, 12 rows still
+  NO). The tally is published in [Status](docs/acknowledgments/status.md#final-re-audit-of-the-campaign-m0m29).
+- **Not in the alpha:** M30 economy and banking is **frozen** (written specification, no code);
+  M31–M34 — travel/weather/calendar, conditions/death/rest, total savegame and end-to-end UI
+  integration — are specified and **not implemented**; and the visual side-by-side against the
+  original has not been signed.
+- **No parity claim:** nothing here should be read as "visually identical to Daggerfall", "feature
+  complete" or "release quality". What is verified is the mechanism, probe by probe.
 
 ## Status: what is actually done
 
 M0–M17 are closed and tagged. M18 passed its **technical** closure on 2026-10-20 (`PROBE-MAP-001`
-resolves all **15,251** locations of `MAPS.BSA`), and M19–M27 each closed at technical level after,
-adding its probe to the suite. At the M27 close, QA re-measured **582 tests passed / 0 failed**
-(cargo binaries, twice), clippy is clean for both headless and `--features window`, the
-content/trademark scans are 0/0/0, and the anti-screen probe suite prints **28/28**.
+resolves all **15,251** locations of `MAPS.BSA`); its 21 acceptance rows were then measured on the
+real window (**3 PASS · 6 PARTIAL · 12 NO**) and the owner's signature is pending. M19–M29 each
+closed at technical level, each adding its probes to the suite. At the M29 close: **854 tests passed
+/ 0 failed**, clippy clean for both headless and `--features window`, the content/trademark scans are
+0/0/0, the CI runner is **PASS (3/3)** and the anti-screen probe suite prints **37/37**. The global
+verification of M9 re-measures **19/19 = 1.00** with its full denominator (the earlier `15/15` claim
+excluded four critical rows; the erratum is recorded in [Status](docs/acknowledgments/status.md)).
 
 - **Closed with evidence:** M19 locomotion · M20 stats/skills · M21 items, equipment and loot ·
   M22 combat · M23 magic · M24 enchanting/alchemy · M25 monsters, enemy AI and encounters ·
-  M26 living NPCs (schedules, faction dialogue, `RUMOR.DAT` rumours), which took the suite from 26 to
-  27 probes · M27 guilds and factions (`FACTION.TXT` graph, reputation with tree propagation, ranks 0–9
-  and per-rank services), which took the suite from 27 to 28 probes. The requirements each milestone
-  closes are recorded with their acceptance checks.
-- **In flight:** nothing at code level. Owner signature and tag are pending for M18–M27 alike.
-- **Specified, not implemented:** M28–M34 — crime/law/courts, playable quests, economy/banking,
-  travel/weather/calendar, conditions/death/rest, total savegame and integration.
-  Each has a written specification and no code.
+  M26 living NPCs (schedules, faction dialogue, `RUMOR.DAT` rumours) · M27 guilds and factions
+  (`FACTION.TXT` graph, reputation with tree propagation, ranks 0–9 and per-rank services) ·
+  M28 crime, law and courts (penalty clamps, legal reputation, guards, sentence and prison clock) ·
+  M29 playable retail quests (the `QBN` opcode interpreter, clocks, journal and lifecycle). The
+  requirements each milestone closes are recorded with their acceptance checks.
+- **Measured, not assumed:** a final re-audit re-ran every probe and gate on the campaign head and
+  put six milestones below the acceptance bar — M2, M5, M11, M12 and M19 on named parity defects, and
+  M18 because its closure is the owner's signature. The tally and the residual defects are published
+  in [Status](docs/acknowledgments/status.md#final-re-audit-of-the-campaign-m0m29).
+- **In flight:** nothing at code level. Owner signature and tag are pending for M18–M29 alike.
+- **Frozen:** M30 economy and banking — a written specification, no code, frozen by owner decision.
+- **Specified, not implemented:** M31–M34 — travel/weather/calendar, conditions/death/rest, total
+  savegame, and end-to-end integration with the full UI. One written specification each, no code.
 - **Design landed 2026-10-21 (no code):** instance taxonomy and biomes, procedural classification and
   asset modularity, and a generative-asset catalogue with a VRAM budget — design only.
 
@@ -70,8 +102,9 @@ one. **MIT** is part of that decision — an architecture constraint, not paperw
   copy), and not the pinned Daggerfall Unity corpus under `reference/dfu-spec/` (its own MIT notice).
 
 What a derived game inherits today is the **verified mechanism**, not a finished RPG: M10–M18 closed
-the retail data layer and M19–M26 the first game-rule organs, each probe-backed; M27–M34 are
-specified and not implemented. A fork is welcome to start from exactly what is measurable.
+the retail data layer, M19–M29 the game-rule organs (locomotion, character, items, combat, magic,
+enchanting, monsters, NPCs, factions, law and quests), each probe-backed; M30 is frozen and M31–M34
+are specified and not implemented. A fork is welcome to start from exactly what is measurable.
 
 ## Community: grow, don't divide
 
@@ -110,20 +143,23 @@ months; without them it would have taken years. That is the entire case for a th
 
 The engine reproduces the **world and its data**; since M19 it also reproduces a growing part of the
 **game rules**. The M10–M18 tramo closed the *data* DoD (retail city, interiors, textures, terrain,
-audio, NPC population, text/quest containers, UI assets), and M19–M25 added locomotion and the body,
-live stats and skills, items/equipment/loot, combat, magic, enchanting and alchemy, and monsters with
-enemy AI.
+audio, NPC population, text/quest containers, UI assets), and M19–M29 added locomotion and the body,
+live stats and skills, items/equipment/loot, combat, magic, enchanting and alchemy, monsters with
+enemy AI, living NPCs with dialogue and rumours, guilds and factions, crime/law/courts, and playable
+retail quests.
 
 A 49-system gameplay checklist still carries the split measured **before** that tramo — **2 covered /
 15 partial / 32 missing** — and has not been re-measured; what is verified is the probe and
 requirement record in [Status: what is actually done](docs/acknowledgments/status.md), not a percentage.
 
-**Still missing — the rest of the gameplay-parity phase (M27–M34), not “out of scope”:** guilds and
-factions, crime/law/courts, playable retail quests (the QBN opcode interpreter), the full economy
-(shops, inns, banking, transport), fast travel/weather/calendar, diseases/vampirism/lycanthropy, rest
-and death, a save that covers every system, and the remaining 81 UI windows. **“100% of the data DoD”
-is not “100% of the game.”** That distinction, the module proposals M19–M34 and the cost decision
-behind their order are recorded with the plan in [Roadmap](docs/acknowledgments/roadmap.md).
+**Still missing — the rest of the gameplay-parity phase (M30–M34), not “out of scope”:** the full
+economy (shops, inns, banking, transport; the milestone is frozen at specification), fast
+travel/weather/calendar, diseases/vampirism/lycanthropy, rest and death, a save that covers every
+system, and the remaining UI windows. Guilds and factions (M27), crime/law/courts (M28) and playable
+retail quests (M29) are implemented and probe-backed; their parity defects found by the final re-audit
+are named in [Status](docs/acknowledgments/status.md). **“100% of the data DoD” is not “100% of the
+game.”** That distinction, the module proposals M19–M34 and the cost decision behind their order are
+recorded with the plan in [Roadmap](docs/acknowledgments/roadmap.md).
 
 ## Why Bevy — and why not build on Daggerfall Unity or DaggerfallJS
 
@@ -144,7 +180,7 @@ the reasons are technical, not tribal, and each one names the cost it accepts.
   crate, and the 🧠 memory organ owns the loaded-chunk set plus its save/restore — lifetimes checked at
   compile time instead of discovered by a profiler.
 - **Headless by construction.** The app builds with `default-features = false`; `window` is additive,
-  so probes run with no window and no GPU — which is what makes the 27-probe suite CI-usable.
+  so probes run with no window and no GPU — which is what makes the 37-entry suite CI-usable.
 - **No proprietary runtime; MIT all the way down.** A Bevy application is a native binary — no engine
   runtime licence, no vendor seat, no editor project to migrate — and Bevy, parser, organs, the DFU
   spec corpus and this engine share one licence family: no copyleft boundary, no runtime EULA.
@@ -232,12 +268,18 @@ makes the project controllable by agents. The loop:
    parser is a leaf, so an automated edit stays local and a render-side patch cannot reach game
    rules.
 3. **Probe.** A claim counts once it executes: `./scripts/launch.sh --probe ALL-001` runs the
-   anti-screen probe suite (**27/27** at the M26 close) and `cargo test --workspace` measured **534
+   anti-screen probe suite (**37/37** at the M29 close) and `cargo test --workspace` measured **854
    passed / 0 failed** there. Golden vectors and digests — 0 ULP on the Perlin port, FNV-1a64
    texture vectors, map and population digests — stop a bug from certifying itself.
 4. **Gate.** The battery listed under [Contributing](#contributing), plus the method's position gate:
    the declared position of a milestone must be met by a recorded, mechanical result before the next
    one opens.
+
+**Open-weight models, no shipped weights.** The loop is driven by open-weight models through a local
+harness. No model weights, training data, prompts or inference runtime ship in this repository, and
+the engine has no inference dependency at runtime: a released binary needs `cargo`, your data and
+nothing else. Nothing in the AI tooling is load-bearing for the product, which is why the loop can be
+reproduced or replaced without touching the game.
 
 **Registers, so state survives the session.** `ASSET-REGISTRY.json` (hashes only),
 `DATA-CLASSIFICATION.md` and the per-milestone record keep state readable at session start and
@@ -313,6 +355,29 @@ export DF_APP_ROOT="$HOME/Games/Daggerfall/app"
 ./scripts/launch.sh --mode preview --headless  # fast debug build, no window (default mode)
 ```
 
+The launcher, its modes, flags and exit codes are documented in
+[The launcher](docs/acknowledgments/launcher.md).
+
+## Bring your own data (BYOA)
+
+**Nothing is downloaded and nothing is redistributed.** The repository ships code, tests, probes and
+documentation; the game data stays on your disk, where you installed it.
+
+- **No assets in the tree.** No `.BSA`, `.DAT`, `.RSC`, `.IMG/.CIF`, `.FNT`, `.CFG`, `.QBN/.QRC`,
+  texture, palette or sound file is committed, and CI rejects them if they appear
+  (`scripts/ci/content-scan.sh`, threshold zero).
+- **What *is* committed** is metadata: `ASSET-REGISTRY.json` records 492 assets by path, size and
+  SHA-256 so a run can prove which copy it read; `DATA-CLASSIFICATION.md` states the policy.
+- **One variable points at your install.** `DF_APP_ROOT` (or `--data-root`) is the only thing the
+  engine needs; `PathChecker` resolves the archives by offset at runtime.
+- **Two modes, declared.** Mode A reads your Daggerfall installation. Mode B (custom universe) is an
+  explicit, separate mode that must not open retail archives — measured by
+  `PROBE-MODB-ISOLATION-001`, which asserts zero `.BSA` opens.
+- **Why it is built this way.** Daggerfall is freeware, not public domain: free to download, not free
+  to redistribute its assets. Distribution without game bytes is the only form this project can ship
+  in, and it is also the form that keeps the legal position clean. See
+  [Data, legal and trademarks](docs/acknowledgments/legal-and-trademarks.md).
+
 ## Architecture
 
 The workspace is deliberately layered: the application composes; the organs do not call each other;
@@ -359,7 +424,8 @@ the per-milestone status, the verification method, the legal position and the ro
 - [Data, legal and trademarks](docs/acknowledgments/legal-and-trademarks.md) — code license, why game data is not MIT, third-party source, marks.
 - [Why not build on Daggerfall Unity or DaggerfallJS](docs/acknowledgments/why-not-dfu-or-daggerfalljs.md) — the long-form comparison.
 - [How parity is verified](docs/acknowledgments/parity-verification.md) — sources of truth, golden vectors, probe suite, CI guardrails.
-- [Status: what is actually done](docs/acknowledgments/status.md) — full M0–M26 record and known gaps.
+- [Status: what is actually done](docs/acknowledgments/status.md) — full M0–M29 record, the campaign
+  re-audit and the known gaps.
 - [Roadmap](docs/acknowledgments/roadmap.md) · [The launcher](docs/acknowledgments/launcher.md) — stage detail; modes, flags, exit codes.
 - [Crates, data custody and determinism](docs/acknowledgments/crates-and-determinism.md) — 13 members, Mode A/B, determinism rules.
 - [Architecture](ARCHITECTURE.md) — the construction method, the alternatives it rejects and why, its costs and open gaps.

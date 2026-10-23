@@ -32,6 +32,7 @@
 
 use daggerfall_behavior::locomotion::Dice100;
 
+use crate::equipment::{EquipResult, ItemEquipTable};
 use crate::items::{
     apply_armor_material, apply_weapon_material, group_indices, Item, ItemGroup, ItemTemplate,
 };
@@ -288,8 +289,10 @@ const ARMOR_SLOTS: i32 = 11;
 /// `ItemBuilder.materialsByModifier` (`ItemBuilder.cs:42`).
 const MATERIALS_BY_MODIFIER: [i32; 10] = [64, 128, 10, 21, 13, 8, 5, 3, 2, 5];
 
-/// `RandomMaterial` (`FormulaHelper.cs:2102-2129`).
-fn random_material(rng: &mut Rng64, level: i32) -> usize {
+/// `RandomMaterial` (`FormulaHelper.cs:2102-2129`). Public because
+/// `ItemHelper.AssignEnemyStartingEquipment` rolls it directly
+/// (`ItemHelper.cs:1392`, `:1402`, `:1411`, `:1420`).
+pub fn random_material(rng: &mut Rng64, level: i32) -> usize {
     let level_modifier = if level - 10 >= 0 {
         (level - 10).saturating_mul(2)
     } else {
@@ -307,8 +310,9 @@ fn random_material(rng: &mut Rng64, level: i32) -> usize {
 }
 
 /// `RandomArmorMaterial` (`FormulaHelper.cs:2136-2156`): 0x0000 Leather,
-/// 0x0100 Chain, or `0x0200 + RandomMaterial` plate.
-fn random_armor_material(rng: &mut Rng64, level: i32) -> i32 {
+/// 0x0100 Chain, or `0x0200 + RandomMaterial` plate. Public for the same
+/// reason as [`random_material`].
+pub fn random_armor_material(rng: &mut Rng64, level: i32) -> i32 {
     let roll = rng.range_inclusive(1, 100); // Dice100.Roll()
     if roll >= 90 {
         0x0200 + random_material(rng, level) as i32
@@ -337,31 +341,207 @@ fn item_from_group(templates: Option<&[ItemTemplate]>, group: ItemGroup, positio
     item_at(templates, index)
 }
 
+/// `ItemBuilder.CreateWeapon` (`ItemBuilder.cs:352-370`) with the caller's
+/// template index (a `Weapons` id, `ItemEnums.cs:210-231`) and material:
+/// the exact item `AssignEnemyStartingEquipment` asks for (`:1392`).
+/// Arrows never reach here (the enemy kit has none), so the arrow branch of
+/// `:359-364` is not reproduced.
+pub fn create_weapon(
+    index: usize,
+    material: usize,
+    templates: Option<&[ItemTemplate]>,
+) -> Item {
+    let mut item = item_at(templates, index);
+    apply_weapon_material(&mut item, material);
+    item
+}
+
+/// `ItemBuilder.CreateArmor` (`ItemBuilder.cs:428-437`) with the caller's
+/// template index (an `Armor` id, `ItemEnums.cs:195-208`) and material.
+/// Gender/race only set texture archives (`:466-475`), a declared M21 delta
+/// (see the module note): the armour values consume the material only.
+pub fn create_armor(index: usize, material: i32, templates: Option<&[ItemTemplate]>) -> Item {
+    let mut item = item_at(templates, index);
+    apply_armor_material(&mut item, material);
+    item
+}
+
 /// `CreateRandomWeapon` + `CreateWeapon` arrow branch
 /// (`ItemBuilder.cs:360-410`).
 fn random_weapon(rng: &mut Rng64, level: i32, templates: Option<&[ItemTemplate]>) -> Item {
     let group_index = rng.range_inclusive(0, WEAPON_SLOTS - 1);
-    let mut item = item_at(templates, 113 + group_index as usize);
 
     // The source rolls the material before the arrow branch (`:398-409`).
     let material = random_material(rng, level);
     if group_index as u16 == ARROW_GROUP_INDEX {
+        let mut item = item_at(templates, 113 + group_index as usize);
         item.stack_count = rng.range_inclusive(1, 20);
         item.current_condition = 0; // classic does this (`:402`)
         item.native_material = 0;
+        item
     } else {
-        apply_weapon_material(&mut item, material);
+        create_weapon(113 + group_index as usize, material, templates)
     }
-    item
 }
 
 /// `CreateRandomArmor` + `ApplyArmorSettings` (`ItemBuilder.cs:446-507`).
 fn random_armor(rng: &mut Rng64, level: i32, templates: Option<&[ItemTemplate]>) -> Item {
     let group_index = rng.range_inclusive(0, ARMOR_SLOTS - 1);
-    let mut item = item_at(templates, 102 + group_index as usize);
     let material = random_armor_material(rng, level);
-    apply_armor_material(&mut item, material);
-    item
+    create_armor(102 + group_index as usize, material, templates)
+}
+
+// ── enemy starting equipment (`ItemHelper.AssignEnemyStartingEquipment`) ───
+
+/// `Weapons` ids the enemy kit draws from (`ItemEnums.cs:210-231`).
+const WEAPON_DAGGER: i32 = 113;
+const WEAPON_SHORTSWORD: i32 = 116;
+const WEAPON_BROADSWORD: i32 = 118;
+const WEAPON_LONGSWORD: i32 = 120;
+const WEAPON_CLAYMORE: i32 = 122;
+const WEAPON_BATTLE_AXE: i32 = 127;
+
+/// `Armor` ids the enemy kit draws from (`ItemEnums.cs:195-208`).
+const ARMOR_CUIRASS: i32 = 102;
+const ARMOR_GREAVES: i32 = 104;
+const ARMOR_LEFT_PAULDRON: i32 = 105;
+const ARMOR_RIGHT_PAULDRON: i32 = 106;
+const ARMOR_HELM: i32 = 107;
+const ARMOR_BOOTS: i32 = 108;
+const ARMOR_BUCKLER: i32 = 109;
+const ARMOR_ROUND_SHIELD: i32 = 110;
+
+/// `SetEnemyEquipment(variant)` of `EnemyEntity` (`EnemyEntity.cs:333-348`):
+/// the three variants the source passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnemyEquipmentVariant {
+    /// `MonsterCareers.Orc` / `OrcShaman` (`:333-336`).
+    Zero,
+    /// `MonsterCareers.Centaur` / `OrcSergeant` (`:337-340`).
+    One,
+    /// `MonsterCareers.OrcWarlord` (`:341-344`).
+    Two,
+}
+
+impl EnemyEquipmentVariant {
+    /// `chance` of `AssignEnemyStartingEquipment`: `50` for variant 0
+    /// (`ItemHelper.cs:1396`), `75` for 1 (`:1423-1424`), `90` for 2
+    /// (`:1425-1426`). The source's `int chance = 0` initialiser (`:1381`)
+    /// only covers variants outside `0..=2`, which this enum excludes.
+    pub const fn piece_chance(self) -> i32 {
+        match self {
+            Self::Zero => 50,
+            Self::One => 75,
+            Self::Two => 90,
+        }
+    }
+}
+
+/// `ItemHelper.AssignEnemyStartingEquipment` (`ItemHelper.cs:1377-1489`): the
+/// enemy's starting kit as a pure [`ItemEquipTable`].
+///
+/// `item_level` is the level the source computes at `:1379-1386`
+/// (`player.Level`, forced to `1` for a `Knight_CityWatch` `EnemyClass`); the
+/// caller owns that rule because it needs the entity type and the
+/// `MobileEnemy.ID`.
+///
+/// Draw order is the source order, because every draw shifts the next one:
+///
+/// - variant 0 (`:1388-1414`): right-hand weapon
+///   `Random.Range(Broadsword 118, Longsword 120 + 1)` with
+///   `RandomMaterial(itemLevel)`; `chance = 50`; then the **shield template
+///   index is drawn before the roll** (`:1399`) and only equipped when
+///   `Dice100(50)` passes (`:1400-1405`); otherwise a second `Dice100(50)`
+///   may equip a left-hand weapon
+///   `Random.Range(Dagger 113, Shortsword 116 + 1)` (`:1407-1413`).
+/// - variants 1/2 (`:1415-1427`): right-hand weapon
+///   `Random.Range(Claymore 122, Battle_Axe 127 + 1)`; `chance = 75`/`90`.
+/// - the six armour pieces, in source order, each behind its own
+///   `Dice100(chance)` (`:1428-1469`): Helm 107, Right_Pauldron 106,
+///   Left_Pauldron 105, Cuirass 102, Greaves 104, Boots 108.
+///
+/// Frontier (declared, **not** implemented): the poisoned-weapon branch
+/// (`:1471-1488`, `player.Level > 1` → 5 % — 60 % for an Assassin — sets
+/// `weapon.poisonType` to `Poisons` 128..=135). Poison is M22/M23
+/// (`DaggerfallUnityItem.poisonType`); this constructor leaves
+/// [`Item::poison_type`] at `0`.
+pub fn assign_enemy_starting_equipment(
+    rng: &mut Rng64,
+    variant: EnemyEquipmentVariant,
+    item_level: i32,
+    templates: Option<&[ItemTemplate]>,
+) -> ItemEquipTable {
+    let mut table = ItemEquipTable::new();
+    let chance = variant.piece_chance();
+
+    if variant == EnemyEquipmentVariant::Zero {
+        // Right-hand weapon (`:1390-1394`).
+        let index = rng.range_inclusive(WEAPON_BROADSWORD, WEAPON_LONGSWORD) as usize;
+        equip_enemy(
+            &mut table,
+            create_weapon(index, random_material(rng, item_level), templates),
+        );
+        // The shield index is drawn even when the chance roll fails (`:1399`).
+        let shield = rng.range_inclusive(ARMOR_BUCKLER, ARMOR_ROUND_SHIELD) as usize;
+        if rng.success(chance) {
+            equip_enemy(
+                &mut table,
+                create_armor(
+                    shield,
+                    random_armor_material(rng, item_level),
+                    templates,
+                ),
+            );
+        } else if rng.success(chance) {
+            // Left-hand weapon (`:1407-1413`).
+            let index = rng.range_inclusive(WEAPON_DAGGER, WEAPON_SHORTSWORD) as usize;
+            equip_enemy(
+                &mut table,
+                create_weapon(index, random_material(rng, item_level), templates),
+            );
+        }
+    } else {
+        // Right-hand weapon of variants 1 and 2 (`:1417-1421`).
+        let index = rng.range_inclusive(WEAPON_CLAYMORE, WEAPON_BATTLE_AXE) as usize;
+        equip_enemy(
+            &mut table,
+            create_weapon(index, random_material(rng, item_level), templates),
+        );
+    }
+
+    // The six armour pieces in source order (`:1428-1469`).
+    for index in [
+        ARMOR_HELM,
+        ARMOR_RIGHT_PAULDRON,
+        ARMOR_LEFT_PAULDRON,
+        ARMOR_CUIRASS,
+        ARMOR_GREAVES,
+        ARMOR_BOOTS,
+    ] {
+        if rng.success(chance) {
+            equip_enemy(
+                &mut table,
+                create_armor(index as usize, random_armor_material(rng, item_level), templates),
+            );
+        }
+    }
+
+    table
+}
+
+/// `ItemEquipTable.EquipItem(item, alwaysEquip: true, playSound: false)`
+/// (`ItemHelper.cs:1393`): the source equips unconditionally into a table it
+/// has just created, and `EquipItem` cannot fail for these templates (weapons
+/// 113..=127 resolve to a hand slot, armour 102..=110 to its body slot). A
+/// rejection would therefore be a template-table regression, so it is a
+/// test-time assertion instead of an invented runtime error path.
+fn equip_enemy(table: &mut ItemEquipTable, item: Item) {
+    match table.equip(item, true) {
+        EquipResult::Equipped(_) => {}
+        EquipResult::Rejected(item) => {
+            debug_assert!(false, "enemy kit item {} refused", item.template_index);
+        }
+    }
 }
 
 /// `CreateRandomClothing` (`ItemBuilder.cs:184-192`); the male set, see the
@@ -499,8 +679,28 @@ fn ingredient_chain(
     )
 }
 
-/// `GenerateRandomLoot` (`LootTables.cs:176-258`) with a template source.
+/// Which DFU caller composed this pile — the chain body is
+/// `GenerateRandomLoot` in both cases; only the caller-level extras differ.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LootPath {
+    /// `LootTables.GenerateLoot` (`:146-167`): extras for keys `J..=O`
+    /// (`RandomlyAddMap` chances + potion 4 % + recipe 2 %).
+    Dungeon,
+    /// `EnemyEntity.SetEnemyCareer` (`EnemyEntity.cs:330`, `:389-396`):
+    /// `RandomlyAddMap(MapChance)` always, plus potion 3 % + recipe 2 %
+    /// only when the row declares a `LootTableKey`.
+    Enemy {
+        /// `mobileEnemy.MapChance`.
+        map_chance: i32,
+        /// `!string.IsNullOrEmpty(mobileEnemy.LootTableKey)`.
+        add_potion_extras: bool,
+    },
+}
+
+/// `GenerateRandomLoot` (`LootTables.cs:176-258`) with a template source and
+/// the caller-level extras of [`LootPath`].
 fn generate(
+    path: LootPath,
     seed: u64,
     container_id: u32,
     key: char,
@@ -608,16 +808,39 @@ fn generate(
         random_religious(rng, templates)
     }, &mut items);
 
-    // Extra map/potion/recipe for keys J..O (`LootTables.cs:150-161`).
-    if let Some(map_chance) = map_chance(key) {
-        if dice.success(map_chance) {
-            items.push(map_item(templates));
+    // Caller-level extras. The dungeon container adds map/potion/recipe for
+    // keys J..O (`LootTables.cs:150-161`); the enemy corpse adds the table's
+    // own `MapChance` map and, only with a key, potion 3 % / recipe 2 %
+    // (`EnemyEntity.cs:389-396` → `DaggerfallLoot.cs:88-118`).
+    match path {
+        LootPath::Dungeon => {
+            if let Some(map_chance) = map_chance(key) {
+                if dice.success(map_chance) {
+                    items.push(map_item(templates));
+                }
+                if dice.success(4) {
+                    items.push(potion_item(templates));
+                }
+                if dice.success(2) {
+                    items.push(potion_recipe_item(templates));
+                }
+            }
         }
-        if dice.success(4) {
-            items.push(potion_item(templates));
-        }
-        if dice.success(2) {
-            items.push(potion_recipe_item(templates));
+        LootPath::Enemy {
+            map_chance,
+            add_potion_extras,
+        } => {
+            if dice.success(map_chance) {
+                items.push(map_item(templates));
+            }
+            if add_potion_extras {
+                if dice.success(3) {
+                    items.push(potion_item(templates));
+                }
+                if dice.success(2) {
+                    items.push(potion_recipe_item(templates));
+                }
+            }
         }
     }
 
@@ -636,7 +859,7 @@ fn generate(
 /// identity with zeroed data fields; probes that need weights/prices pass
 /// [`generate_container_with_templates`]).
 pub fn generate_container(seed: u64, container_id: u32, key: char, level: i32) -> LootContainer {
-    generate(seed, container_id, key, level, None).0
+    generate(LootPath::Dungeon, seed, container_id, key, level, None).0
 }
 
 /// Same as [`generate_container`] but with the decoded `FALL.EXE` catalog.
@@ -647,7 +870,7 @@ pub fn generate_container_with_templates(
     level: i32,
     templates: &[ItemTemplate],
 ) -> LootContainer {
-    generate(seed, container_id, key, level, Some(templates)).0
+    generate(LootPath::Dungeon, seed, container_id, key, level, Some(templates)).0
 }
 
 /// Catalog-free generation plus its category counters (probe block D).
@@ -657,7 +880,43 @@ pub fn generate_container_with_counts(
     key: char,
     level: i32,
 ) -> (LootContainer, LootCounts) {
-    generate(seed, container_id, key, level, None)
+    generate(LootPath::Dungeon, seed, container_id, key, level, None)
+}
+
+/// Enemy corpse loot (ORDER M25-CLOSURE criterion 10): the exact chain of
+/// `EnemyEntity.SetEnemyCareer` over the M21 core —
+/// `DaggerfallLoot.GenerateItems(LootTableKey)` (`EnemyEntity.cs:330` →
+/// `DaggerfallLoot.cs:77-85`), `RandomlyAddMap(MapChance)` (`:389` →
+/// `:88-95`) and, only when the row declares a key,
+/// `RandomlyAddPotion(3)` + `RandomlyAddPotionRecipe(2)` (`:394-396` →
+/// `:100-118`).
+///
+/// `key` is the table's `LootTableKey`: `None` (unset in the source) maps
+/// to the `-` default matrix exactly like DFU's `GetMatrix(null)`
+/// (`LootTables.cs:110-119`) — the chains all have chance 0, so the pile
+/// carries only what the map/potion rolls add. `level` is
+/// `GameManager.Instance.PlayerEntity.Level` (the gold multiplier of
+/// `GenerateRandomLoot`, `LootTables.cs:193-198`). 0 formulas duplicated:
+/// the matrix chains are the shared M21 core.
+pub fn generate_enemy_loot(
+    seed: u64,
+    container_id: u32,
+    key: Option<char>,
+    map_chance: i32,
+    level: i32,
+) -> LootContainer {
+    generate(
+        LootPath::Enemy {
+            map_chance,
+            add_potion_extras: key.is_some(),
+        },
+        seed,
+        container_id,
+        key.unwrap_or('-'),
+        level,
+        None,
+    )
+    .0
 }
 
 /// Canonical digest input (SPEC M21 §7): per container, `container_id`, then
@@ -759,6 +1018,48 @@ mod tests {
         assert_eq!(map_chance('E'), None);
         assert_eq!(map_chance('J'), Some(2));
         assert_eq!(map_chance('P'), None);
+    }
+
+    #[test]
+    fn enemy_loot_follows_the_enemyentity_chain() {
+        // `EnemyEntity.cs:330`/`:389-396` over the M21 core. Key 'A' (Orc,
+        // `EnemyBasics.cs` id 7), MapChance 0, player level 5: gold ∈
+        // [min_gold·5, max_gold·5] = [5, 50] (`LootTables.cs:193-198`).
+        for container_id in 0..200 {
+            let container = generate_enemy_loot(2_025, container_id, Some('A'), 0, 5);
+            assert!((5..=50).contains(&container.gold), "gold {}", container.gold);
+            assert_eq!(container.key, 'A');
+        }
+        // A keyless row (Rat id 0) maps to the '-' default matrix exactly
+        // like DFU's `GetMatrix(null)`: no gold, no chains, no extras.
+        for container_id in 0..50 {
+            let container = generate_enemy_loot(2_025, container_id, None, 0, 5);
+            assert_eq!(container.gold, 0);
+            assert!(container.items.is_empty(), "id {container_id}");
+            assert_eq!(container.key, '-');
+        }
+        // Two distinct keys, deterministic ×2 (canonical digest bytes).
+        for key in ['A', 'Q'] {
+            let first = generate_enemy_loot(77, 3, Some(key), 3, 9);
+            let second = generate_enemy_loot(77, 3, Some(key), 3, 9);
+            // `Item.uid` is a process-global counter: the deterministic
+            // core is gold/key/len + the canonical digest (below).
+            assert_eq!(
+                (first.gold, first.key, first.items.len()),
+                (second.gold, second.key, second.items.len()),
+                "key {key}"
+            );
+            assert_eq!(
+                container_digest_bytes(&first),
+                container_digest_bytes(&second),
+                "key {key}"
+            );
+        }
+        // Key 'J' (Frost Daedra, id 25): the enemy path rolls the 'J'
+        // matrix — gold ∈ [50·10, 150·10] — and never the dungeon extras.
+        let j = generate_enemy_loot(7, 0, Some('J'), 0, 10);
+        assert!((500..=1500).contains(&j.gold), "gold {}", j.gold);
+        assert_eq!(j.key, 'J');
     }
 
     #[test]

@@ -8,7 +8,7 @@
 //! The window measures 640×480 (the full present).
 //!
 //! **Declared delta:** this window does NOT replace the owner's visual sign-off
-//! (`docs/sintergic/game/programming/m17-owner-acceptance-CR-778b1a85.md`,
+//! (`docs/sintergic/game/programming/m17-owner-acceptance.md`,
 //! `verdict: PENDING`): it is evidence that the retail panels paint over their
 //! family palette; the side-by-side comparison with the original is M18/owner
 //! acceptance (§8 spec).

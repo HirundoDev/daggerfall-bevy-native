@@ -1,5 +1,5 @@
 //! `character` — living character: 8 attributes, 35 skills, DFU progression and
-//! derivatives (M20; spec `m20-character-spec-CR-a64582b8.md`).
+//! derivatives (M20; spec `m20-character-spec.md`).
 //!
 //! Rules faithful to the MIT source:
 //! - attributes `STR/INT/WIL/AGI/END/PER/SPD/LCK` defaulting to 50 plus effect
@@ -435,21 +435,26 @@ pub fn max_fatigue_raw(strength: i32, endurance: i32) -> i32 {
 
 /// Uses needed to advance: `floor(v·adv·career·1.04^level·2/5 + 1)`
 /// (`FormulaHelper.cs:319-327`).
+///
+/// Audit P2-7 — the C# operand typing is reproduced, not just the arithmetic:
+/// `skillValue * skillAdvancementMultiplier` is `int × int ⇒ int`, that
+/// `int × float(careerAdvancementMultiplier)` rounds to **`f32`** (24-bit
+/// mantissa), and only the product with the `double` `levelMod` promotes to
+/// `f64` for `* 2 / 5 + 1`. Multiplying every factor in `f64` skips that
+/// rounding and lands one integer away on these boundary vectors:
+/// `(80, 8, 0.87, 9)` → 317 typed vs 318 all-`f64`, `(98, 5, 1.04, 39)` →
+/// 941 vs 942 and `(58, 50, 0.96, 9)` → 1586 vs 1585. `1.04^level` uses
+/// `powf` (double `pow`, as `Math.Pow`) rather than an integer power.
 pub fn uses_for_advancement(
     skill_value: i32,
     advancement_multiplier: i32,
     career_advancement_multiplier: f32,
     level: i32,
 ) -> i32 {
-    let level_mod = 1.04f64.powi(level);
-    (f64::from(skill_value)
-        * f64::from(advancement_multiplier)
-        * f64::from(career_advancement_multiplier)
-        * level_mod
-        * 2.0
-        / 5.0
-        + 1.0)
-        .floor() as i32
+    let level_mod = 1.04f64.powf(level as f64);
+    let career_product =
+        (skill_value * advancement_multiplier) as f32 * career_advancement_multiplier;
+    (f64::from(career_product) * level_mod * 2.0 / 5.0 + 1.0).floor() as i32
 }
 
 /// `floor((current − starting + 28) / 15)` (`FormulaHelper.cs:330-337`;
@@ -1162,8 +1167,8 @@ impl Character {
     /// `PlayerBody` for the M19 locomotion engine (0 duplicated logic).
     ///
     /// Spell/race effects (`enhanced_*`, `slow_falling`, `water_breathing`,
-    /// `khajiit`, `argonian`, `improved_athleticism`) belong to M23/M34 and stay
-    /// `false`; `carried_weight_kg` belongs to M21 (0.0).
+    /// `water_walking`, `khajiit`, `argonian`, `improved_athleticism`) belong to
+    /// M23/M34 and stay `false`; `carried_weight_kg` belongs to M21 (0.0).
     pub fn player_body(&self) -> PlayerBody {
         PlayerBody {
             live_speed: self.live(Attribute::Speed),
@@ -1185,6 +1190,7 @@ impl Character {
             enhanced_climbing: false,
             slow_falling: false,
             water_breathing: false,
+            water_walking: false,
             carried_weight_kg: 0.0,
             level: self.level,
         }
@@ -1300,6 +1306,65 @@ mod tests {
         assert_eq!(player_level(0, 15), 2);
         assert_eq!(player_level(0, 17), 3);
         assert_eq!(player_level(100, 130), 3);
+    }
+
+    /// Audit P2-7: the C# operand typing decides the `floor` on boundary
+    /// vectors. `skillValue × skillAdvancementMultiplier` is `int`, the
+    /// `× careerAdvancementMultiplier` step rounds to `f32`, and only then
+    /// does the product promote to `f64` for `× levelMod × 2 / 5 + 1`.
+    ///
+    /// The three P2-7 rows sit within 1e-5 of an integer: `(80, 8, 0.87, 9)`
+    /// has f32 product `556.7999877929688` (the exact `int × f32` value is
+    /// `556.8000030517578`) and lands at `317.99999991`; `(98, 5, 1.04, 39)`
+    /// rounds `509.59998130798` to `509.5999755859375` and lands at
+    /// `941.99999799`; `(58, 50, 0.96, 9)` rounds `2783.9999377727509` up to
+    /// `2784.0` exactly and lands at `1586.00003431`. All three are reproduced
+    /// only by the C# typing — the all-`f64` product gives 318 / 942 / 1585.
+    #[test]
+    fn uses_for_advancement_follows_c_sharp_float_typing() {
+        // §5.2 goldens are unchanged by the typing fix.
+        for (value, adv, career, level, expected) in [
+            (20, 2, 1.04, 1, 18),
+            (5, 50, 1.04, 1, 109),
+            (50, 2, 1.0, 1, 42),
+            (90, 2, 1.04, 10, 111),
+            (0, 1, 1.0, 1, 1),
+        ] {
+            assert_eq!(
+                uses_for_advancement(value, adv, career, level),
+                expected,
+                "§5.2 uses ({value}, {adv}, {career}, {level})"
+            );
+        }
+
+        // P2-7 vectors: `f64_counterfactual` is the discarded all-f64 path.
+        for (value, adv, career, level, expected, f64_counterfactual) in [
+            (80, 8, 0.87f32, 9, 317, 318),
+            (98, 5, 1.04f32, 39, 941, 942),
+            (58, 50, 0.96f32, 9, 1586, 1585),
+        ] {
+            let int_product = value * adv;
+            let career_product = int_product as f32 * career;
+            let level_mod = 1.04f64.powf(level as f64);
+            let all_f64 = (f64::from(value) * f64::from(adv) * f64::from(career) * level_mod * 2.0
+                / 5.0
+                + 1.0)
+                .floor() as i32;
+            assert_ne!(
+                f64::from(career_product),
+                f64::from(int_product) * f64::from(career),
+                "P2-7 ({value}, {adv}, {career}, {level}) must exercise the f32 rounding"
+            );
+            assert_eq!(
+                all_f64, f64_counterfactual,
+                "P2-7 counterfactual ({value}, {adv}, {career}, {level})"
+            );
+            assert_eq!(
+                uses_for_advancement(value, adv, career, level),
+                expected,
+                "P2-7 uses ({value}, {adv}, {career}, {level}); all-f64 would give {all_f64}"
+            );
+        }
     }
 
     #[test]

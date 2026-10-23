@@ -8,13 +8,19 @@
 //! M20: [`bio`], [`career`], [`character`], [`rng`] — living character:
 //! biography (`BIO.DAT`/`BIOGnnT0.TXT`), career (`CLASSnn.CFG`),
 //! attributes/skills with DFU progression and deterministic RNG (REQ-L99-053;
-//! spec `m20-character-spec-CR-a64582b8.md`).
+//! spec `m20-character-spec.md`).
+//! M20: [`progression`] — gameplay signals (running, swimming, jumping,
+//! climbing, dodging, strikes) → skill uses → `RaiseSkills` → level-up
+//! (closes audit P1-3); [`humanoid`] — career/level contract of
+//! a hostile humanoid for M25 HP/attributes (closes residual R1 #4).
 //! The remaining capabilities arrive with their own lanes.
 
 pub mod bio;
 pub mod career;
 pub mod character;
 pub mod formula;
+pub mod humanoid;
+pub mod progression;
 pub mod rng;
 pub mod stats;
 

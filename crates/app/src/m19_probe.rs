@@ -1,8 +1,8 @@
 //! M19 — anti-screen probes of **locomotion** (`LOCOMOTION-001`) and
 //! **stealth/thievery** (`STEALTH-001`).
 //!
-//! Contract: `docs/sintergic/game/programming/m19-locomotion-spec-CR-8313e821.md`
-//! §7. Four blocks:
+//! Contract: `docs/sintergic/game/programming/m19-locomotion-spec.md`
+//! §7. Five blocks:
 //!
 //! - **A · formulas** (pure, 0 retail): §1.3 (11 speeds + diagonal factor),
 //!   §2.1 (12 table rows) and §3.1 (9 climb chances). f32 tolerance `≤ 1e-4`
@@ -19,8 +19,11 @@
 //!   ([`crate::m18_demo::DemoLocomotionWorld`], 0 duplicated logic), eye
 //!   height = ground + 1.60, final cell free, 0 solid cells occupied,
 //!   digest ×2 and 0 panics.
+//! - **E · cast-driven reachability** (M23 effect → M19 consumer), 7 rows:
+//!   Levitate / WaterBreathing / Slowfall / WaterWalking through a real cast
+//!   plus the no-cast control beside each one.
 //!
-//! `EXIT=0` ⟺ A ∧ B ∧ C ∧ D; `EXIT=1` on any FAIL; `EXIT=2` if ARENA2 is
+//! `EXIT=0` ⟺ A ∧ B ∧ C ∧ D ∧ E; `EXIT=1` on any FAIL; `EXIT=2` if ARENA2 is
 //! not accessible (block D) — never a false PASS without retail data.
 //!
 //! **Fidelity notes:** spec §7 cites «12 vectors of §5.3», but the §5.3 table
@@ -36,6 +39,9 @@ use daggerfall_behavior::locomotion::{
     shoplifting_chance, sneak_speed, stealth_chance, swim_speed, walk_speed, ClimbCheckKind,
     Dice100, FallOutcome, Locomotion, LocomotionWorld, MotionMode, MoveInput, PlayerBody,
     StepOutcome, DIAGONAL_FACTOR,
+};
+use daggerfall_behavior::magic::{
+    effect_by_key, EffectDice, EffectEntry, EffectSettings, EffectTarget, MagicState,
 };
 use daggerfall_parser_bevy_bridge as bridge;
 
@@ -1097,7 +1103,280 @@ fn block_d_rows() -> Option<Vec<Row>> {
 
 // ── entrypoints ─────────────────────────────────────────────────────────
 
-/// `--probe LOCOMOTION-001` — blocks A, B, C and D (retail).
+// ── block E · cast-driven reachability (M23 → M19, R1) ───────────────────
+
+/// Dice for the magic layer: the three reachability effects support neither
+/// magnitude nor chance, so no roll is consumed; the trait still needs both.
+struct CastDice;
+
+impl EffectDice for CastDice {
+    fn range_inclusive(&mut self, low: i32, _high: i32) -> i32 {
+        low
+    }
+
+    fn d100(&mut self) -> i32 {
+        0
+    }
+}
+
+/// Casts `key` with duration `(1,1,1)` (N = 2 rounds) on a flat target and
+/// returns the flags M19 consumes. No flag is set by hand.
+fn cast_movement_effects(key: &str) -> daggerfall_behavior::magic::MovementEffects {
+    let mut target = EffectTarget::new(100, 100, [50; 8]);
+    let mut magic = MagicState::default();
+    let settings = EffectSettings {
+        duration_base: 1,
+        duration_plus: 1,
+        duration_per_level: 1,
+        ..EffectSettings::default()
+    };
+    magic.cast_effects(
+        &[EffectEntry {
+            props: effect_by_key(key).expect("reference template"),
+            settings,
+        }],
+        1,
+        &mut target,
+        &mut CastDice,
+    );
+    target.movement_effects()
+}
+
+/// Block E: a real cast (not a hand-set flag) drives the four locomotion
+/// consumers, with the no-cast control beside each one.
+fn cast_reachability_rows() -> Vec<Row> {
+    let mut rows = Vec::with_capacity(7);
+    let body = PlayerBody::default();
+    let flat = ProbeWorld::flat();
+
+    // E1: Levitate → `MoveInput.levitating` → `MotionMode::Levitating` + rise.
+    let cast = cast_movement_effects("Levitate");
+    let mut locomotion = Locomotion::new([0.0, 3.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x99);
+    let input = MoveInput {
+        levitating: cast.levitating,
+        jump: true,
+        ..Default::default()
+    };
+    for _ in 0..60 {
+        locomotion.step(&input, &body, &flat, &mut dice, DT);
+    }
+    let risen = locomotion.position[1] - 3.0;
+    rows.push(golden_row(
+        "e_levitar_cast",
+        cast.levitating
+            && locomotion.mode == MotionMode::Levitating
+            && (risen - 4.0).abs() <= 1e-3,
+        format!(
+            "cast.movement_effects.levitating={} (Levitate, M23) → MoveInput.levitating={} · mode={} · rise={risen:.6} m (DFU 4.0)",
+            cast.levitating, input.levitating, locomotion.mode.label()
+        ),
+    ));
+
+    // E2: no cast ⇒ same input shape, no levitation, no rise.
+    let control = daggerfall_behavior::magic::MovementEffects::default();
+    let mut locomotion = Locomotion::new([0.0, 3.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x99);
+    let input = MoveInput {
+        levitating: control.levitating,
+        jump: true,
+        ..Default::default()
+    };
+    for _ in 0..60 {
+        locomotion.step(&input, &body, &flat, &mut dice, DT);
+    }
+    let risen = locomotion.position[1] - 3.0;
+    rows.push(golden_row(
+        "e_levitar_sin_cast",
+        !control.levitating && locomotion.mode != MotionMode::Levitating && risen < 0.6,
+        format!(
+            "no cast → MoveInput.levitating={} · mode={} · rise={risen:.6} m (jump only)",
+            input.levitating,
+            locomotion.mode.label()
+        ),
+    ));
+
+    // E3: WaterBreathing → `PlayerBody.water_breathing` → breath does not drain.
+    let cast = cast_movement_effects("WaterBreathing");
+    let water = ProbeWorld::underwater(20.0);
+    let swimmer = PlayerBody {
+        swimming_skill: 50,
+        water_breathing: cast.water_breathing,
+        ..PlayerBody::default()
+    };
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0xaa);
+    let forward = MoveInput {
+        forward: 1.0,
+        ..Default::default()
+    };
+    for _ in 0..180 {
+        locomotion.step(&forward, &swimmer, &water, &mut dice, DT);
+    }
+    rows.push(golden_row(
+        "e_respirar_cast",
+        cast.water_breathing
+            && locomotion.mode == MotionMode::Swimming
+            && locomotion.breath == max_breath(50),
+        format!(
+            "cast.movement_effects.water_breathing={} (WaterBreathing, M23) → PlayerBody.water_breathing={} · mode={} · breath={}/{} after 3 s submerged",
+            cast.water_breathing,
+            swimmer.water_breathing,
+            locomotion.mode.label(),
+            locomotion.breath,
+            max_breath(50)
+        ),
+    ));
+
+    // E4: no cast ⇒ 3 s submerged drain 25 → 23 (`PlayerEntity.cs:327`).
+    let swimmer = PlayerBody {
+        swimming_skill: 50,
+        ..PlayerBody::default()
+    };
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0xaa);
+    for _ in 0..180 {
+        locomotion.step(&forward, &swimmer, &water, &mut dice, DT);
+    }
+    rows.push(golden_row(
+        "e_respirar_sin_cast",
+        !swimmer.water_breathing && locomotion.breath == 23,
+        format!(
+            "no cast → PlayerBody.water_breathing={} · breath 25→{} after 3 s submerged",
+            swimmer.water_breathing, locomotion.breath
+        ),
+    ));
+
+    // E5: Slowfall → `PlayerBody.slow_falling` → 10 m fall without damage
+    // (descent reduced to the slow-fall terminal speed, `locomotion.rs:753`).
+    let cast = cast_movement_effects("Slowfall");
+    let slow_body = PlayerBody {
+        slow_falling: cast.slow_falling,
+        ..PlayerBody::default()
+    };
+    let drop_start = [0.0, EYE + 10.0, 0.0];
+    let mut locomotion = Locomotion::new(drop_start, EYE, RADIUS);
+    locomotion.mode = MotionMode::Airborne;
+    locomotion.falling = true;
+    locomotion.fall_start_y = drop_start[1];
+    let mut dice = Dice100::new(SEED ^ 0xbb);
+    let mut slow_damage = 0i32;
+    for _ in 0..600 {
+        let frame = locomotion.step(&MoveInput::default(), &slow_body, &flat, &mut dice, DT);
+        slow_damage += frame.fall_damage;
+        if frame.mode == MotionMode::Grounded {
+            break;
+        }
+    }
+    let mut locomotion = Locomotion::new(drop_start, EYE, RADIUS);
+    locomotion.mode = MotionMode::Airborne;
+    locomotion.falling = true;
+    locomotion.fall_start_y = drop_start[1];
+    let mut dice = Dice100::new(SEED ^ 0xbb);
+    let mut normal_damage = 0i32;
+    for _ in 0..600 {
+        let frame = locomotion.step(&MoveInput::default(), &body, &flat, &mut dice, DT);
+        normal_damage += frame.fall_damage;
+        if frame.mode == MotionMode::Grounded {
+            break;
+        }
+    }
+    rows.push(golden_row(
+        "e_caida_lenta_cast",
+        cast.slow_falling && slow_damage == 0 && normal_damage == 25,
+        format!(
+            "cast.movement_effects.slow_falling={} (Slowfall, M23) → PlayerBody.slow_falling={} · 10 m fall damage={slow_damage} vs no-cast {normal_damage}",
+            cast.slow_falling, slow_body.slow_falling
+        ),
+    ));
+
+    // E6: WaterWalking → `PlayerBody.water_walking` → the normal resolved walk
+    // speed in water (not `swim_speed`) and no sink under encumbrance
+    // (`LevitateMotor.cs:116-121` and `:83-85`; the flag is
+    // `Entity.IsWaterWalking`, `WaterWalking.cs:91-98`).
+    let cast = cast_movement_effects("WaterWalking");
+    let walker = PlayerBody {
+        water_walking: cast.water_walking,
+        ..PlayerBody::default()
+    };
+    let water = ProbeWorld::underwater(20.0);
+    let forward = MoveInput {
+        forward: 1.0,
+        ..Default::default()
+    };
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0xcc);
+    for _ in 0..60 {
+        locomotion.step(&forward, &walker, &water, &mut dice, DT);
+    }
+    let walked = locomotion.position[0].hypot(locomotion.position[2]);
+    let walk_1s = walk_speed(50);
+    let loaded = PlayerBody {
+        water_walking: cast.water_walking,
+        carried_weight_kg: 70.0,
+        ..PlayerBody::default()
+    };
+    let mut floater = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0xdd);
+    for _ in 0..60 {
+        floater.step(&forward, &loaded, &water, &mut dice, DT);
+    }
+    let sunk = floater.position[1].abs();
+    rows.push(golden_row(
+        "e_agua_caminar_cast",
+        cast.water_walking
+            && locomotion.mode == MotionMode::Swimming
+            && (walked - walk_1s).abs() <= RATE_TOL * walk_1s
+            && sunk == 0.0,
+        format!(
+            "cast.movement_effects.water_walking={} (WaterWalking, M23) → PlayerBody.water_walking={} · 1 s swimming {walked:.6} m vs walk {walk_1s:.6} / swim {:.6} · 70 kg sink {sunk:.6} m (DFU 0)",
+            cast.water_walking,
+            walker.water_walking,
+            swim_speed(walk_1s, 0)
+        ),
+    ));
+
+    // E7: no cast ⇒ the same inputs swim at `swim_speed` and the
+    // overencumbered body sinks (`LevitateMotor.cs:83-85,123-133`).
+    let control = daggerfall_behavior::magic::MovementEffects::default();
+    let swimmer = PlayerBody {
+        water_walking: control.water_walking,
+        ..PlayerBody::default()
+    };
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0xcc);
+    for _ in 0..60 {
+        locomotion.step(&forward, &swimmer, &water, &mut dice, DT);
+    }
+    let swum = locomotion.position[0].hypot(locomotion.position[2]);
+    let swim_1s = swim_speed(walk_1s, 0);
+    let loaded = PlayerBody {
+        water_walking: control.water_walking,
+        carried_weight_kg: 70.0,
+        ..PlayerBody::default()
+    };
+    let mut sinker = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0xdd);
+    for _ in 0..60 {
+        sinker.step(&forward, &loaded, &water, &mut dice, DT);
+    }
+    let sunk = sinker.position[1].abs();
+    rows.push(golden_row(
+        "e_agua_caminar_sin_cast",
+        !control.water_walking
+            && (swum - swim_1s).abs() <= RATE_TOL * swim_1s
+            && sinker.position[1] < 0.0
+            && (sunk - swim_1s).abs() <= RATE_TOL * swim_1s,
+        format!(
+            "no cast → PlayerBody.water_walking={} · 1 s swimming {swum:.6} m (swim {swim_1s:.6}) · 70 kg sink {sunk:.6} m",
+            swimmer.water_walking
+        ),
+    ));
+
+    rows
+}
+
+/// `--probe LOCOMOTION-001` — blocks A, B, C, D (retail) and E (cast-driven).
 pub fn run_locomotion_001() -> i32 {
     println!(
         "PROBE-LOCOMOTION-001 - DFU locomotion M19 (REQ-L99-052 · CR-b109bfe3/CR-8313e821) · dt=1/60 · seed {SEED}"
@@ -1115,31 +1394,34 @@ pub fn run_locomotion_001() -> i32 {
     let c_rows = block_c_rows();
     let c_ok = print_block("C · stealth/thievery/weight §5.3 (16 rows)", &c_rows);
 
+    let e_rows = cast_reachability_rows();
+    let e_ok = print_block("E · cast-driven reachability (M23 effect → M19 consumer)", &e_rows);
+
     let d_rows = block_d_rows();
     let Some(d_rows) = d_rows else {
         println!("EXIT=2");
         println!(
-            "VERDICT: PROBE-LOCOMOTION-001 NO DATA - ARENA2 not accessible (block D not executed; A/B/C green)"
+            "VERDICT: PROBE-LOCOMOTION-001 NO DATA - ARENA2 not accessible (block D not executed; A/B/C/E green)"
         );
         return 2;
     };
     let d_ok = print_block("D · retail demo integration (real spawn, 1.5 s)", &d_rows);
 
-    let all_ok = a_ok && b_ok && c_ok && d_ok;
+    let all_ok = a_ok && b_ok && c_ok && d_ok && e_ok;
     let code = i32::from(!all_ok);
+    let checks = a_rows.len() + b_rows.len() + c_rows.len() + d_rows.len() + e_rows.len();
     println!(
-        "\nSUMMARY: A={} B={} C={} D={} · checks {}",
+        "\nSUMMARY: A={} B={} C={} D={} E={} · checks {checks}",
         if a_ok { "OK" } else { "FAIL" },
         if b_ok { "OK" } else { "FAIL" },
         if c_ok { "OK" } else { "FAIL" },
         if d_ok { "OK" } else { "FAIL" },
-        a_rows.len() + b_rows.len() + c_rows.len() + d_rows.len(),
+        if e_ok { "OK" } else { "FAIL" },
     );
     println!("EXIT={code}");
     if all_ok {
         println!(
-            "VERDICT: PROBE-LOCOMOTION-001 PASS - {} checks (A formulas + B engine + C stealth + D demo) · 0 penetrations · 0 panics",
-            a_rows.len() + b_rows.len() + c_rows.len() + d_rows.len()
+            "VERDICT: PROBE-LOCOMOTION-001 PASS - {checks} checks (A formulas + B engine + C stealth + D demo + E cast-driven levitate/breath/slow-fall/water-walking) · 0 penetrations · 0 panics"
         );
     } else {
         println!("VERDICT: PROBE-LOCOMOTION-001 FAIL - see [FAIL] rows");

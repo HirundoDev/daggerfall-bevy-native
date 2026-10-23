@@ -331,7 +331,7 @@ def main(argv):
 
     files, scanned, out_of_scope, hits = scan(root, exclude_file)
 
-    print("language-check: CI-ENGLISH-SURFACE-001 . CR-6f9f4742-ee4a-4f7f-9684-4a2cf7a80edb")
+    print("language-check: CI-ENGLISH-SURFACE-001")
     print(f"root: {root}")
     print(f"surface_files: {len(files)} (scanned={scanned} no_prose={out_of_scope})")
     print("exempt: docs/sintergic/ **  *.es.md  reference/dfu-spec/ **  quotes and identifiers")

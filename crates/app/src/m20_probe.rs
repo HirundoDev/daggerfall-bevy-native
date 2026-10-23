@@ -3,7 +3,7 @@
 //! `PROBE-SKILLS-001` (skill census, progression, level/HP/SP and
 //! training).
 //!
-//! Contract: `docs/sintergic/game/programming/m20-character-spec-CR-a64582b8.md`
+//! Contract: `docs/sintergic/game/programming/m20-character-spec.md`
 //! §8. The §2 (18 classes) and §3 (35 skills) goldens are **transcribed**
 //! here; the rest is measured at runtime against ARENA2 Mode A (read-only, 0 bytes
 //! retail in git).
@@ -26,6 +26,25 @@
 //! defaults/groups/live, **C** tally/360 gate/uses/100 cap/mastery,
 //! **D** level/HP/pool/SP/recovery sum, **E** training and **F**
 //! integration with the M19 engine (`player_body` → `run_speed`/`jump_velocity`).
+//!
+//! `PROBE-PROGRESSION-001` (audit P1-3) — **standalone** probe
+//! (outside `ALL-001`, like `SKILLS-001`/`EQUIP-001`/`STEALTH-001`) of the
+//! gameplay→progression driver: **A** real signals → uses with the DFU
+//! literals of annex §3.1 (Running per 4 classic updates, Jumping per edge,
+//! Climbing per check, Swimming per game minute, Dodging per strike,
+//! weapon/H2H+CriticalStrike on hit, frame-rate independence), **B** the 100
+//! cap and the mastery rule, **C** the level-up applied by the driver
+//! (level/HP roll/pool), **D** determinism ×2 (character digest + driver RNG
+//! digest) and seed sensitivity, **E** the M25 humanoid contract
+//! (`enemy_skill_level`, `city_watch_level`, `HumanoidProfile` over the
+//! retail `CLASS01.CFG` at levels 1/10/14/20, explicit class rejection),
+//! **F** integration (driver ⇒ `player_body()` ⇒ `run_speed` grows, level
+//! reaches the M19 body) and **G** the M19 signal semantics the driver
+//! consumes: the jump edge is `AcrobatMotor.jumping` (`AcrobatMotor.cs:109`,
+//! falls/ledge drops/climbing aborts excluded) and `running` is the latched
+//! `PlayerSpeedChanger.isRunning` (`:106-118`, standing still counts, the air
+//! keeps the latch) — driven from the real `Locomotion` engine, not from
+//! hand-made signals.
 //!
 //! **Outputs:** `EXIT=0` ⟺ all blocks OK; `EXIT=1` on any FAIL;
 //! `EXIT=2` if ARENA2 or a required file is not accessible — never a false
@@ -52,13 +71,22 @@
 
 use std::path::{Path, PathBuf};
 
-use daggerfall_behavior::locomotion::{jump_velocity, run_speed};
+use daggerfall_behavior::locomotion::{
+    jump_velocity, run_speed, Dice100, Frame, Locomotion, LocomotionWorld, MotionMode, MoveInput,
+    PlayerBody, StepOutcome,
+};
 use daggerfall_skills::bio::{parse_effect, Biography, BiographyEffect, BiogFile, EffectCensus};
 use daggerfall_skills::career::{class_file_name, Career, CareerError, CLASS_COUNT};
 use daggerfall_skills::character::{
     player_level, uses_for_advancement, Attribute, Character, Skill, TrainingError,
     FATIGUE_MULTIPLIER, MEMBER_TRAINING_COST, NON_MEMBER_TRAINING_COST, SKILL_CHECK_INTERVAL_MINUTES,
     SKILL_COUNT, TRAINING_INTERVAL_MINUTES,
+};
+use daggerfall_skills::humanoid::{
+    city_watch_level, enemy_skill_level, HumanoidProfile, HumanoidProfileError,
+};
+use daggerfall_skills::progression::{
+    DriverStep, MotionSignals, SkillDriver, CLASSIC_UPDATE_SECONDS,
 };
 use daggerfall_skills::rng::Rng64;
 use sha2::{Digest, Sha256};
@@ -1391,6 +1419,37 @@ fn growth_rows(base: &Character) -> Vec<Row> {
         ));
     }
 
+    // Audit P2-7: C# types `int × int` as `int`, rounds `int × float` to
+    // `f32` (24-bit mantissa) and only then promotes to `double` for
+    // `levelMod * 2 / 5 + 1`. These vectors sit within 1e-5 of an integer, so
+    // the f32 rounding alone decides `floor`. `all_f64` is the discarded
+    // all-f64 formulation, printed as documentation (318/942/1585) and never
+    // asserted as the expected value.
+    for (id, value, adv, career, level, expected) in [
+        ("c_uses_p27_80_8_087_9", 80, 8, 0.87, 9, 317),
+        ("c_uses_p27_98_5_104_39", 98, 5, 1.04, 39, 941),
+        ("c_uses_p27_58_50_096_9", 58, 50, 0.96, 9, 1586),
+    ] {
+        let measured = uses_for_advancement(value, adv, career, level);
+        let int_product = value * adv;
+        let career_product = int_product as f32 * career;
+        let all_f64 = (f64::from(value)
+            * f64::from(adv)
+            * f64::from(career)
+            * 1.04f64.powf(level as f64)
+            * 2.0
+            / 5.0
+            + 1.0)
+            .floor() as i32;
+        rows.push(row(
+            id,
+            measured == expected && all_f64 != expected,
+            format!(
+                "P2-7 ({value}, {adv}, {career:.2}, {level}) → int×int={int_product} · f32×career={career_product:.6} · measured uses={measured} vs expected={expected}; the all-f64 path gives {all_f64}"
+            ),
+        ));
+    }
+
     // Behavior with C01 (measured uses_needed).
     let mut short = base.clone();
     short.tally_skill(Skill::Running, needed - 1);
@@ -1750,6 +1809,1005 @@ fn block_f_rows(character: &Character) -> Vec<Row> {
     ));
 
     rows
+}
+
+// ── PROGRESSION-001 (M20 · audit P1-3): the driver is the authority ─────
+
+/// Seed of the driver's own SplitMix64 stream (D-M20-1; same canonical seed
+/// family as the demo).
+const DRIVER_SEED: u64 = M20_SEED;
+
+/// FNV-1a 64 of the progression state (level, HP, skill sum, pending points,
+/// the 35 permanent skills, the 35 use counters and the gate).
+fn progression_digest(character: &Character) -> u64 {
+    let mut hash = Fnv1a64::new();
+    hash.feed_i32(character.level);
+    hash.feed_i32(character.max_health);
+    hash.feed_i32(character.pending_attribute_points);
+    hash.feed_i32(character.level_up_skill_sum);
+    for value in character.skills.permanents() {
+        hash.feed(&value.to_le_bytes());
+    }
+    for uses in character.uses {
+        hash.feed_i32(uses);
+    }
+    hash.feed_i32(character.last_skill_check_minutes as i32);
+    hash.0
+}
+
+/// FNV-1a 64 of four draws of the driver's RNG stream (over a copy: the
+/// driver is never mutated by the measurement).
+fn rng_digest(rng: &Rng64) -> u64 {
+    let mut probe = rng.clone();
+    let mut hash = Fnv1a64::new();
+    for _ in 0..4 {
+        hash.feed_u64(probe.next_u64());
+    }
+    hash.0
+}
+
+/// Running signal of an M19 frame (grounded, running, moved).
+fn running_signals() -> MotionSignals {
+    MotionSignals {
+        running: true,
+        ..MotionSignals::default()
+    }
+}
+
+/// Identical script over a driver: 1000 classic updates running, then two
+/// evaluations of the first primary (sum +2 ⇒ level 2, consuming the RNG in
+/// the level-up roll).
+fn progression_script(seed: u64, base: &Character) -> (Character, SkillDriver, [DriverStep; 3]) {
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(seed);
+    let primary = character.career.primary[0];
+    let first = driver.advance(
+        &mut character,
+        1000.0 * CLASSIC_UPDATE_SECONDS,
+        &running_signals(),
+    );
+    driver.use_skill(&mut character, primary, 20_000);
+    let second = driver.minute(
+        &mut character,
+        SKILL_CHECK_INTERVAL_MINUTES + 1,
+        &MotionSignals::default(),
+    );
+    driver.use_skill(&mut character, primary, 20_000);
+    let third = driver.minute(
+        &mut character,
+        2 * (SKILL_CHECK_INTERVAL_MINUTES + 1),
+        &MotionSignals::default(),
+    );
+    (character, driver, [first, second, third])
+}
+
+/// **A** — gameplay signals → uses, with the DFU literals of annex §3.1.
+fn progression_signal_rows(base: &Character) -> Vec<Row> {
+    let mut rows = Vec::new();
+
+    // Running: 1 use per 4 classic updates (`PlayerEntity.cs:311-321`).
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    let step = driver.advance(
+        &mut character,
+        1000.0 * CLASSIC_UPDATE_SECONDS,
+        &running_signals(),
+    );
+    let uses = character.uses[Skill::Running.index()];
+    rows.push(row(
+        "a_running_1000_updates",
+        uses == 250 && step.tallies == vec![(Skill::Running, 250)],
+        format!(
+            "1000 classic updates (1000 × {CLASSIC_UPDATE_SECONDS} s) running → uses={uses} vs literal 250 (1000/4) · tallies {:?}",
+            step.tallies
+        ),
+    ));
+
+    // 3 updates do not tally; the 4th does (`runningTallyCounter == 3`).
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    driver.advance(&mut character, 3.0 * CLASSIC_UPDATE_SECONDS, &running_signals());
+    let after_three = character.uses[Skill::Running.index()];
+    driver.advance(&mut character, CLASSIC_UPDATE_SECONDS, &running_signals());
+    let after_four = character.uses[Skill::Running.index()];
+    rows.push(row(
+        "a_running_fourth_update",
+        after_three == 0 && after_four == 1,
+        format!(
+            "3 × 0.0625 s → {after_three} uses · + 1 × 0.0625 s → {after_four} use (literal 1)"
+        ),
+    ));
+
+    // Frame-rate independence: the sub-update carry waits for the next frame.
+    // 8 halves must tally exactly like 4 whole classic updates (1 use).
+    let mut split = base.clone();
+    let mut split_driver = SkillDriver::new(DRIVER_SEED);
+    let half = CLASSIC_UPDATE_SECONDS / 2.0;
+    for _ in 0..8 {
+        split_driver.advance(&mut split, half, &running_signals());
+    }
+    let split_uses = split.uses[Skill::Running.index()];
+    let mut whole = base.clone();
+    let mut whole_driver = SkillDriver::new(DRIVER_SEED);
+    for _ in 0..4 {
+        whole_driver.advance(&mut whole, CLASSIC_UPDATE_SECONDS, &running_signals());
+    }
+    let whole_uses = whole.uses[Skill::Running.index()];
+    rows.push(row(
+        "a_frame_rate_independence",
+        split_uses == 1 && whole_uses == 1,
+        format!(
+            "8 × 0.03125 s → {split_uses} use ≡ 4 × 0.0625 s → {whole_uses} use (literal 1)"
+        ),
+    ));
+
+    // Not running: no tally at all.
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    driver.advance(
+        &mut character,
+        62.5,
+        &MotionSignals::default(),
+    );
+    let idle_uses = character.uses[Skill::Running.index()];
+    rows.push(row(
+        "a_running_requires_signal",
+        idle_uses == 0,
+        format!("1000 classic updates without the running signal → uses={idle_uses} (literal 0)"),
+    ));
+
+    // Jumping: one use per edge, latched while airborne.
+    let airborne = MotionSignals {
+        jumping: true,
+        ..MotionSignals::default()
+    };
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    for _ in 0..10 {
+        driver.advance(&mut character, CLASSIC_UPDATE_SECONDS, &airborne);
+    }
+    let first_jump = character.uses[Skill::Jumping.index()];
+    driver.advance(
+        &mut character,
+        CLASSIC_UPDATE_SECONDS,
+        &MotionSignals::default(),
+    );
+    for _ in 0..3 {
+        driver.advance(&mut character, CLASSIC_UPDATE_SECONDS, &airborne);
+    }
+    let second_jump = character.uses[Skill::Jumping.index()];
+    rows.push(row(
+        "a_jumping_edges",
+        first_jump == 1 && second_jump == 2,
+        format!(
+            "10 airborne frames → {first_jump} use (literal 1) · land + 3 airborne frames → {second_jump} (literal 2)"
+        ),
+    ));
+
+    // Climbing: one use per executed check, failures included.
+    let check = MotionSignals {
+        climbing_check: true,
+        ..MotionSignals::default()
+    };
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    for _ in 0..3 {
+        driver.advance(&mut character, CLASSIC_UPDATE_SECONDS, &check);
+    }
+    let climbing_uses = character.uses[Skill::Climbing.index()];
+    rows.push(row(
+        "a_climbing_checks",
+        climbing_uses == 3,
+        format!("3 climbing checks → uses={climbing_uses} vs literal 3"),
+    ));
+
+    // Swimming: one use per game minute (`PlayerEntity.cs:408-417`).
+    let swimming = MotionSignals {
+        swimming: true,
+        ..MotionSignals::default()
+    };
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    for minute in 1..=5 {
+        driver.minute(&mut character, minute, &swimming);
+    }
+    let swimming_uses = character.uses[Skill::Swimming.index()];
+    let mut dry = base.clone();
+    let mut dry_driver = SkillDriver::new(DRIVER_SEED);
+    for minute in 1..=5 {
+        dry_driver.minute(&mut dry, minute, &MotionSignals::default());
+    }
+    let dry_uses = dry.uses[Skill::Swimming.index()];
+    rows.push(row(
+        "a_swimming_per_minute",
+        swimming_uses == 5 && dry_uses == 0,
+        format!(
+            "5 game minutes swimming → {swimming_uses} uses (literal 5) · 5 minutes dry → {dry_uses} (literal 0)"
+        ),
+    ));
+
+    // Dodging: one use per resolved enemy strike, hit or miss.
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    for _ in 0..5 {
+        driver.enemy_strike(&mut character);
+    }
+    let dodging_uses = character.uses[Skill::Dodging.index()];
+    rows.push(row(
+        "a_dodging_strikes",
+        dodging_uses == 5,
+        format!("5 enemy strikes → Dodging uses={dodging_uses} vs literal 5"),
+    ));
+
+    // Strikes: weapon/HandToHand + CriticalStrike only on hit.
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    let hit_one = driver.player_strike(&mut character, None, true);
+    driver.player_strike(&mut character, None, false);
+    let hit_two = driver.player_strike(&mut character, None, true);
+    let hand_to_hand = character.uses[Skill::HandToHand.index()];
+    let critical = character.uses[Skill::CriticalStrike.index()];
+    let mut missed = base.clone();
+    let mut miss_driver = SkillDriver::new(DRIVER_SEED);
+    let miss = miss_driver.player_strike(&mut missed, None, false);
+    let miss_hand = missed.uses[Skill::HandToHand.index()];
+    let miss_critical = missed.uses[Skill::CriticalStrike.index()];
+    rows.push(row(
+        "a_player_strikes_on_hit",
+        hand_to_hand == 2
+            && critical == 2
+            && hit_one.tallies == vec![(Skill::HandToHand, 1), (Skill::CriticalStrike, 1)]
+            && hit_two.tallies == vec![(Skill::HandToHand, 1), (Skill::CriticalStrike, 1)]
+            && miss.tallies.is_empty()
+            && miss_hand == 0
+            && miss_critical == 0,
+        format!(
+            "2 hits + 1 miss unarmed → HandToHand {hand_to_hand} / CriticalStrike {critical} (literals 2/2) · miss only → {miss_hand}/{miss_critical} (literals 0/0)"
+        ),
+    ));
+
+    rows
+}
+
+/// **B** — caps: the 100 ceiling and the mastery rule, uses always reset.
+fn progression_cap_rows(base: &Character) -> Vec<Row> {
+    let mut rows = Vec::new();
+
+    // Cap 100: the raise is refused, the uses are still reset.
+    let mut capped = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    capped.skills.set_permanent(Skill::Running, 100);
+    driver.use_skill(&mut capped, Skill::Running, 20_000);
+    let step = driver.minute(
+        &mut capped,
+        SKILL_CHECK_INTERVAL_MINUTES + 1,
+        &MotionSignals::default(),
+    );
+    let uses = capped.uses[Skill::Running.index()];
+    rows.push(row(
+        "b_cap_100",
+        capped.permanent_skill(Skill::Running) == 100
+            && uses == 0
+            && !step
+                .raised
+                .iter()
+                .any(|(skill, _)| *skill == Skill::Running),
+        format!(
+            "Running=100 + 20000 uses + evaluation(361) → value {} · uses {uses} (reset) · raised={:?}",
+            capped.permanent_skill(Skill::Running),
+            step.raised
+        ),
+    ));
+
+    // Mastery: a primary at 100 blocks a skill at 95.
+    let mut mastered = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    let primary = mastered.career.primary[0];
+    mastered.skills.set_permanent(Skill::Running, 95);
+    mastered.skills.set_permanent(primary, 100);
+    driver.use_skill(&mut mastered, Skill::Running, 20_000);
+    let step = driver.minute(
+        &mut mastered,
+        SKILL_CHECK_INTERVAL_MINUTES + 1,
+        &MotionSignals::default(),
+    );
+    let uses = mastered.uses[Skill::Running.index()];
+    rows.push(row(
+        "b_mastery_95",
+        mastered.permanent_skill(Skill::Running) == 95
+            && uses == 0
+            && !step
+                .raised
+                .iter()
+                .any(|(skill, _)| *skill == Skill::Running),
+        format!(
+            "primary {} at 100 + Running=95 → value {} (blocked) · uses {uses} (reset) · raised={:?}",
+            primary.name(),
+            mastered.permanent_skill(Skill::Running),
+            step.raised
+        ),
+    ));
+
+    // Control: at 94 the mastery rule does not apply yet.
+    let mut below = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    let primary = below.career.primary[0];
+    below.skills.set_permanent(Skill::Running, 94);
+    below.skills.set_permanent(primary, 100);
+    driver.use_skill(&mut below, Skill::Running, 20_000);
+    let step = driver.minute(
+        &mut below,
+        SKILL_CHECK_INTERVAL_MINUTES + 1,
+        &MotionSignals::default(),
+    );
+    rows.push(row(
+        "b_mastery_below_95",
+        below.permanent_skill(Skill::Running) == 95
+            && step
+                .raised
+                .iter()
+                .any(|(skill, value)| *skill == Skill::Running && *value == 95),
+        format!(
+            "primary {} at 100 + Running=94 → value {} (literal 95) · raised={:?}",
+            primary.name(),
+            below.permanent_skill(Skill::Running),
+            step.raised
+        ),
+    ));
+
+    rows
+}
+
+/// **C** — level-up applied by the driver (D-M20-5): level, HP and pool.
+fn progression_level_rows(base: &Character) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let mut character = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    let primary = character.career.primary[0];
+    let health_before = character.max_health;
+    let first_use = driver.use_skill(&mut character, primary, 20_000);
+    let first = driver.minute(
+        &mut character,
+        SKILL_CHECK_INTERVAL_MINUTES + 1,
+        &MotionSignals::default(),
+    );
+    rows.push(row(
+        "c_first_evaluation_not_ready",
+        first.checked
+            && first.level_up.is_none()
+            && !first.ready_to_level_up
+            && character.level == 1
+            && character.level_up_skill_sum == 31,
+        format!(
+            "sum 30 → {} (+1 of the 3 primaries ⇒ `player_level(30,31)=1`) · checked={} ready={} · LV {} · level_up={:?}",
+            character.level_up_skill_sum,
+            first.checked,
+            first.ready_to_level_up,
+            character.level,
+            first.level_up
+        ),
+    ));
+
+    let second_use = driver.use_skill(&mut character, primary, 20_000);
+    let second = driver.minute(
+        &mut character,
+        2 * (SKILL_CHECK_INTERVAL_MINUTES + 1),
+        &MotionSignals::default(),
+    );
+    // Independent intervals: HP roll `range(HPL/2, HPL)` + END modifier
+    // (C01 HPL 12, END 50 ⇒ +0) = 6..=12; attribute pool `range(4, 6)`.
+    let (hp_ok, pool_ok, report) = match second.level_up {
+        Some(report) => (
+            (6..=12).contains(&report.hit_points)
+                && character.max_health == health_before + report.hit_points,
+            (4..=6).contains(&report.bonus_pool)
+                && character.pending_attribute_points == report.bonus_pool,
+            format!("{:?}", Some(report)),
+        ),
+        None => (false, false, "None".to_string()),
+    };
+    rows.push(row(
+        "c_level_up_applied",
+        first_use.tallies == vec![(primary, 20_000)]
+            && second_use.tallies == vec![(primary, 20_000)]
+            && second.checked
+            && second.ready_to_level_up
+            && second.level_up.is_some()
+            && character.level == 2
+            && !character.ready_to_level_up
+            && hp_ok
+            && pool_ok,
+        format!(
+            "2 evaluations of {} → sum {} · LV {} · HP {}→{} · pool {} · pending {} · HP∈[6,12]={hp_ok} · pool∈[4,6]={pool_ok} · level_up={report}",
+            primary.name(),
+            character.level_up_skill_sum,
+            character.level,
+            health_before,
+            character.max_health,
+            second.level_up.map_or(0, |report| report.bonus_pool),
+            character.pending_attribute_points,
+        ),
+    ));
+
+    rows
+}
+
+/// **D** — determinism ×2 of the driver (character state + RNG stream).
+fn progression_determinism_rows(base: &Character) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let (character_a, driver_a, steps_a) = progression_script(DRIVER_SEED, base);
+    let (character_b, driver_b, steps_b) = progression_script(DRIVER_SEED, base);
+    let digest_a = progression_digest(&character_a);
+    let digest_b = progression_digest(&character_b);
+    let rng_a = rng_digest(driver_a.rng());
+    let rng_b = rng_digest(driver_b.rng());
+    rows.push(row(
+        "d_determinism_x2",
+        digest_a == digest_b
+            && rng_a == rng_b
+            && steps_a == steps_b
+            && character_a == character_b
+            && steps_a[2].level_up.is_some(),
+        format!(
+            "state digest {digest_a:016x} vs {digest_b:016x} · rng digest {rng_a:016x} vs {rng_b:016x} · steps equal={} · level-up reached={}",
+            steps_a == steps_b,
+            steps_a[2].level_up.is_some()
+        ),
+    ));
+
+    // The RNG stream is seed-selected: the level-up roll changes with the seed.
+    let (_, driver_c, steps_c) = progression_script(DRIVER_SEED + 1, base);
+    let rng_c = rng_digest(driver_c.rng());
+    rows.push(row(
+        "d_rng_seed_sensitive",
+        rng_a != rng_c && steps_c[2].level_up.is_some(),
+        format!(
+            "seed {DRIVER_SEED} rng digest {rng_a:016x} ≠ seed {} rng digest {rng_c:016x} (D-M20-1) · level-up reached={}",
+            DRIVER_SEED + 1,
+            steps_c[2].level_up.is_some()
+        ),
+    ));
+
+    rows
+}
+
+/// **E** — M25 contract: `enemy_skill_level`, city watch and
+/// `HumanoidProfile` over the retail `CLASS01.CFG`.
+fn progression_humanoid_rows(career: &Career) -> Vec<Row> {
+    let mut rows = Vec::new();
+
+    for (level, expected) in [(1, 35), (10, 80), (14, 100), (20, 100), (0, 30)] {
+        let measured = enemy_skill_level(level);
+        rows.push(row(
+            format!("e_enemy_skill_level_{level}"),
+            measured == expected,
+            format!("min(5·{level}+30,100) measured={measured} vs literal={expected}"),
+        ));
+    }
+
+    // City watch: player level + Range(3, 7) ⇒ +3..=6.
+    let mut rng = Rng64::new(M20_SEED);
+    let mut seen = [false; 4];
+    let mut in_range = true;
+    for _ in 0..64 {
+        let level = city_watch_level(7, &mut rng);
+        in_range &= (10..=13).contains(&level);
+        if (10..=13).contains(&level) {
+            seen[(level - 10) as usize] = true;
+        }
+    }
+    rows.push(row(
+        "e_city_watch_level",
+        in_range && seen == [true; 4],
+        format!(
+            "player 7 + Range(3,7) over 64 draws ∈ [10,13]: {in_range} · all offsets 3..=6 seen: {seen:?}"
+        ),
+    ));
+
+    // Humanoid profiles at the DFU golden levels over the retail career.
+    let skills_golden: [i16; 4] = [35, 80, 100, 100];
+    let mut rng = Rng64::new(M20_SEED);
+    for (index, level) in [1, 10, 14, 20].into_iter().enumerate() {
+        match HumanoidProfile::from_career(1, career, level, &mut rng) {
+            Ok(profile) => {
+                let (low, high) = profile.health_bounds();
+                rows.push(row(
+                    format!("e_humanoid_level_{level}"),
+                    profile.class_id == 1
+                        && profile.level == level
+                        && profile.name == career.name
+                        && profile.attributes == career.attributes
+                        && profile.hit_points_per_level == career.hit_points_per_level
+                        && profile
+                            .skills
+                            .iter()
+                            .all(|value| *value == skills_golden[index])
+                        && (low..=high).contains(&profile.max_health),
+                    format!(
+                        "{} L{} · skills[{}]={} (literal {}) · attributes {:?} == CFG · HPL {} · HP {}/[{low},{high}]",
+                        profile.name,
+                        profile.level,
+                        profile.skills.len(),
+                        profile.skills[0],
+                        skills_golden[index],
+                        profile.attributes,
+                        profile.hit_points_per_level,
+                        profile.max_health,
+                    ),
+                ));
+            }
+            Err(err) => rows.push(row(
+                format!("e_humanoid_level_{level}"),
+                false,
+                format!("from_career(1, CLASS01, {level}) → {err}"),
+            )),
+        }
+    }
+
+    // Out-of-range class: explicit rejection, never a silent Knight.
+    let mut rng = Rng64::new(M20_SEED);
+    let rejected = HumanoidProfile::from_career(19, career, 1, &mut rng);
+    rows.push(row(
+        "e_humanoid_class_error",
+        rejected == Err(HumanoidProfileError::ClassId(19)),
+        format!("class 19 → {rejected:?}"),
+    ));
+
+    // City-watch profile: the guard level comes from the player level.
+    let mut rng = Rng64::new(M20_SEED);
+    let watch_level = city_watch_level(7, &mut rng);
+    match HumanoidProfile::from_career(18, career, watch_level, &mut rng) {
+        Ok(profile) => rows.push(row(
+            "e_city_watch_profile",
+            profile.class_id == 18
+                && profile.level == watch_level
+                && (10..=13).contains(&profile.level),
+            format!(
+                "Knight_CityWatch(18) at player 7 → level {watch_level} ∈ [10,13] · profile L{} · HP {}/{:?}",
+                profile.level,
+                profile.max_health,
+                profile.health_bounds()
+            ),
+        )),
+        Err(err) => rows.push(row(
+            "e_city_watch_profile",
+            false,
+            format!("from_career(18, CLASS01, {watch_level}) → {err}"),
+        )),
+    }
+
+    rows
+}
+
+/// **F** — integration: the driver feeds `player_body()` and the M19 speeds.
+fn progression_integration_rows(base: &Character) -> Vec<Row> {
+    let mut rows = Vec::new();
+
+    let mut character = base.clone();
+    let before = character.player_body();
+    let before_speed = run_speed(before.live_speed, before.running_skill);
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    driver.use_skill(&mut character, Skill::Running, 109);
+    let step = driver.minute(
+        &mut character,
+        SKILL_CHECK_INTERVAL_MINUTES + 1,
+        &MotionSignals::default(),
+    );
+    let after = character.player_body();
+    let after_speed = run_speed(after.live_speed, after.running_skill);
+    rows.push(row(
+        "f_player_body_running",
+        before.running_skill == 5
+            && after.running_skill == 6
+            && step.checked
+            && after_speed > before_speed,
+        format!(
+            "driver.use_skill(109) + minute(361) → body.running_skill {}→{} · run_speed {before_speed:.6}→{after_speed:.6} m/s (increases)",
+            before.running_skill, after.running_skill
+        ),
+    ));
+
+    let mut leveled = base.clone();
+    let mut driver = SkillDriver::new(DRIVER_SEED);
+    let primary = leveled.career.primary[0];
+    driver.use_skill(&mut leveled, primary, 20_000);
+    driver.minute(
+        &mut leveled,
+        SKILL_CHECK_INTERVAL_MINUTES + 1,
+        &MotionSignals::default(),
+    );
+    driver.use_skill(&mut leveled, primary, 20_000);
+    driver.minute(
+        &mut leveled,
+        2 * (SKILL_CHECK_INTERVAL_MINUTES + 1),
+        &MotionSignals::default(),
+    );
+    rows.push(row(
+        "f_player_body_level",
+        leveled.level == 2 && leveled.player_body().level == 2,
+        format!(
+            "driver level-up → character LV {} · player_body.level {}",
+            leveled.level,
+            leveled.player_body().level
+        ),
+    ));
+
+    rows
+}
+
+/// Synthetic world of block **G** (deterministic plane, optional wall): the
+/// same shape the M19 probe uses, declared here so the M20 probe stays
+/// independent of the M19 probe module.
+struct SignalWorld {
+    wall_x: Option<f32>,
+}
+
+impl SignalWorld {
+    fn flat() -> Self {
+        Self { wall_x: None }
+    }
+}
+
+impl LocomotionWorld for SignalWorld {
+    fn ground_height(&self, _x: f32, _z: f32) -> f32 {
+        0.0
+    }
+    fn step(&self, from: [f32; 3], delta: [f32; 3], radius: f32) -> StepOutcome {
+        let target = [from[0] + delta[0], from[1] + delta[1], from[2] + delta[2]];
+        if let Some(wall) = self.wall_x {
+            if target[0] + radius > wall {
+                return StepOutcome {
+                    pos: [wall - radius - 1e-4, target[1], target[2]],
+                    moved: false,
+                    blocked: true,
+                };
+            }
+        }
+        StepOutcome {
+            pos: target,
+            moved: target != from,
+            blocked: false,
+        }
+    }
+    fn wall_ahead(&self, eye: [f32; 3], dir: [f32; 3], reach: f32) -> bool {
+        self.wall_x
+            .is_some_and(|wall| dir[0] > 0.5 && eye[0] + reach >= wall)
+    }
+}
+
+/// The exact signal composition of the window (`m18_window.rs`,
+/// `m18_apply_player_action`): `running` and `jumping` come from the resolved
+/// `Frame` flags, never from the raw key or the mode.
+fn frame_signals(frame: &Frame) -> MotionSignals {
+    MotionSignals {
+        running: frame.running,
+        swimming: frame.mode == MotionMode::Swimming,
+        jumping: frame.jumped,
+        climbing_check: frame.climb_check,
+    }
+}
+
+/// **G** — M19 signal semantics (QA MINOR-1/2): the jump edge is
+/// `AcrobatMotor.jumping` (`AcrobatMotor.cs:109`) and `running` is the latched
+/// `PlayerSpeedChanger.isRunning` (`PlayerSpeedChanger.cs:106-118`).
+fn progression_signal_semantics_rows(base: &Character) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let body = PlayerBody::default();
+    let frame_dt = 1.0 / 60.0;
+
+    // MINOR-1 · a real jump raises the edge exactly once, however long the
+    // airborne span lasts (`PlayerEntity.cs:425-438`: edge, latched until the
+    // body leaves the jump).
+    {
+        let world = SignalWorld::flat();
+        let mut dice = Dice100::new(DRIVER_SEED);
+        let mut locomotion = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let mut driver = SkillDriver::new(DRIVER_SEED);
+        let mut character = base.clone();
+        let input = MoveInput {
+            jump: true,
+            ..MoveInput::default()
+        };
+        // `GroundedTime < 0.1f` refuses the input on the first step
+        // (`AcrobatMotor.cs:77-78`); at 0.0625 s the second step starts it.
+        let refused = locomotion.step(&input, &body, &world, &mut dice, CLASSIC_UPDATE_SECONDS);
+        driver.advance(
+            &mut character,
+            CLASSIC_UPDATE_SECONDS,
+            &frame_signals(&refused),
+        );
+        let mut edges = 0u32;
+        let mut airborne = 0u32;
+        let mut steps = 0u32;
+        for _ in 0..60 {
+            let frame = locomotion.step(&input, &body, &world, &mut dice, CLASSIC_UPDATE_SECONDS);
+            edges += u32::from(frame.jumped);
+            airborne += u32::from(frame.mode == MotionMode::Airborne);
+            steps += 1;
+            driver.advance(
+                &mut character,
+                CLASSIC_UPDATE_SECONDS,
+                &frame_signals(&frame),
+            );
+            if steps > 1 && frame.mode == MotionMode::Grounded {
+                break;
+            }
+        }
+        let uses = character.uses[Skill::Jumping.index()];
+        rows.push(row(
+            "g_jump_edge_real_jump",
+            !refused.jumped && edges == 1 && uses == 1 && airborne >= 2,
+            format!(
+                "refused step (0.0625 s < 0.1 s grounded) jumped={} · one jump over {steps} updates ({airborne} airborne) → edges={edges} (literal 1) · Jumping uses={uses} (literal 1)",
+                refused.jumped
+            ),
+        ));
+    }
+
+    // MINOR-1 · a ledge drop is not a jump: `Airborne` without the edge.
+    {
+        let world = SignalWorld::flat();
+        let mut dice = Dice100::new(DRIVER_SEED);
+        let mut locomotion = Locomotion::new([0.0, 12.0, 0.0], 1.6, 0.3);
+        locomotion.mode = MotionMode::Airborne;
+        locomotion.falling = true;
+        locomotion.fall_start_y = 12.0;
+        let mut driver = SkillDriver::new(DRIVER_SEED);
+        let mut character = base.clone();
+        let mut edges = 0u32;
+        let mut steps = 0u32;
+        for _ in 0..600 {
+            let frame = locomotion.step(
+                &MoveInput::default(),
+                &body,
+                &world,
+                &mut dice,
+                frame_dt,
+            );
+            edges += u32::from(frame.jumped);
+            steps += 1;
+            driver.advance(&mut character, frame_dt, &frame_signals(&frame));
+            if frame.mode == MotionMode::Grounded {
+                break;
+            }
+        }
+        let uses = character.uses[Skill::Jumping.index()];
+        rows.push(row(
+            "g_jump_edge_ledge_drop",
+            edges == 0 && uses == 0 && steps > 1 && locomotion.mode == MotionMode::Grounded,
+            format!(
+                "10.4 m eye fall over {steps} steps → jumped edges={edges} (literal 0) · Jumping uses={uses} (literal 0)"
+            ),
+        ));
+    }
+
+    // MINOR-1 · a climbing abort (`jump` while gripping) is not a jump either.
+    {
+        let world = SignalWorld { wall_x: Some(1.0) };
+        let climber = PlayerBody {
+            climbing_skill: 95,
+            live_luck: 100, // chance 103 → the start check never fails
+            ..PlayerBody::default()
+        };
+        let mut dice = Dice100::new(DRIVER_SEED);
+        let mut locomotion = Locomotion::new([0.6, 1.6, 0.0], 1.6, 0.3);
+        let climb = MoveInput {
+            forward: 1.0,
+            yaw: -std::f32::consts::FRAC_PI_2,
+            ..MoveInput::default()
+        };
+        for _ in 0..47 {
+            locomotion.step(&climb, &climber, &world, &mut dice, frame_dt);
+        }
+        let grabbed = locomotion.mode == MotionMode::Climbing;
+        let abort = MoveInput {
+            forward: 1.0,
+            jump: true,
+            yaw: -std::f32::consts::FRAC_PI_2,
+            ..MoveInput::default()
+        };
+        let mut driver = SkillDriver::new(DRIVER_SEED);
+        let mut character = base.clone();
+        let frame = locomotion.step(&abort, &climber, &world, &mut dice, frame_dt);
+        driver.advance(&mut character, frame_dt, &frame_signals(&frame));
+        let uses = character.uses[Skill::Jumping.index()];
+        rows.push(row(
+            "g_jump_edge_climb_abort",
+            grabbed && !frame.jumped && frame.mode == MotionMode::Airborne && uses == 0,
+            format!(
+                "grabbed={grabbed} + jump input while gripping → mode {} · jumped={} (literal false) · Jumping uses={uses} (literal 0)",
+                frame.mode.label(),
+                frame.jumped
+            ),
+        ));
+    }
+
+    // MINOR-2 · Run held standing still is running: `isRunning = CanRun() &&
+    // runningMode` has no movement test (`PlayerSpeedChanger.cs:110`).
+    {
+        let world = SignalWorld::flat();
+        let mut dice = Dice100::new(DRIVER_SEED);
+        let mut locomotion = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let mut driver = SkillDriver::new(DRIVER_SEED);
+        let mut character = base.clone();
+        let input = MoveInput {
+            run: true,
+            ..MoveInput::default()
+        };
+        let mut still = true;
+        let mut running_frames = 0u32;
+        for _ in 0..1000 {
+            let frame = locomotion.step(&input, &body, &world, &mut dice, CLASSIC_UPDATE_SECONDS);
+            still &= !frame.moved;
+            running_frames += u32::from(frame.running);
+            driver.advance(
+                &mut character,
+                CLASSIC_UPDATE_SECONDS,
+                &frame_signals(&frame),
+            );
+        }
+        let uses = character.uses[Skill::Running.index()];
+        rows.push(row(
+            "g_running_standing_still",
+            still && running_frames == 1000 && uses == 250,
+            format!(
+                "1000 classic updates, Run held, 0 movement input → still={still} · running frames={running_frames} (literal 1000) · uses={uses} (literal 250 = 1000/4)"
+            ),
+        ));
+    }
+
+    // MINOR-2 · the latch survives the airborne steps: releasing Run in the air
+    // only takes effect on the ground (`PlayerSpeedChanger.cs:113-117`).
+    {
+        let world = SignalWorld::flat();
+        let mut dice = Dice100::new(DRIVER_SEED);
+        let mut locomotion = Locomotion::new([0.0, 1.6, 0.0], 1.6, 0.3);
+        let mut driver = SkillDriver::new(DRIVER_SEED);
+        let mut character = base.clone();
+        let run = MoveInput {
+            run: true,
+            ..MoveInput::default()
+        };
+        let jump = MoveInput {
+            run: true,
+            jump: true,
+            ..MoveInput::default()
+        };
+        // `runningTallyCounter` only advances while `IsRunning`
+        // (`PlayerEntity.cs:311-321`), so the uses are `updates/4` over the
+        // updates the driver actually saw as running.
+        let mut running_updates = 0u32;
+        let mut standing_running = 0u32;
+        for _ in 0..2 {
+            let frame = locomotion.step(&run, &body, &world, &mut dice, CLASSIC_UPDATE_SECONDS);
+            let signals = frame_signals(&frame);
+            standing_running += u32::from(frame.running);
+            running_updates += u32::from(signals.running);
+            driver.advance(&mut character, CLASSIC_UPDATE_SECONDS, &signals);
+        }
+        let start = locomotion.step(&jump, &body, &world, &mut dice, CLASSIC_UPDATE_SECONDS);
+        running_updates += u32::from(frame_signals(&start).running);
+        driver.advance(&mut character, CLASSIC_UPDATE_SECONDS, &frame_signals(&start));
+        let mut airborne = 0u32;
+        let mut airborne_running = 0u32;
+        let released = MoveInput::default();
+        for _ in 0..60 {
+            let frame = locomotion.step(&released, &body, &world, &mut dice, CLASSIC_UPDATE_SECONDS);
+            let signals = frame_signals(&frame);
+            if frame.mode == MotionMode::Airborne {
+                airborne += 1;
+                airborne_running += u32::from(frame.running);
+            }
+            running_updates += u32::from(signals.running);
+            driver.advance(&mut character, CLASSIC_UPDATE_SECONDS, &signals);
+            if frame.mode == MotionMode::Grounded {
+                break;
+            }
+        }
+        let landed = locomotion.step(&released, &body, &world, &mut dice, CLASSIC_UPDATE_SECONDS);
+        let landed_signals = frame_signals(&landed);
+        running_updates += u32::from(landed_signals.running);
+        driver.advance(&mut character, CLASSIC_UPDATE_SECONDS, &landed_signals);
+        let uses = character.uses[Skill::Running.index()];
+        let expected = (running_updates / 4) as i32;
+        rows.push(row(
+            "g_running_through_the_air",
+            start.jumped
+                && start.running
+                && standing_running == 2
+                && airborne >= 2
+                && airborne_running == airborne
+                && !landed.running
+                && !locomotion.running_mode
+                && uses == expected,
+            format!(
+                "Run held: 2 grounded updates running={standing_running}/2 · jump edge={} running={} · {airborne} airborne updates running={airborne_running}/{airborne} (literal all) · Run released mid-air → second grounded update (one step past landing detection) running={} · uses={uses} vs {expected} (= {running_updates}/4 running updates)",
+                start.jumped, start.running, landed.running
+            ),
+        ));
+    }
+
+    rows
+}
+
+// ── entrypoint PROGRESSION-001 ──────────────────────────────────────────
+
+/// `--probe PROGRESSION-001` — **standalone** (outside `ALL-001`, like
+/// `SKILLS-001`/`EQUIP-001`/`STEALTH-001`): the progression driver is the
+/// authority of skill use and level-up (audit P1-3).
+///
+/// Blocks: **A** signals → uses (DFU literals §3.1), **B** caps/mastery,
+/// **C** level-up applied (level/HP/pool), **D** determinism ×2 (character
+/// digest + driver RNG digest), **E** M25 humanoid contract over
+/// `CLASS01.CFG`, **F** integration with `player_body()`/`run_speed`.
+pub fn run_progression_001() -> i32 {
+    println!(
+        "PROBE-PROGRESSION-001 - M20 gameplay signals → uses → RaiseSkills → level-up (CR-69345ec7 · audit P1-3) · seed {M20_SEED}"
+    );
+    let Some(dir) = arena2_dir() else {
+        println!("EXIT=2");
+        println!("VERDICT: PROBE-PROGRESSION-001 NO DATA - ARENA2 not accessible");
+        return 2;
+    };
+    let Some(bytes) = read_retail(&dir, &class_file_name(1)) else {
+        println!("EXIT=2");
+        println!("VERDICT: PROBE-PROGRESSION-001 NO DATA - missing CLASS01.CFG");
+        return 2;
+    };
+    let career = match Career::parse(&bytes) {
+        Ok(career) => career,
+        Err(err) => {
+            println!("EXIT=1");
+            println!("VERDICT: PROBE-PROGRESSION-001 FAIL - CLASS01.CFG → {err}");
+            return 1;
+        }
+    };
+    let base = Character::starting(career.clone(), &mut Rng64::new(M20_SEED), 1);
+
+    let a_rows = progression_signal_rows(&base);
+    let b_rows = progression_cap_rows(&base);
+    let c_rows = progression_level_rows(&base);
+    let d_rows = progression_determinism_rows(&base);
+    let e_rows = progression_humanoid_rows(&career);
+    let f_rows = progression_integration_rows(&base);
+    let g_rows = progression_signal_semantics_rows(&base);
+
+    let a_ok = print_block("A · gameplay signals → uses (DFU literals §3.1)", &a_rows);
+    let b_ok = print_block("B · caps 100 / mastery 95 + primary 100", &b_rows);
+    let c_ok = print_block("C · level-up applied (level/HP/pool)", &c_rows);
+    let d_ok = print_block("D · determinism ×2 (character + driver RNG)", &d_rows);
+    let e_ok = print_block("E · M25 humanoid contract (CLASS01.CFG)", &e_rows);
+    let f_ok = print_block("F · integration (player_body → run_speed)", &f_rows);
+    let g_ok = print_block("G · M19 signal semantics (jump edge / run latch)", &g_rows);
+
+    let all_ok = a_ok && b_ok && c_ok && d_ok && e_ok && f_ok && g_ok;
+    let code = i32::from(!all_ok);
+    let checks = a_rows.len()
+        + b_rows.len()
+        + c_rows.len()
+        + d_rows.len()
+        + e_rows.len()
+        + f_rows.len()
+        + g_rows.len();
+    println!(
+        "\nSUMMARY: A={} B={} C={} D={} E={} F={} G={} · checks {checks}",
+        verdict(a_ok),
+        verdict(b_ok),
+        verdict(c_ok),
+        verdict(d_ok),
+        verdict(e_ok),
+        verdict(f_ok),
+        verdict(g_ok)
+    );
+    println!("EXIT={code}");
+    if all_ok {
+        println!(
+            "VERDICT: PROBE-PROGRESSION-001 PASS - {checks} checks (A signals + B caps/mastery + C level-up + D determinism + E humanoid contract + F integration + G signal semantics)"
+        );
+    } else {
+        println!("VERDICT: PROBE-PROGRESSION-001 FAIL - see [FAIL] rows");
+    }
+    code
 }
 
 // ── entrypoint SKILLS-001 ───────────────────────────────────────────────

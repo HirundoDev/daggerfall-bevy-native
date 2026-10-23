@@ -291,6 +291,58 @@ impl Career {
     }
 }
 
+/// Enemy-class view of the same 74-byte `CLASSnn.CFG` layout
+/// ([`Career::parse`] offsets), **without** the player-facing skill-group
+/// validation.
+///
+/// Why a separate view (ORDER M25-CLOSURE criterion 6): the `EnemyClass`
+/// branch of `EnemyEntity.SetEnemyCareer` consumes only `career.Name`, the
+/// permanent attributes (`SetPermanentFromCareer`) and
+/// `career.HitPointsPerLevel` (`EnemyEntity.cs:294-303`); the skill groups
+/// never reach an enemy (skills are filled with `min(5·Level+30, 100)`,
+/// `:318-326`). Retail evidence that the strict parse must stay strict for
+/// players while the enemy path must not reject the file: `CLASS18.CFG`
+/// (City Watch — never a playable class) stores `major3 = 35`, literally
+/// `DFCareer.Skills.Count` marked "Not a valid skill"
+/// (`DFCareer.cs:448-486 @ 0038a1e6`, byte 21 of the retail file), which
+/// [`Career::parse`] correctly rejects as a player career.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnemyClassTemplate {
+    /// `career.Name` (`EnemyEntity.cs:314`).
+    pub name: String,
+    /// The eight `DFCareer.Stats` (`SetPermanentFromCareer`).
+    pub attributes: [i32; ATTRIBUTE_COUNT],
+    /// `career.HitPointsPerLevel` — input of `RollEnemyClassMaxHealth`
+    /// (`EnemyEntity.cs:303` → `FormulaHelper.cs:1729-1743`).
+    pub hit_points_per_level: i32,
+}
+
+/// Parses the enemy-class view of one `CLASSnn.CFG` (same offsets as
+/// [`Career::parse`]; only the length and the name are validated).
+pub fn parse_enemy_class_template(bytes: &[u8]) -> Result<EnemyClassTemplate, CareerError> {
+    if bytes.len() != CFG_BYTES {
+        return Err(CareerError::Length(bytes.len()));
+    }
+    let name_bytes = &bytes[28..44];
+    let name_len = name_bytes
+        .iter()
+        .position(|&byte| byte == 0)
+        .unwrap_or(name_bytes.len());
+    let name: String = name_bytes[..name_len].iter().map(|&b| b as char).collect();
+    if name.is_empty() {
+        return Err(CareerError::EmptyName);
+    }
+    let mut attributes = [0i32; ATTRIBUTE_COUNT];
+    for (index, attribute) in attributes.iter_mut().enumerate() {
+        *attribute = i32::from(u16_at(bytes, 58 + index * 2));
+    }
+    Ok(EnemyClassTemplate {
+        name,
+        attributes,
+        hit_points_per_level: i32::from(u16_at(bytes, 52)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

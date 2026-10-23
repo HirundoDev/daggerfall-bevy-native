@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # test-language-check.sh — regression probe for scripts/ci/language-check.py
-# CR-6f9f4742-ee4a-4f7f-9684-4a2cf7a80edb
 #
 # Three hermetic fixtures in a throwaway directory (no git, no network, no
 # writes outside mktemp -d):

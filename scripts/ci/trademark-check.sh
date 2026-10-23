@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # trademark-check.sh — INV-L99-8 · R2 clause (M0 PRE-6)
-# CR-bbd5db82-f194-4772-932d-364206dca16b
 #
 # Gate: 0 "Elder Scrolls" / "TES" on PUBLIC surfaces (brand/domain/store/
 # metadata). DEFAULT-DENY policy: the whole working tree is gating except the
@@ -10,7 +9,7 @@
 #   R2 (DECISION-A): the internal codename "Daggerfall Bevy" and the
 #   daggerfall-* prefix are NOT a violation while the repo is private. G1 (public
 #   brand name) remains OPEN by design —
-#   docs/sintergic/game/2026-10-18-decision-a-naming-CR-bbd5db82.md
+# docs/sintergic/game/2026-10-18-decision-a-naming.md
 #
 # Usage: bash scripts/ci/trademark-check.sh    (exit 0 = PASS · exit 1 = FAIL)
 set -euo pipefail

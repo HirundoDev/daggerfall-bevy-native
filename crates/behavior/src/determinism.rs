@@ -66,20 +66,20 @@ impl SplitMix64 {
 /// local for the same reason as SplitMix64 — the `behavior` organ does not
 /// depend on another organ and the contract is the algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DfRandom {
+pub struct DfRandom {
     next: u64,
 }
 
 impl DfRandom {
     /// `DFRandom.srand(uint)` — `next = seed`.
-    pub(crate) fn srand(seed: u32) -> Self {
+    pub fn srand(seed: u32) -> Self {
         Self {
             next: u64::from(seed),
         }
     }
 
     /// `DFRandom.rand()` — `0…32767`, without bias correction.
-    pub(crate) fn rand(&mut self) -> u32 {
+    pub fn rand(&mut self) -> u32 {
         self.next = self
             .next
             .wrapping_mul(1_103_515_245)
@@ -88,7 +88,7 @@ impl DfRandom {
     }
 
     /// `DFRandom.random_range_inclusive(min, max)`.
-    pub(crate) fn random_range_inclusive(&mut self, min: i32, max: i32) -> i32 {
+    pub fn random_range_inclusive(&mut self, min: i32, max: i32) -> i32 {
         (self.rand() % (max - min + 1) as u32) as i32 + min
     }
 }

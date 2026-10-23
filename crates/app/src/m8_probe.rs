@@ -100,7 +100,10 @@ pub fn run_session_probe() -> SessionProbeReport {
     let mut playing = m8_session_app();
     playing.update();
     let initial = snapshot_from_world(playing.world());
-    crate::m8_session::apply_m8_script(&mut playing);
+    // The script buys at `m5_probe::dfu_buy_price` (two-stage DFU pipeline:
+    // CalculateCost then CalculateTradePrice — 90 for the 80-value potion), so the
+    // paid price is taken from the script and never re-literalized here.
+    let paid = crate::m8_session::apply_m8_script(&mut playing);
     playing.update();
     let before_exit = snapshot_from_world(playing.world());
     let vault_before_exit = playing.world().resource::<M7ReadModels>().0.clone();
@@ -121,7 +124,10 @@ pub fn run_session_probe() -> SessionProbeReport {
         (before_exit.clock_hour, before_exit.clock_minute, before_exit.clock_second)
             != (initial.clock_hour, initial.clock_minute, initial.clock_second),
         before_exit.health == 70 && before_exit.level == 2,
-        before_exit.gold == 55 && before_exit.goods.len() == 2,
+        // The session starts at 100 gold (`expected_initial_snapshot`) and pays exactly
+        // `paid`, so the end gold is `100 - paid`. The old literal 55 encoded the pre-fix
+        // one-stage price (≈½ of retail) and must not be reintroduced.
+        before_exit.gold == 100 - i64::from(paid) && before_exit.goods.len() == 2,
         before_exit.quests.len() == 2,
         before_exit.chunks.len() == 5,
     ];
@@ -130,8 +136,8 @@ pub fn run_session_probe() -> SessionProbeReport {
         ok: mutated.iter().all(|changed| *changed),
         detail: format!(
             "the script mutates the 6 snapshot states (pos {}/{} mrad {} · \
-             clock {:02}:{:02}:{:02} · HP {} Lv {} · gold {} goods {} · quests {} · chunks {}) \
-             before saving",
+             clock {:02}:{:02}:{:02} · HP {} Lv {} · gold {} (100 − {} paid) goods {} · \
+             quests {} · chunks {}) before saving",
             before_exit.pos_x_mm,
             before_exit.pos_z_mm,
             before_exit.yaw_mrad,
@@ -141,6 +147,7 @@ pub fn run_session_probe() -> SessionProbeReport {
             before_exit.health,
             before_exit.level,
             before_exit.gold,
+            paid,
             before_exit.goods.len(),
             before_exit.quests.len(),
             before_exit.chunks.len(),
@@ -207,20 +214,32 @@ pub fn run_session_probe() -> SessionProbeReport {
 
     let corrupt_path = probe_save_dir().join("session-corrupt.dfs");
     let mut corrupt_bytes = saved_bytes.clone();
-    // Alters ONE byte of the payload (gold area) without touching the checksum.
-    let flip = corrupt_bytes
-        .windows(2)
-        .position(|window| window == b"55")
-        .expect("gold present in the save");
-    corrupt_bytes[flip] = b'6';
+    // Alters ONE byte of the payload (gold area) without touching the checksum. The
+    // needle follows the actual gold of the snapshot — never a literal price.
+    let gold_value = before_exit.gold.to_string();
+    let gold_needle = format!("gold={gold_value}");
+    let needle_start = corrupt_bytes
+        .windows(gold_needle.len())
+        .position(|window| window == gold_needle.as_bytes())
+        .unwrap_or_else(|| panic!("the save must record the gold field as `{gold_needle}`"));
+    // Flip the first digit of the value (same width ⇒ only the payload byte changes,
+    // the checksum is left untouched so the probe still proves corruption detection).
+    let digit_at = needle_start + "gold=".len();
+    let corrupted_digit = if corrupt_bytes[digit_at] == b'9' {
+        b'0'
+    } else {
+        corrupt_bytes[digit_at] + 1
+    };
+    corrupt_bytes[digit_at] = corrupted_digit;
+    let corrupted_gold = format!("{}{}", corrupted_digit as char, &gold_value[1..]);
     std::fs::write(&corrupt_path, &corrupt_bytes).expect("write corrupt");
     let detected = load_session(restored.world_mut(), &corrupt_path).expect_err("must detect");
     checks.push(ProbeCheck {
         id: "corrupted_save_is_detected",
         ok: matches!(detected, SaveError::Corrupt(_)),
         detail: format!(
-            "1 altered byte in the save (gold 55→65) ⇒ SaveError::Corrupt by FNV-1a 64 \
-             checksum: {detected}"
+            "1 altered byte in the save (gold {gold_value}→{corrupted_gold}) ⇒ \
+             SaveError::Corrupt by FNV-1a 64 checksum: {detected}"
         ),
     });
 

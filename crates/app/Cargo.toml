@@ -10,6 +10,11 @@ description = "Bevy application entry for daggerfall-bevy-native"
 # headless F0 (CI without system libs intact). Window+render:
 #   cargo run -p daggerfall-app --features window
 default = []
+# M14 (REQ-L99-046): real device playback. Additive OPT-IN so the default
+# headless build/CI needs no audio system libraries; without it the runtime
+# uses `audio::NullSink` and says so.
+#   cargo run -p daggerfall-app --features audio,window
+audio = ["dep:rodio"]
 window = [
     "bevy/bevy_window",
     "bevy/bevy_winit",
@@ -35,7 +40,7 @@ window = [
 # Bevy 0.20.0 = max_stable on crates.io (verified 2026-10-17); satisfies the
 # ADR-GAME-004 posture (Bevy >= 0.19). default-features disabled so the F0
 # scaffold compiles headless; renderer/window features are enabled by the
-# feature `window` above (M1, CR-bbd5db82) — additive, 0 deletion of F0.
+# feature `window` above (M1) — additive, 0 deletion of F0.
 bevy = { version = "0.20.0", default-features = false }
 
 daggerfall-nervous = { path = "../nervous" }
@@ -63,3 +68,8 @@ daggerfall-parser-rs = { path = "../daggerfall_parser_rs" }
 # block (PROBE-ITEM-001 block C) and loot digest (PROBE-LOOT-001
 # block D). Local cargo cache only (0 network dependency).
 sha2 = "0.10"
+# M14 (REQ-L99-046): real playback device behind the `audio` feature.
+# `default-features = false, features = ["wav"]` keeps the decoder surface to
+# WAV (what the production path synthesizes) and avoids the MP3/FLAC/Vorbis
+# decoders that the game never needs.
+rodio = { version = "0.20", default-features = false, features = ["wav"], optional = true }

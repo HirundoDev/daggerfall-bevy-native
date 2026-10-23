@@ -188,7 +188,7 @@ pub fn run_windowed_m4(
         interior.block_name,
         eval.subject_rank + 1,
         eval.census.total,
-        eval.candidates,
+        eval.stats.attempted,
         interior.digest(),
         counts.0,
         counts.1,

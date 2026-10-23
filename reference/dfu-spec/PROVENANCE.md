@@ -1,4 +1,4 @@
-# PROVENANCE — Daggerfall Unity source-class pin for M13 / M15 / M16
+# PROVENANCE — Daggerfall Unity source-class pin for M13 / M14 / M15 / M16
 
 > Translation of the original Spanish custody record; claims unchanged. Only internal process
 > identifiers (record and lane ids) were dropped: upstream commits, line references, byte counts,
@@ -14,7 +14,7 @@
 1. `GET https://raw.githubusercontent.com/Interkarma/daggerfall-unity/<commit>/<path>` → **HTTP 200** required.
 2. `git hash-object <local file>` compared against the **blob SHA-1** that the GitHub Trees API declares for that path at that commit. Equality ⇒ the local file is **byte-for-byte** the blob of the commit (no truncation, no BOM, no line-ending normalisation).
 3. `sha256sum` of the written file (table column).
-4. Header checked: `// Project: Daggerfall Unity` + `Copyright (C) 2009-2023 Daggerfall Workshop` in all 7 `.cs` files.
+4. Header checked: `// Project: Daggerfall Unity` + `Copyright (C) 2009-2023 Daggerfall Workshop` in all 8 `.cs` files of the pin table.
 
 ## 2. Pin table
 
@@ -28,10 +28,11 @@
 | 6 | `NameGen.txt` — name bank consumed by `NameHelper` (data, not a binary) | `Assets/Resources/NameGen.txt` | `Assets/Resources/NameGen.txt` | 28,005 | `372497541fe3b7e22fe4bd155e0cd8ad34ce09b7b330edbaf91c6f997c8adb81` | `1a228e736fab` | **PINNED** (supplementary) |
 | 7 | `TextFile` — `TEXT.RSC` parser | `Assets/Scripts/API/TextFile.cs` | `Assets/Scripts/API/TextFile.cs` | 17,772 | `a56a77e44e47da258cd29e8339bc2b0a35ec87922eb5e6d82facd76a262eb96d` | `43a2b40ba316` | **PINNED** |
 | 8 | `TextProvider` — text interface/manager | `Assets/Scripts/Utility/TextProvider.cs` | `Assets/Scripts/Utility/TextProvider.cs` | 27,343 | `465ea4568f2db23b2df9db2a135a1c4a26a78957f5f8ed3c89e90f3cc1314088` | `724659a0982e` | **PINNED** |
+| 9 | `SoundClips` — `DAGGER.SND` effect catalog (375 enum members; positional directory index) | `Assets/Scripts/SoundClips.cs` | `Assets/Scripts/SoundClips.cs` | 14,494 | `fba0cc8cc19b9186d3f455f1660be81051d8a4c48f6b8b7edb46bfe81b4ce5bf` | `bd706dbba1f3` | **PINNED** |
 
 Raw URL (exact pattern used): `https://raw.githubusercontent.com/Interkarma/daggerfall-unity/0038a1e61999ad2c73fb1f33b706cae9a88ec66f/<upstream path>`
 
-**Download record:** 8/8 with HTTP 200, size > 0, blob SHA-1 == commit tree. **0 invented files, 0 stubs.**
+**Download record:** 9/9 with HTTP 200, size > 0, blob SHA-1 == commit tree. **0 invented files, 0 stubs.**
 
 ## 3. Verified anchors (the ones M13 needs)
 

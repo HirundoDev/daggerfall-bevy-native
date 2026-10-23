@@ -22,7 +22,9 @@ REPO = Path(subprocess.run(["git", "-C", str(HERE), "rev-parse", "--show-topleve
                            capture_output=True, text=True, check=True).stdout.strip())
 EXPORT_TOOL = HERE / "export-public.py"
 EXCLUDE_FILE = HERE / "exclude.txt"
-CR = "CR-5a5c759b-884e-445e-8d29-22347c7e91aa"
+# Internal change-request id recorded in the report (pass D). It is supplied at run time with
+# `--cr` on purpose: this file ships in the public export, so it carries no internal id.
+CR = ""
 
 RETAIL_EXT = {".bsa", ".dat", ".cfg", ".bio", ".vid", ".flc", ".img", ".cif",
               ".exe", ".rsc", ".qbn", ".qrc", ".fnt", ".pal", ".sav", ".dfa"}
@@ -232,7 +234,12 @@ def pass_b(root):
 # ---------------------------------------------------------------- pass C
 def pass_c(root, regen_dir):
     regen = Path(regen_dir)
-    out = sh([sys.executable, str(EXPORT_TOOL), "--out", str(regen), "--force"], text=True)
+    # B7: the exporter refuses to write unless the source HEAD is a declared release. Pass C
+    # regenerates from the same HEAD, so it declares it explicitly (`--release-commit`); the
+    # alternative (a tag or a `release/*` branch) is the publisher's call, not the verifier's.
+    head = sh(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).stdout.strip()
+    out = sh([sys.executable, str(EXPORT_TOOL), "--out", str(regen), "--force",
+              "--release-commit", head], text=True)
     if out.returncode != 0:
         return {"verdict": "FAIL", "reason": "regeneration failed", "stderr": out.stderr[-2000:],
                 "report": out.stdout[-2000:]}
@@ -375,7 +382,11 @@ def main():
     ap.add_argument("--regen-dir")
     ap.add_argument("--report")
     ap.add_argument("--skip-c", action="store_true")
+    ap.add_argument("--cr", default="", help="internal change-request id recorded in the report "
+                                            "(supplied at run time; never part of the export)")
     a = ap.parse_args()
+    global CR
+    CR = a.cr
     root = Path(a.export).resolve()
     if not (root / ".git").exists():
         sys.exit(f"not a git export: {root}")

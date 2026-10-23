@@ -15,6 +15,18 @@
 //! With the 45 tables (all of 20) it **never fires**; it is implemented and
 //! tested on a synthetic table (`PROBE-ENCOUNTER-001` block A, E9).
 //!
+//! **`MobileTypes` ids (R-A):** the tables store the **enum ids** of the DFU
+//! source, exactly as written there — monsters `0..=42` and humanoids
+//! `128..=146` (`DaggerfallUnityEnums.cs:142-212`). 393 of the 900 cells are
+//! humanoids. No id is ever remapped or clamped: every cell is resolved
+//! through [`resolve_mobile`], which returns a typed [`MobileRef`] and an
+//! [`EncounterTableError`] otherwise. [`validate_tables`] proves 900/900.
+//!
+//! A humanoid has **no `ENEMY###.CFG` record**: `MONSTER.BSA` holds 43 `ENEMY`
+//! records = `CLASS.CFG` records of the 43 monsters (`MonsterFile.cs:46-47`),
+//! while humanoid classes come from the career data of M20. [`MobileRef::Humanoid`]
+//! therefore carries a *class id*, never an `ENEMY` record.
+//!
 //! Pure: 0 Bevy, 0 I/O, 0 global RNG — rolls come in as parameters.
 
 /// Number of active tables (indices 0..44).
@@ -32,104 +44,263 @@ pub const UNDERWATER_TABLE_INDEX: usize = 19;
 /// Dungeon types `DFRegion.DungeonTypes` (0=Crypt … 18=Cemetery).
 pub const DUNGEON_TYPE_COUNT: usize = 19;
 
-/// Encounter tables (`EncounterTables`, `RandomEncounters.cs:26-1316`),
-/// in index order, with the numeric `MobileTypes`.
+/// Encounter tables (`EncounterTables`, `RandomEncounters.cs:26-1328`),
+/// in index order, with the **true** numeric `MobileTypes` ids
+/// (`DaggerfallUnityEnums.cs:139-212`): monsters `0..=42`, humanoids
+/// `128..=146`.
+///
+/// Every cell cites the `// <name> - IndexN` marker of its table in the DFU
+/// source; the values are the enum ids of the `MobileTypes.<Name>` entries
+/// listed there. **Census:** 45 tables × 20 = 900 cells, of which **393 are
+/// humanoids** (`>= 128`) spread over **40 tables** (tables 0, 1, 13, 19 and
+/// 37 are monster-only). [`validate_tables`] proves all 900 resolve.
 pub const ENCOUNTER_TABLES: [[u16; TABLE_LEN]; TABLE_COUNT] = [
-    // 0 · Crypt
+    // 0 · Crypt (`RandomEncounters.cs:30`)
     [0, 15, 3, 0, 15, 3, 19, 15, 6, 17, 18, 17, 17, 18, 18, 23, 23, 28, 30, 32],
-    // 1 · Orc Stronghold
+    // 1 · Orc Stronghold (`RandomEncounters.cs:59`)
     [0, 3, 7, 12, 4, 7, 15, 7, 12, 5, 16, 21, 6, 21, 24, 20, 27, 20, 21, 24],
-    // 2 · Human Stronghold
-    [59, 51, 0, 4, 56, 48, 3, 44, 8, 60, 59, 51, 58, 24, 56, 23, 44, 21, 59, 28],
-    // 3 · Prison
-    [3, 0, 49, 15, 50, 6, 48, 6, 58, 53, 37, 53, 54, 17, 48, 36, 23, 18, 17, 50],
-    // 4 · Desecrated Temple
-    [3, 1, 47, 55, 46, 15, 13, 55, 19, 55, 21, 22, 23, 27, 29, 55, 25, 26, 34, 31],
-    // 5 · Mine
-    [0, 3, 4, 6, 15, 6, 48, 7, 12, 16, 53, 16, 59, 38, 36, 26, 53, 28, 48, 30],
-    // 6 · Natural Cave
-    [0, 3, 4, 5, 4, 6, 7, 9, 58, 13, 14, 16, 20, 21, 18, 59, 55, 58, 34, 32],
-    // 7 · Coven
-    [1, 3, 43, 46, 13, 48, 10, 37, 35, 36, 10, 27, 46, 44, 29, 26, 45, 43, 25, 31],
-    // 8 · Vampire Haunt
-    [0, 0, 3, 6, 9, 48, 15, 15, 18, 19, 23, 18, 28, 23, 28, 28, 30, 28, 30, 30],
-    // 9 · Laboratory
-    [1, 43, 46, 45, 17, 43, 46, 37, 45, 38, 35, 36, 22, 27, 46, 32, 43, 46, 32, 33],
-    // 10 · Harpy Nest
-    [0, 59, 3, 13, 3, 13, 15, 6, 50, 13, 20, 21, 48, 13, 51, 28, 29, 13, 29, 31],
-    // 11 · Ruined Castle
-    [0, 3, 59, 7, 15, 6, 12, 9, 60, 14, 17, 16, 60, 18, 23, 59, 60, 32, 33, 30],
-    // 12 · Spider Nest
-    [0, 3, 3, 6, 15, 2, 57, 6, 20, 51, 13, 6, 53, 18, 19, 6, 23, 6, 54, 32],
-    // 13 · Giant Stronghold
+    // 2 · Human Stronghold (`RandomEncounters.cs:88`)
+    [144, 136, 0, 4, 141, 133, 3, 129, 8, 145, 144, 136, 143, 24, 141, 23, 129, 21, 144, 28],
+    // 3 · Prison (`RandomEncounters.cs:117`)
+    [3, 0, 134, 15, 135, 6, 133, 6, 143, 138, 37, 138, 139, 17, 133, 36, 23, 18, 17, 135],
+    // 4 · Desecrated Temple (`RandomEncounters.cs:146`)
+    [3, 1, 132, 140, 131, 15, 13, 140, 19, 140, 21, 22, 23, 27, 29, 140, 25, 26, 34, 31],
+    // 5 · Mine (`RandomEncounters.cs:175`)
+    [0, 3, 4, 6, 15, 6, 133, 7, 12, 16, 138, 16, 144, 38, 36, 26, 138, 28, 133, 30],
+    // 6 · Natural Cave (`RandomEncounters.cs:204`)
+    [0, 3, 4, 5, 4, 6, 7, 9, 143, 13, 14, 16, 20, 21, 18, 144, 140, 143, 34, 32],
+    // 7 · Coven (`RandomEncounters.cs:233`)
+    [1, 3, 128, 131, 13, 133, 10, 37, 35, 36, 10, 27, 131, 129, 29, 26, 130, 128, 25, 31],
+    // 8 · Vampire Haunt (`RandomEncounters.cs:262`)
+    [0, 0, 3, 6, 9, 133, 15, 15, 18, 19, 23, 18, 28, 23, 28, 28, 30, 28, 30, 30],
+    // 9 · Laboratory (`RandomEncounters.cs:291`)
+    [1, 128, 131, 130, 17, 128, 131, 37, 130, 38, 35, 36, 22, 27, 131, 32, 128, 131, 32, 33],
+    // 10 · Harpy Nest (`RandomEncounters.cs:320`)
+    [0, 144, 3, 13, 3, 13, 15, 6, 135, 13, 20, 21, 133, 13, 136, 28, 29, 13, 29, 31],
+    // 11 · Ruined Castle (`RandomEncounters.cs:349`)
+    [0, 3, 144, 7, 15, 6, 12, 9, 145, 14, 17, 16, 145, 18, 23, 144, 145, 32, 33, 30],
+    // 12 · Spider Nest (`RandomEncounters.cs:378`)
+    [0, 3, 3, 6, 15, 2, 142, 6, 20, 136, 13, 6, 138, 18, 19, 6, 23, 6, 139, 32],
+    // 13 · Giant Stronghold (`RandomEncounters.cs:407`)
     [0, 4, 5, 7, 16, 12, 20, 16, 14, 16, 24, 20, 21, 16, 27, 26, 34, 16, 24, 25],
-    // 14 · Dragon's Den
-    [0, 3, 8, 50, 20, 9, 60, 13, 6, 22, 46, 10, 48, 43, 60, 28, 45, 53, 33, 31],
-    // 15 · Barbarian Stronghold
-    [59, 58, 0, 3, 59, 8, 51, 56, 9, 58, 56, 14, 6, 59, 28, 51, 58, 30, 46, 33],
-    // 16 · Volcanic Caves
-    [3, 1, 5, 5, 58, 35, 13, 14, 16, 18, 20, 36, 35, 43, 36, 23, 27, 26, 31, 33],
-    // 17 · Scorpion Nest
-    [0, 3, 6, 15, 20, 53, 20, 17, 1, 18, 20, 22, 23, 47, 20, 48, 29, 20, 27, 31],
-    // 18 · Cemetery (classic; the DFU variant is commented out in the source)
-    [0, 0, 3, 0, 53, 3, 15, 3, 7, 56, 7, 1, 7, 1, 17, 19, 49, 51, 0, 0],
-    // 19 · Underwater
+    // 14 · Dragon's Den (`RandomEncounters.cs:436`)
+    [0, 3, 8, 135, 20, 9, 145, 13, 6, 22, 131, 10, 133, 128, 145, 28, 130, 138, 33, 31],
+    // 15 · Barbarian Stronghold (`RandomEncounters.cs:465`)
+    [144, 143, 0, 3, 144, 8, 136, 141, 9, 143, 141, 14, 6, 144, 28, 136, 143, 30, 131, 33],
+    // 16 · Volcanic Caves (`RandomEncounters.cs:494`)
+    [3, 1, 5, 5, 143, 35, 13, 14, 16, 18, 20, 36, 35, 128, 36, 23, 27, 26, 31, 33],
+    // 17 · Scorpion Nest (`RandomEncounters.cs:523`)
+    [0, 3, 6, 15, 20, 138, 20, 17, 1, 18, 20, 22, 23, 132, 20, 133, 29, 20, 27, 31],
+    // 18 · Cemetery (`RandomEncounters.cs:552`) — classic: the `Cemetery - DF
+    // Unity version` variant is commented out (`:580-599`) and out of the array.
+    [0, 0, 3, 0, 138, 3, 15, 3, 7, 141, 7, 1, 7, 1, 17, 19, 134, 136, 0, 0],
+    // 19 · Underwater (`RandomEncounters.cs:601`)
     [11, 11, 15, 11, 11, 41, 41, 11, 17, 41, 11, 38, 11, 41, 42, 41, 42, 17, 23, 18],
-    // 20 · Desert, in location, night
-    [0, 3, 53, 54, 9, 51, 14, 59, 53, 52, 51, 50, 45, 43, 59, 53, 7, 28, 20, 54],
-    // 21 · Desert, not in location, day
-    [0, 5, 5, 8, 10, 34, 13, 16, 51, 20, 21, 54, 53, 59, 24, 44, 49, 51, 54, 60],
-    // 22 · Desert, not in location, night
-    [3, 3, 5, 6, 7, 48, 54, 9, 13, 14, 19, 20, 35, 24, 36, 59, 48, 28, 60, 34],
-    // 23 · Mountain, in location, night
-    [0, 3, 51, 7, 54, 44, 9, 60, 14, 59, 43, 46, 50, 53, 55, 56, 59, 58, 51, 54],
-    // 24 · Mountain, not in location, day
-    [4, 2, 51, 7, 10, 13, 12, 16, 60, 21, 55, 56, 58, 24, 36, 51, 57, 28, 60, 54],
-    // 25 · Mountain, not in location, night
-    [3, 4, 2, 8, 54, 57, 9, 34, 12, 16, 18, 21, 46, 22, 45, 23, 44, 28, 57, 60],
-    // 26 · Rainforest, in location, night
-    [0, 53, 0, 3, 48, 3, 13, 14, 49, 58, 51, 53, 59, 56, 54, 45, 48, 28, 59, 60],
-    // 27 · Rainforest, not in location, day
-    [0, 4, 5, 6, 53, 13, 51, 16, 57, 20, 59, 60, 53, 58, 57, 56, 52, 49, 43, 44],
-    // 28 · Rainforest, not in location, night
-    [3, 3, 5, 6, 44, 51, 9, 13, 14, 16, 18, 20, 9, 5, 23, 54, 27, 48, 59, 45],
-    // 29 · Subtropical, in location, night
-    [0, 50, 53, 55, 46, 49, 51, 59, 48, 53, 52, 57, 56, 28, 58, 59, 43, 44, 54, 60],
-    // 30 · Subtropical, not in location, day
-    [0, 1, 4, 5, 8, 10, 34, 16, 53, 20, 59, 46, 48, 51, 60, 45, 55, 53, 58, 48],
-    // 31 · Subtropical, not in location, night
-    [3, 4, 5, 6, 17, 9, 14, 13, 18, 20, 59, 48, 4, 58, 54, 45, 49, 48, 32, 54],
-    // 32 · Swamp/woodlands, in location, night
-    [0, 3, 50, 49, 51, 56, 9, 52, 14, 59, 45, 50, 55, 51, 48, 54, 53, 28, 60, 45],
-    // 33 · Swamp/woodlands, not in location, day
-    [0, 4, 2, 7, 8, 34, 12, 14, 16, 56, 21, 49, 58, 24, 45, 54, 57, 51, 60, 44],
-    // 34 · Swamp/woodlands, not in location, night
-    [3, 4, 6, 17, 48, 60, 9, 34, 14, 16, 57, 22, 44, 55, 49, 51, 57, 48, 60, 46],
-    // 35 · Haunted woodlands, in location, night
-    [3, 48, 50, 17, 51, 55, 14, 58, 18, 46, 59, 54, 23, 60, 45, 53, 51, 28, 58, 30],
-    // 36 · Haunted woodlands, not in location, day
-    [1, 4, 2, 6, 8, 10, 34, 13, 16, 46, 21, 22, 60, 24, 36, 45, 54, 56, 57, 60],
-    // 37 · Haunted woodlands, not in location, night
+    // 20 · Desert, in location, night (`RandomEncounters.cs:629`)
+    [0, 3, 138, 139, 9, 136, 14, 144, 138, 137, 136, 135, 130, 128, 144, 138, 7, 28, 20, 139],
+    // 21 · Desert, not in location, day (`RandomEncounters.cs:657`)
+    [0, 5, 5, 8, 10, 34, 13, 16, 136, 20, 21, 139, 138, 144, 24, 129, 134, 136, 139, 145],
+    // 22 · Desert, not in location, night (`RandomEncounters.cs:685`)
+    [3, 3, 5, 6, 7, 133, 139, 9, 13, 14, 19, 20, 35, 24, 36, 144, 133, 28, 145, 34],
+    // 23 · Mountain, in location, night (`RandomEncounters.cs:713`)
+    [0, 3, 136, 7, 139, 129, 9, 145, 14, 144, 128, 131, 135, 138, 140, 141, 144, 143, 136, 139],
+    // 24 · Mountain, not in location, day (`RandomEncounters.cs:741`)
+    [4, 2, 136, 7, 10, 13, 12, 16, 145, 21, 140, 141, 143, 24, 36, 136, 142, 28, 145, 139],
+    // 25 · Mountain, not in location, night (`RandomEncounters.cs:769`)
+    [3, 4, 2, 8, 139, 142, 9, 34, 12, 16, 18, 21, 131, 22, 130, 23, 129, 28, 142, 145],
+    // 26 · Rainforest, in location, night (`RandomEncounters.cs:797`)
+    [0, 138, 0, 3, 133, 3, 13, 14, 134, 143, 136, 138, 144, 141, 139, 130, 133, 28, 144, 145],
+    // 27 · Rainforest, not in location, day (`RandomEncounters.cs:825`)
+    [0, 4, 5, 6, 138, 13, 136, 16, 142, 20, 144, 145, 138, 143, 142, 141, 137, 134, 128, 129],
+    // 28 · Rainforest, not in location, night (`RandomEncounters.cs:853`)
+    [3, 3, 5, 6, 129, 136, 9, 13, 14, 16, 18, 20, 9, 5, 23, 139, 27, 133, 144, 130],
+    // 29 · Subtropical, in location, night (`RandomEncounters.cs:881`)
+    [0, 135, 138, 140, 131, 134, 136, 144, 133, 138, 137, 142, 141, 28, 143, 144, 128, 129, 139, 145],
+    // 30 · Subtropical, not in location, day (`RandomEncounters.cs:909`)
+    [0, 1, 4, 5, 8, 10, 34, 16, 138, 20, 144, 131, 133, 136, 145, 130, 140, 138, 143, 133],
+    // 31 · Subtropical, not in location, night (`RandomEncounters.cs:937`)
+    [3, 4, 5, 6, 17, 9, 14, 13, 18, 20, 144, 133, 4, 143, 139, 130, 134, 133, 32, 139],
+    // 32 · Swamp/woodlands, in location, night (`RandomEncounters.cs:965`)
+    [0, 3, 135, 134, 136, 141, 9, 137, 14, 144, 130, 135, 140, 136, 133, 139, 138, 28, 145, 130],
+    // 33 · Swamp/woodlands, not in location, day (`RandomEncounters.cs:993`)
+    [0, 4, 2, 7, 8, 34, 12, 14, 16, 141, 21, 134, 143, 24, 130, 139, 142, 136, 145, 129],
+    // 34 · Swamp/woodlands, not in location, night (`RandomEncounters.cs:1021`)
+    [3, 4, 6, 17, 133, 145, 9, 34, 14, 16, 142, 22, 129, 140, 134, 136, 142, 133, 145, 131],
+    // 35 · Haunted woodlands, in location, night (`RandomEncounters.cs:1049`)
+    [3, 133, 135, 17, 136, 140, 14, 143, 18, 131, 144, 139, 23, 145, 130, 138, 136, 28, 143, 30],
+    // 36 · Haunted woodlands, not in location, day (`RandomEncounters.cs:1077`)
+    [1, 4, 2, 6, 8, 10, 34, 13, 16, 131, 21, 22, 145, 24, 36, 130, 139, 141, 142, 145],
+    // 37 · Haunted woodlands, not in location, night (`RandomEncounters.cs:1105`)
     [3, 4, 6, 17, 15, 9, 34, 14, 16, 37, 18, 35, 6, 23, 25, 36, 27, 28, 30, 32],
-    // 38 · Unused (never referenced by the mapping)
-    [0, 0, 53, 0, 0, 3, 3, 17, 18, 0, 54, 3, 51, 0, 3, 0, 3, 0, 0, 28],
-    // 39 · Default building
-    [53, 59, 50, 59, 50, 49, 59, 52, 50, 51, 53, 59, 50, 48, 51, 59, 50, 53, 59, 51],
-    // 40 · Guildhall
-    [43, 1, 45, 47, 48, 44, 43, 46, 45, 47, 35, 44, 43, 46, 45, 48, 44, 43, 29, 45],
-    // 41 · Temple
-    [55, 55, 60, 55, 55, 55, 55, 60, 55, 55, 55, 55, 55, 60, 55, 55, 55, 55, 55, 60],
-    // 42 · Palace, House1
-    [59, 56, 49, 44, 60, 59, 60, 59, 56, 49, 44, 60, 59, 60, 59, 56, 44, 60, 59, 60],
-    // 43 · House2
-    [49, 59, 51, 53, 59, 44, 50, 51, 55, 43, 48, 52, 59, 49, 47, 46, 53, 28, 51, 59],
-    // 44 · House3
-    [0, 0, 50, 53, 49, 55, 49, 47, 51, 55, 50, 53, 49, 51, 57, 50, 53, 49, 55, 51],
+    // 38 · Unused - Index38, never referenced (`RandomEncounters.cs:1133`)
+    [0, 0, 138, 0, 0, 3, 3, 17, 18, 0, 139, 3, 136, 0, 3, 0, 3, 0, 0, 28],
+    // 39 · Default building (`RandomEncounters.cs:1161`)
+    [138, 144, 135, 144, 135, 134, 144, 137, 135, 136, 138, 144, 135, 133, 136, 144, 135, 138, 144, 136],
+    // 40 · Guildhall (`RandomEncounters.cs:1189`)
+    [128, 1, 130, 132, 133, 129, 128, 131, 130, 132, 35, 129, 128, 131, 130, 133, 129, 128, 29, 130],
+    // 41 · Temple (`RandomEncounters.cs:1217`)
+    [140, 140, 145, 140, 140, 140, 140, 145, 140, 140, 140, 140, 140, 145, 140, 140, 140, 140, 140, 145],
+    // 42 · Palace, House1 (`RandomEncounters.cs:1245`)
+    [144, 141, 134, 129, 145, 144, 145, 144, 141, 134, 129, 145, 144, 145, 144, 141, 129, 145, 144, 145],
+    // 43 · House2 (`RandomEncounters.cs:1273`)
+    [134, 144, 136, 138, 144, 129, 135, 136, 140, 128, 133, 137, 144, 134, 132, 131, 138, 28, 136, 144],
+    // 44 · House3 (`RandomEncounters.cs:1301`)
+    [0, 0, 135, 138, 134, 140, 134, 132, 136, 140, 135, 138, 134, 136, 142, 135, 138, 134, 140, 136],
 ];
 
 /// Table by index (`None` outside `0..45`).
 pub fn table(index: usize) -> Option<&'static [u16; TABLE_LEN]> {
     ENCOUNTER_TABLES.get(index)
+}
+
+/// Last monster `MobileTypes` id (`Lamia`, `DaggerfallUnityEnums.cs:187`).
+pub const MONSTER_MOBILE_END: u16 = 42;
+/// First humanoid `MobileTypes` id (`Mage = 128`, `DaggerfallUnityEnums.cs:190`).
+pub const HUMANOID_MOBILE_START: u16 = 128;
+/// Last humanoid `MobileTypes` id (`Knight_CityWatch`,
+/// `DaggerfallUnityEnums.cs:208`).
+pub const HUMANOID_MOBILE_END: u16 = 146;
+/// Humanoid classes `128..=146` (`DaggerfallUnityEnums.cs:190-208`).
+pub const HUMANOID_CLASS_COUNT: u8 = 19;
+
+/// Typed `MobileTypes` reference of an encounter cell.
+///
+/// The distinction is data, not decoration: a monster has an
+/// `ENEMY{mobile:03}.CFG` record in `MONSTER.BSA`, a humanoid does **not**
+/// (`MonsterFile.cs:46-47`: the 43 `ENEMY` records are the `CLASS.CFG`
+/// records); its class/level/HP come from the career data of M20.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MobileRef {
+    /// Monster `0..=42`: `ENEMY{mobile:03}.CFG` (`record` = the same number,
+    /// `MonsterFile.cs:159-183`).
+    Monster {
+        /// `MobileTypes` id.
+        mobile: u16,
+        /// `ENEMY###.CFG` record number (== `mobile`).
+        record: usize,
+    },
+    /// Humanoid `128..=146`: **no** `ENEMY###.CFG`; the class comes from the
+    /// career data (M20 boundary).
+    Humanoid {
+        /// `MobileTypes` id (`128..=146`).
+        mobile: u16,
+        /// Class slot `0..=18` (`mobile − 128`: `Mage` … `Knight_CityWatch`).
+        class_id: u8,
+    },
+}
+
+impl MobileRef {
+    /// `MobileTypes` id of the cell (always the table value, never remapped).
+    pub const fn mobile(self) -> u16 {
+        match self {
+            Self::Monster { mobile, .. } | Self::Humanoid { mobile, .. } => mobile,
+        }
+    }
+
+    /// `ENEMY###.CFG` record — `Some` for monsters only (`MonsterFile.cs:46-47`).
+    pub const fn enemy_record(self) -> Option<usize> {
+        match self {
+            Self::Monster { record, .. } => Some(record),
+            Self::Humanoid { .. } => None,
+        }
+    }
+
+    /// Class slot `0..=18` — `Some` for humanoids only.
+    pub const fn class_id(self) -> Option<u8> {
+        match self {
+            Self::Humanoid { class_id, .. } => Some(class_id),
+            Self::Monster { .. } => None,
+        }
+    }
+
+    /// Is it a humanoid (M20 career data, no `ENEMY###.CFG`)?
+    pub const fn is_humanoid(self) -> bool {
+        matches!(self, Self::Humanoid { .. })
+    }
+}
+
+/// A table cell that cannot be resolved to a `MobileTypes` id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncounterTableError {
+    /// The id is neither a monster (`0..=42`) nor a humanoid (`128..=146`).
+    ///
+    /// No clamp and no remap: the value is reported exactly as stored.
+    UnknownMobileType {
+        /// Offending id.
+        mobile: u16,
+    },
+    /// Table index outside `0..TABLE_COUNT`.
+    TableOutOfBounds {
+        /// Requested index.
+        index: usize,
+    },
+    /// Cell index outside `0..TABLE_LEN`.
+    CellOutOfBounds {
+        /// Table index.
+        table: usize,
+        /// Requested cell.
+        cell: usize,
+    },
+}
+
+impl std::fmt::Display for EncounterTableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownMobileType { mobile } => write!(
+                f,
+                "MobileTypes {mobile} outside 0..=42 / 128..=146 (no clamp, no remap)"
+            ),
+            Self::TableOutOfBounds { index } => {
+                write!(f, "table {index} outside 0..{}", TABLE_COUNT)
+            }
+            Self::CellOutOfBounds { table, cell } => write!(
+                f,
+                "cell {cell} outside 0..{TABLE_LEN} of table {table}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for EncounterTableError {}
+
+/// Resolves one `MobileTypes` id of a table cell (`RandomEncounters.cs`
+/// `Enemies` arrays, `DaggerfallUnityEnums.cs:142-212`).
+///
+/// Accepts only the two bands the source uses; anything else is a typed
+/// error — the value is never clamped into a neighbouring band.
+pub fn resolve_mobile(mobile: u16) -> Result<MobileRef, EncounterTableError> {
+    match mobile {
+        0..=MONSTER_MOBILE_END => Ok(MobileRef::Monster {
+            mobile,
+            record: usize::from(mobile),
+        }),
+        HUMANOID_MOBILE_START..=HUMANOID_MOBILE_END => Ok(MobileRef::Humanoid {
+            mobile,
+            class_id: (mobile - HUMANOID_MOBILE_START) as u8,
+        }),
+        other => Err(EncounterTableError::UnknownMobileType { mobile: other }),
+    }
+}
+
+/// Resolves the cell `(table, cell)` of [`ENCOUNTER_TABLES`].
+pub fn resolve_cell(table: usize, cell: usize) -> Result<MobileRef, EncounterTableError> {
+    let row = ENCOUNTER_TABLES
+        .get(table)
+        .ok_or(EncounterTableError::TableOutOfBounds { index: table })?;
+    let mobile = *row
+        .get(cell)
+        .ok_or(EncounterTableError::CellOutOfBounds { table, cell })?;
+    resolve_mobile(mobile)
+}
+
+/// Validates the whole constant: 45 × 20 = 900 cells, all resolvable.
+pub fn validate_tables() -> Result<(), EncounterTableError> {
+    for (table, row) in ENCOUNTER_TABLES.iter().enumerate() {
+        for cell in 0..row.len() {
+            resolve_cell(table, cell)?;
+        }
+    }
+    Ok(())
 }
 
 /// Climate band from spec §5.1 (`MapsFile.Climates` collapsed).
@@ -402,16 +573,21 @@ pub fn clamp_to_table(len: usize, min: i32, max: i32) -> TableClamp {
 /// Picks an enemy from the table (full `ChooseRandomEnemy`, `:1471-1526`).
 ///
 /// `draw(low, high)` must return an **inclusive** integer in `[low, high]`
-/// (the equivalent of the source's `Random.Range`). `None` if the table is
-/// empty.
+/// (the equivalent of the source's `Random.Range`). `Ok(None)` if the table
+/// is empty.
+///
+/// Every drawn cell goes through [`resolve_mobile`]: the result is a typed
+/// [`MobileRef`] (monster → `ENEMY###.CFG`; humanoid → class id, no record),
+/// and a cell outside the two `MobileTypes` bands is an
+/// [`EncounterTableError`] instead of a raw id the caller could mis-index.
 pub fn choose_enemy(
     table: &[u16],
     player_level: i32,
     roll: i32,
     mut draw: impl FnMut(i32, i32) -> i32,
-) -> Option<u16> {
+) -> Result<Option<MobileRef>, EncounterTableError> {
     if table.is_empty() {
-        return None;
+        return Ok(None);
     }
     let (min, max) = level_range(player_level, roll);
     let (min, max) = match clamp_to_table(table.len(), min, max) {
@@ -421,7 +597,7 @@ pub fn choose_enemy(
         TableClamp::NeedsDraw { max } => (draw(0, (max - 1).max(0)), max),
     };
     let index = draw(min, max).clamp(0, table.len() as i32 - 1) as usize;
-    table.get(index).copied()
+    table.get(index).copied().map(resolve_mobile).transpose()
 }
 
 /// Denominators of the spawn rolls (spec §5.4).
@@ -615,18 +791,183 @@ mod tests {
         let table = ENCOUNTER_TABLES[19];
         let mut picks = Vec::new();
         for _ in 0..64 {
-            picks.push(choose_enemy(&table, 10, 50, |low, high| low.max(high)).unwrap());
+            picks.push(
+                choose_enemy(&table, 10, 50, |low, high| low.max(high))
+                    .unwrap()
+                    .unwrap(),
+            );
         }
-        assert!(picks.iter().all(|id| table.contains(id)));
+        assert!(picks.iter().all(|pick| table.contains(&pick.mobile())));
         // The E9 synthetic clamp picks within [5,10].
         let synthetic: Vec<u16> = (0..11).collect();
         let picked = choose_enemy(&synthetic, 20, 97, |low, high| {
             assert!(low >= 5 && high <= 10, "range {low}..={high}");
             low
         })
+        .unwrap()
         .unwrap();
-        assert_eq!(picked, 5);
-        assert_eq!(choose_enemy(&[], 5, 50, |low, _| low), None);
+        assert_eq!(picked, MobileRef::Monster { mobile: 5, record: 5 });
+        assert_eq!(choose_enemy(&[], 5, 50, |low, _| low), Ok(None));
+    }
+
+    #[test]
+    fn every_cell_resolves_to_a_true_mobile_type() {
+        assert_eq!(validate_tables(), Ok(()));
+        let mut cells = 0usize;
+        let mut humanoids = 0usize;
+        let mut tables_with_humanoids = 0usize;
+        for (index, row) in ENCOUNTER_TABLES.iter().enumerate() {
+            let mut table_humanoids = 0usize;
+            for (cell, value) in row.iter().copied().enumerate() {
+                let resolved = resolve_cell(index, cell).expect("cell resolves");
+                assert_eq!(resolved.mobile(), value, "table {index} cell {cell}");
+                cells += 1;
+                if resolved.is_humanoid() {
+                    humanoids += 1;
+                    table_humanoids += 1;
+                }
+            }
+            if table_humanoids > 0 {
+                tables_with_humanoids += 1;
+            }
+        }
+        assert_eq!(cells, TABLE_COUNT * TABLE_LEN);
+        assert_eq!(cells, 900);
+        assert_eq!(humanoids, 393);
+        assert_eq!(tables_with_humanoids, 40);
+        // Tables that are monster-only (checked cell by cell).
+        let monster_only: Vec<usize> = ENCOUNTER_TABLES
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.iter().all(|mobile| *mobile <= MONSTER_MOBILE_END))
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(monster_only, vec![0, 1, 13, 19, 37]);
+        // Every stored id is inside the two bands: the band check is the
+        // inverse of `resolve_mobile` and covers ids the loop above would
+        // have rejected.
+        assert!(ENCOUNTER_TABLES.iter().flatten().all(|mobile| {
+            *mobile <= MONSTER_MOBILE_END
+                || (*mobile >= HUMANOID_MOBILE_START && *mobile <= HUMANOID_MOBILE_END)
+        }));
+    }
+
+    #[test]
+    fn humanoid_ids_match_the_dfu_source_per_table() {
+        // Literal `MobileTypes.<Name>` ids of `RandomEncounters.cs`, read from
+        // the source table by table (5 spot-checks, table 2 included).
+        // 2 · Human Stronghold (`:88-115`).
+        assert_eq!(
+            ENCOUNTER_TABLES[2],
+            [
+                144, 136, 0, 4, 141, 133, 3, 129, 8, 145, 144, 136, 143, 24, 141, 23, 129, 21,
+                144, 28
+            ],
+            "Warrior Rogue Rat GrizzlyBear Archer Nightblade GiantBat Spellsword Centaur Knight \
+             Warrior Rogue Barbarian OrcWarlord Archer Wraith Spellsword OrcShaman Warrior Vampire"
+        );
+        // 7 · Coven (`:233-260`): Mage Spellsword Sorcerer Nightblade Battlemage...
+        assert_eq!(
+            ENCOUNTER_TABLES[7],
+            [
+                1, 3, 128, 131, 13, 133, 10, 37, 35, 36, 10, 27, 131, 129, 29, 26, 130, 128, 25,
+                31
+            ]
+        );
+        // 39 · Default building (`:1161-1188`): Thief Warrior Burglar...
+        assert_eq!(
+            ENCOUNTER_TABLES[39],
+            [
+                138, 144, 135, 144, 135, 134, 144, 137, 135, 136, 138, 144, 135, 133, 136, 144,
+                135, 138, 144, 136
+            ]
+        );
+        // 41 · Temple (`:1217-1244`): Monk ×20 except Knight at 2, 7, 13, 19.
+        assert_eq!(
+            ENCOUNTER_TABLES[41],
+            [
+                140, 140, 145, 140, 140, 140, 140, 145, 140, 140, 140, 140, 140, 145, 140, 140,
+                140, 140, 140, 145
+            ]
+        );
+        // 44 · House3 (`:1301-1328`): Rat Rat Burglar Thief Bard Monk...
+        assert_eq!(
+            ENCOUNTER_TABLES[44],
+            [
+                0, 0, 135, 138, 134, 140, 134, 132, 136, 140, 135, 138, 134, 136, 142, 135, 138,
+                134, 140, 136
+            ]
+        );
+    }
+
+    #[test]
+    fn resolution_rejects_ids_outside_the_two_bands() {
+        for mobile in [43, 61, 127, 147, 0xFFFF] {
+            assert_eq!(
+                resolve_mobile(mobile),
+                Err(EncounterTableError::UnknownMobileType { mobile }),
+                "id {mobile} must not be clamped or remapped"
+            );
+        }
+        assert_eq!(
+            resolve_mobile(MONSTER_MOBILE_END).unwrap().enemy_record(),
+            Some(42)
+        );
+        assert_eq!(
+            resolve_mobile(HUMANOID_MOBILE_START),
+            Ok(MobileRef::Humanoid {
+                mobile: 128,
+                class_id: 0
+            })
+        );
+        assert_eq!(
+            resolve_mobile(HUMANOID_MOBILE_END),
+            Ok(MobileRef::Humanoid {
+                mobile: 146,
+                class_id: 18
+            })
+        );
+        assert_eq!(
+            resolve_cell(TABLE_COUNT, 0),
+            Err(EncounterTableError::TableOutOfBounds { index: TABLE_COUNT })
+        );
+        assert_eq!(
+            resolve_cell(0, TABLE_LEN),
+            Err(EncounterTableError::CellOutOfBounds {
+                table: 0,
+                cell: TABLE_LEN
+            })
+        );
+    }
+
+    #[test]
+    fn humanoids_have_no_enemy_record() {
+        // `MonsterFile.cs:46-47`: the 43 `ENEMY###.CFG` are the monster
+        // classes; a humanoid class comes from the career data (M20).
+        for mobile in HUMANOID_MOBILE_START..=HUMANOID_MOBILE_END {
+            let resolved = resolve_mobile(mobile).unwrap();
+            assert_eq!(resolved.enemy_record(), None, "humanoid {mobile}");
+            assert_eq!(resolved.class_id(), Some((mobile - 128) as u8));
+            assert!(resolved.is_humanoid());
+        }
+        assert_eq!(HUMANOID_CLASS_COUNT as u16, HUMANOID_MOBILE_END - 127);
+        for mobile in 0..=MONSTER_MOBILE_END {
+            let resolved = resolve_mobile(mobile).unwrap();
+            assert_eq!(resolved.enemy_record(), Some(usize::from(mobile)));
+            assert_eq!(resolved.class_id(), None);
+            assert!(!resolved.is_humanoid());
+        }
+        // A humanoid draw is typed, never a raw id the caller could index.
+        let humanoid = choose_enemy(&[144; TABLE_LEN], 5, 50, |low, _| low)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            humanoid,
+            MobileRef::Humanoid {
+                mobile: 144,
+                class_id: 16
+            }
+        );
     }
 
     #[test]

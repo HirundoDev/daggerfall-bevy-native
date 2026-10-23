@@ -15,7 +15,13 @@
 //! WORLD-001, READMODEL-001, SESSION-001, RMB-001, SEED-001, RDB-001,
 //! AUDIO-001, TEXTURE-001, TERRAIN-001, NPC-001, TEXT-RSC-001, UI-001,
 //! MAP-001, DEMO-001, LOCOMOTION-001, STATS-001, ITEM-001, COMBAT-001,
-//! MAGIC-001)
+//! COMBAT-LOOP-001, DEATH-001, MAGIC-001, EFFECT-001, MONSTER-001,
+//! ENCOUNTER-001) up to the M29 quest probes (EXEC-001, LIFECYCLE-001,
+//! JOURNAL-001) — the suite spans **M2-M29**, **37 entries**.
+//!
+//! R1 moved `COMBAT-LOOP-001`, `DEATH-001`, `EFFECT-001` and
+//! `ENCOUNTER-001` from standalone-only into this suite: a green `ALL-001`
+//! must cover every probe of the work packages it certifies.
 //! from ONE entrypoint
 //! with aggregated evidence (summary table + exit 0 only if ALL PASS). Same
 //! core as the individual probes — 0 duplicated logic.
@@ -95,22 +101,27 @@ pub fn run_world_probe(
     });
 
     // ── W2: street → lane → door → interior (5 marches, 1st crossing) ───
-    let r1 = march_axis(&grid, eye, 2, -1.0, 6.0);
-    let r2 = march_axis(&grid, r1.pos, 0, -1.0, 7.0);
-    let r3 = march_axis(&grid, r2.pos, 2, 1.0, 13.0);
-    let r4 = march_axis(&grid, r3.pos, 2, 1.0, 18.0);
-    let r5 = march_axis(&grid, r4.pos, 0, -1.0, 3.0);
+    let r1 = march_axis(&world_m5, &grid, eye, 2, -1.0, 6.0);
+    let r2 = march_axis(&world_m5, &grid, r1.pos, 0, -1.0, 7.0);
+    let r3 = march_axis(&world_m5, &grid, r2.pos, 2, 1.0, 13.0);
+    let r4 = march_axis(&world_m5, &grid, r3.pos, 2, 1.0, 18.0);
+    let r5 = march_axis(&world_m5, &grid, r4.pos, 0, -1.0, 3.0);
     let stance = r5.pos;
     let enter_crossings = r1.crossings.len() + r2.crossings.len() + r3.crossings.len()
         + r4.crossings.len()
         + r5.crossings.len();
     let enter_violations =
         r1.violations + r2.violations + r3.violations + r4.violations + r5.violations;
+    let enter_samples = r1.oracle_samples
+        + r2.oracle_samples
+        + r3.oracle_samples
+        + r4.oracle_samples
+        + r5.oracle_samples;
 
     // ── W2b: the wall WITHOUT a door blocks the entrance (M4 parity) —
     //      without an enclosure (empty shop) this march does NOT collide and
     //      the check fails. ─────────────────────────────────────────────────
-    let no_door = march_axis(&grid, r3.pos, 0, -1.0, bridge::SHOP_X_MAX);
+    let no_door = march_axis(&world_m5, &grid, r3.pos, 0, -1.0, bridge::SHOP_X_MAX);
     checks.push(ProbeCheck {
         id: "world_wall_blocks_without_door",
         ok: no_door.blocked == Some(CellStatus::Solid)
@@ -139,7 +150,8 @@ pub fn run_world_probe(
             && grid.is_free(stance, PLAYER_RADIUS_M),
         detail: format!(
             "{street_name} → lane x=7 → z=18 → interior x=3 (5 marches of 0.25 m) · \
-             targets {reached}/5 · violations={enter_violations} (0 req) · door crossings \
+             targets {reached}/5 · violations={enter_violations} (0 req, geometry oracle) · \
+             oracle samples={enter_samples} · door crossings \
              = {enter_crossings} (req 1, crossing z [{cr}] ∈ [{door_min:.1},{door_max:.1}]) · \
              region=interior={inside} · free={free} · pos=({:.2},{:.2},{:.2})",
             stance[0], stance[1], stance[2],
@@ -180,7 +192,7 @@ pub fn run_world_probe(
         ok: hit.is_some()
             && gate_closed
             && session.dialogue_open
-            && bought == Ok(45)
+            && bought == Ok(buy_price)
             && gold_after == gold_before - buy_price
             && session.inventory.count("potion") == 1,
         detail: format!(
@@ -202,7 +214,7 @@ pub fn run_world_probe(
     let gold_end = session.inventory.gold;
     checks.push(ProbeCheck {
         id: "world_sell_completes_cycle",
-        ok: sold == Ok(25)
+        ok: sold == Ok(sell_price)
             && gold_end == gold_mid + sell_price
             && session.inventory.count("furs") == 0
             && gold_end == STARTING_GOLD - buy_price + sell_price,
@@ -214,7 +226,7 @@ pub fn run_world_probe(
     });
 
     // ── W5: exit to the street (2nd crossing through the door) ──────────
-    let out = march_axis(&grid, stance, 0, 1.0, 7.0);
+    let out = march_axis(&world_m5, &grid, stance, 0, 1.0, 7.0);
     checks.push(ProbeCheck {
         id: "world_exit_to_street",
         ok: out.reached
@@ -242,7 +254,7 @@ pub fn run_world_probe(
     });
 
     // ── W6: RETURN — re-entry through the same door (3rd crossing) ──────
-    let back = march_axis(&grid, out.pos, 0, -1.0, 3.0);
+    let back = march_axis(&world_m5, &grid, out.pos, 0, -1.0, 3.0);
     checks.push(ProbeCheck {
         id: "world_reenter_shop",
         ok: back.reached
@@ -272,6 +284,7 @@ pub fn run_world_probe(
     // ── W7: global playthrough invariant (full route) ───────────────────
     let total_crossings = enter_crossings + out.crossings.len() + back.crossings.len();
     let total_violations = enter_violations + out.violations + back.violations;
+    let total_samples = enter_samples + out.oracle_samples + back.oracle_samples;
     checks.push(ProbeCheck {
         id: "world_playthrough_invariant",
         ok: total_violations == 0
@@ -282,7 +295,8 @@ pub fn run_world_probe(
             && grid.is_free(back.pos, PLAYER_RADIUS_M),
         detail: format!(
             "full cycle spawn→enter→trade→exit→return · TOTAL violations={total_violations} \
-             (0 req) · crossings of the plane x={plane} = {total_crossings} (req 3: enter/exit/re-entry, \
+             (0 req, geometry oracle) · oracle samples={total_samples} · crossings of the plane \
+             x={plane} = {total_crossings} (req 3: enter/exit/re-entry, \
              all through the opening z∈[{door_min:.1},{door_max:.1}]) · final pos=({:.2},{:.2},{:.2}) free",
             back.pos[0], back.pos[1], back.pos[2],
             plane = bridge::SHOP_X_MAX,
@@ -345,10 +359,16 @@ pub fn run_world_001() -> i32 {
     let passed = report.checks.iter().filter(|c| c.ok).count();
     let total = report.checks.len();
     if report.pass {
+        // The summary derives the gold path from the price functions the probe
+        // charges (two-stage DFU price), so a price change cannot leave a stale
+        // literal behind.
+        let buy = dfu_buy_price(80);
+        let end = 100 - buy + dfu_sell_price(&PIELES_BASE_VALUE);
         println!(
             "M6 VE: integrated playthrough — {passed}/{total} checks · street spawn → shop → \
-             trade (gold 100→55 on buy, furs sale → 80) → exit → return · 0 clipping · \
-             3 crossings through the door opening · Anti-Screen: executable runtime invariant"
+             trade (gold 100→{} on buy, furs sale → {end}) → exit → return · 0 clipping · \
+             3 crossings through the door opening · Anti-Screen: executable runtime invariant",
+            100 - buy
         );
         println!(
             "VERDICT: PROBE-WORLD-001 PASS - exterior→interior→commerce→exit→return cycle without crash"
@@ -369,16 +389,19 @@ pub fn run_world_001() -> i32 {
 /// Suite entry: (name, description, dispatch).
 type SuiteEntry = (&'static str, &'static str, fn() -> i32);
 
-/// Unified Anti-Screen suite (`--probe ALL-001`): runs ALL the M2-M27 probes
+/// Unified Anti-Screen suite (`--probe ALL-001`): runs ALL the M2-M29 probes
 /// in order with aggregated evidence (final summary table) — exit 0 only if
 /// ALL PASS. Same individual dispatches (0 duplicated logic); command
 /// documented in the M6 note + VSIM §4.
 pub fn run_probe_all() -> i32 {
     println!(
-        "UNIFIED ANTI-SCREEN SUITE - M2-M27 probes (CR-bbd5db82 + M19 CR-b109bfe3 + M20 CR-79173139 + M21 CR-776ad8a5 + M22 CR-be05b6d8 + M23 CR-a0b60b1c + M24 CR-f26e353c + M25 CR-23c1381c + M26 CR-94dcfe15 + M27 CR-989281d9)"
+        "UNIFIED ANTI-SCREEN SUITE - M2-M29 probes (CR-bbd5db82 + M19 CR-b109bfe3 + M20 CR-79173139 + M21 CR-776ad8a5 + M22 CR-be05b6d8 + M23 CR-a0b60b1c + M24 CR-f26e353c + M25 CR-23c1381c + M26 CR-94dcfe15 + M27 CR-989281d9 + M28 CR-5243af63 + M29 CR-73d23384)"
     );
     println!("================================================================");
-    let suite: [SuiteEntry; 28] = [
+    // 37 entries: the 33 pre-R1 probes plus the four that were standalone-only
+    // although they belong to the WPs R1 touched (COMBAT-LOOP-001, DEATH-001,
+    // EFFECT-001, ENCOUNTER-001) — a green suite must cover them.
+    let suite: [SuiteEntry; 37] = [
         ("VIEW-001", "M2 · 3D viewer + INV-L99-5", crate::m2_probe::run_view_001),
         ("CITY-001", "M3 · 3D street city", crate::m3_probe::run_city_001),
         (
@@ -428,7 +451,7 @@ pub fn run_probe_all() -> i32 {
         ),
         (
             "AUDIO-001",
-            "M14 · MIDI.BSA audio + SoundClips (REQ-L99-045/046)",
+            "M14 · MIDI.BSA audio + 375/375 SoundClips goldens + production playback (REQ-L99-045/046)",
             crate::m14_probe::run_audio_001,
         ),
         (
@@ -483,13 +506,28 @@ pub fn run_probe_all() -> i32 {
         ),
         (
             "COMBAT-001",
-            "M22 · combat: hit/damage/cadence (REQ-L99-055)",
+            "M22 · combat: hit/damage/cadence/armour-from-equipment (REQ-L99-055)",
             crate::m22_probe::run_combat_001,
+        ),
+        (
+            "COMBAT-LOOP-001",
+            "M22 · combat loop: 60 s / 600 ticks / wear from equipment (REQ-L99-055)",
+            crate::m22_probe::run_combat_loop_001,
+        ),
+        (
+            "DEATH-001",
+            "M22 · death: OnDeath latch + fall/fade/reset (REQ-L99-055)",
+            crate::m22_probe::run_death_001,
         ),
         (
             "MAGIC-001",
             "M23 · magic: SPELLS.STD + cost + casting (REQ-L99-056)",
             crate::m23_probe::run_magic_001,
+        ),
+        (
+            "EFFECT-001",
+            "M23 · effects: 165/165 keys (153 DFU templates) applied + expiry + movement flags (REQ-L99-056)",
+            crate::m23_probe::run_effect_001,
         ),
         (
             "ENCHANT-001",
@@ -502,6 +540,11 @@ pub fn run_probe_all() -> i32 {
             crate::m25_probe::run_monster_001,
         ),
         (
+            "ENCOUNTER-001",
+            "M25 · encounters: 45×20 true MobileTypes + humanoid resolution (REQ-L99-058)",
+            crate::m25_probe::run_encounter_001,
+        ),
+        (
             "NPC-AI-001",
             "M26 · living NPCs: population + navgrid + routine + dialogue + rumors (REQ-L99-059)",
             crate::m26_probe::run_npc_ai_001,
@@ -510,6 +553,31 @@ pub fn run_probe_all() -> i32 {
             "GUILD-001",
             "M27 · guilds: rank + services + reputation propagation (REQ-L99-060)",
             crate::m27_probe::run_guild_001,
+        ),
+        (
+            "CRIME-001",
+            "M28 · crime: court table + legal reputation + triggers (REQ-L99-061)",
+            crate::m28_probe::run_crime_001,
+        ),
+        (
+            "LAW-001",
+            "M28 · law: crime -> guards -> court -> prison -> release (REQ-L99-061)",
+            crate::m28_probe::run_law_001,
+        ),
+        (
+            "EXEC-001",
+            "M29 · quests: opcodes + tasks + clocks + census + coverage (REQ-L99-062)",
+            crate::m29_probe::run_quest_exec_001,
+        ),
+        (
+            "LIFECYCLE-001",
+            "M29 · quest lifecycle: offer -> accept -> end -> reputation -> save/load (REQ-L99-062)",
+            crate::m29_probe::run_quest_lifecycle_001,
+        ),
+        (
+            "JOURNAL-001",
+            "M29 · journal: log/note -> notebook -> missing message -> reopen (REQ-L99-062)",
+            crate::m29_probe::run_quest_journal_001,
         ),
     ];
     let mut results: Vec<(&str, &str, i32)> = Vec::with_capacity(suite.len());

@@ -18,7 +18,9 @@ use crate::city_spec::{
 };
 use crate::collision_grid::{first_geometry_hit, CollisionGrid, DEFAULT_CELL_M};
 use crate::mesh_spec::MeshSpec;
-use crate::view_probe::{run_view_probe, ProbeCheck, EYE_HEIGHT_M, PLAYER_RADIUS_M};
+use crate::view_probe::{
+    run_view_probe, swept_step_oracle, ProbeCheck, TriAabbIndex, EYE_HEIGHT_M, PLAYER_RADIUS_M,
+};
 
 /// Probe march step (m) — same grain as PROBE-VIEW-001.
 const MARCH_STEP_M: f32 = 0.25;
@@ -32,6 +34,82 @@ pub struct CityProbeReport {
     pub checks: Vec<ProbeCheck>,
     /// Global PASS = every check ok.
     pub pass: bool,
+}
+
+/// Result of the ±Z street walk judged by the independent geometry oracle.
+#[derive(Debug, Clone)]
+struct StreetWalk {
+    /// Grid-accepted steps whose swept segment reached geometry (must be 0).
+    traversals: usize,
+    /// Steps the grid refused (must be 0: the street runs clear end to end).
+    blocked_steps: usize,
+    /// Street ends actually reached (requirement: 2).
+    reached_ends: usize,
+    /// Sphere-clearance samples the oracle took (proof it sampled).
+    oracle_samples: usize,
+    /// One `label:steps→z` line per direction, for the evidence string.
+    legs: Vec<String>,
+}
+
+/// Marches the street center ±Z end to end and judges EVERY grid-accepted step
+/// against the **exact geometry** ([`swept_step_oracle`]) — never against the
+/// grid that approved it (N1: `resolve_step` guarantees `is_free`, so a grid
+/// counter can only report 0 and cannot witness an unindexed wall).
+///
+/// `spec` MUST be the mesh `grid` was built from; `index` is that spec's
+/// triangle prefilter (built once per probe).
+fn street_walk_oracle(
+    spec: &MeshSpec,
+    index: &TriAabbIndex,
+    grid: &CollisionGrid,
+    eye: [f32; 3],
+    total: f32,
+) -> StreetWalk {
+    let mut walk = StreetWalk {
+        traversals: 0,
+        blocked_steps: 0,
+        reached_ends: 0,
+        oracle_samples: 0,
+        legs: Vec::new(),
+    };
+    for (label, sign) in [("+Z", 1.0f32), ("-Z", -1.0f32)] {
+        let target_z = if sign > 0.0 {
+            total - STREET_END_MARGIN_M
+        } else {
+            STREET_END_MARGIN_M
+        };
+        let mut pos = eye;
+        let mut steps = 0usize;
+        loop {
+            let delta = [0.0, 0.0, sign * MARCH_STEP_M];
+            let outcome = grid.resolve_step(pos, delta, PLAYER_RADIUS_M);
+            if !outcome.moved {
+                walk.blocked_steps += 1;
+                break;
+            }
+            let step = swept_step_oracle(spec, index, pos, outcome.pos, PLAYER_RADIUS_M);
+            walk.oracle_samples += step.samples;
+            if step.blocked() {
+                walk.traversals += 1;
+            }
+            pos = outcome.pos;
+            steps += 1;
+            let done = if sign > 0.0 {
+                pos[2] >= target_z
+            } else {
+                pos[2] <= target_z
+            };
+            if done {
+                walk.reached_ends += 1;
+                break;
+            }
+            if steps > (total / MARCH_STEP_M) as usize + 10 {
+                break;
+            }
+        }
+        walk.legs.push(format!("{label}:{steps}p→z={:.1}", pos[2]));
+    }
+    walk
 }
 
 /// Runs PROBE-CITY-001 over an already built city (INV-L99-5).
@@ -83,54 +161,22 @@ pub fn run_city_probe(city: &CityMesh, layout: &CityLayout, gap: usize) -> CityP
 
     // ── Street check-2: full end-to-end traversal without crossing ──────
     //    ±Z march along the street center up to the city ends:
-    //    EVERY step must advance (street clear) and NONE may end up
-    //    inside geometry (INV-L99-5: resulting pos always free).
+    //    EVERY step must advance (street clear) and NONE may cross geometry
+    //    (INV-L99-5). The crossing verdict is the INDEPENDENT geometry oracle
+    //    (N1), not `!grid.is_free` on a position the grid just approved.
     let total = layout.total_m();
-    let mut violations = 0usize;
-    let mut blocked_steps = 0usize;
-    let mut reached_ends = 0usize;
-    let mut walk_detail = Vec::new();
-    for (label, sign) in [("+Z", 1.0f32), ("-Z", -1.0f32)] {
-        let target_z = if sign > 0.0 {
-            total - STREET_END_MARGIN_M
-        } else {
-            STREET_END_MARGIN_M
-        };
-        let mut pos = eye;
-        let mut steps = 0usize;
-        loop {
-            let delta = [0.0, 0.0, sign * MARCH_STEP_M];
-            let outcome = grid.resolve_step(pos, delta, PLAYER_RADIUS_M);
-            if !outcome.moved {
-                blocked_steps += 1;
-                break;
-            }
-            pos = outcome.pos;
-            steps += 1;
-            if !grid.is_free(pos, PLAYER_RADIUS_M) {
-                violations += 1;
-            }
-            let done = if sign > 0.0 {
-                pos[2] >= target_z
-            } else {
-                pos[2] <= target_z
-            };
-            if done {
-                reached_ends += 1;
-                break;
-            }
-            if steps > (total / MARCH_STEP_M) as usize + 10 {
-                break;
-            }
-        }
-        walk_detail.push(format!("{label}:{steps}p→z={:.1}", pos[2]));
-    }
+    let index = TriAabbIndex::build(&city.combined);
+    let walk = street_walk_oracle(&city.combined, &index, &grid, eye, total);
     checks.push(ProbeCheck {
         id: "street_walk_no_traversal",
-        ok: violations == 0 && blocked_steps == 0 && reached_ends == 2,
+        ok: walk.traversals == 0 && walk.blocked_steps == 0 && walk.reached_ends == 2,
         detail: format!(
-            "±Z march along {street_name} steps of {MARCH_STEP_M} m · traversals={violations} (0 req) · blocked_steps={blocked_steps} (0 req · street clear) · ends_reached={reached_ends}/2 · {}",
-            walk_detail.join(" · ")
+            "±Z march along {street_name} steps of {MARCH_STEP_M} m · traversals={} (0 req, geometry oracle) · oracle samples={} · blocked_steps={} (0 req · street clear) · ends_reached={}/2 · {}",
+            walk.traversals,
+            walk.oracle_samples,
+            walk.blocked_steps,
+            walk.reached_ends,
+            walk.legs.join(" · ")
         ),
     });
 
@@ -142,29 +188,37 @@ pub fn run_city_probe(city: &CityMesh, layout: &CityLayout, gap: usize) -> CityP
     //    (empty city) fails here.
     let half_gap = layout.street_gap(gap) * 0.5;
     let to_lot_center = half_gap + CITY_BLOCK_M * 0.5;
+    let mut flank_traversals = 0usize;
+    let mut flank_samples = 0usize;
     let flank_blocked = [-1.0f32, 1.0].iter().all(|&side| {
         let mut pos = eye;
         let mut stopped_before_center = false;
-        let mut traversed = false;
         for _ in 0..(to_lot_center / MARCH_STEP_M) as usize {
             let outcome = grid.resolve_step(pos, [side * MARCH_STEP_M, 0.0, 0.0], PLAYER_RADIUS_M);
             if !outcome.moved {
                 stopped_before_center = true;
                 break;
             }
-            pos = outcome.pos;
-            if !grid.is_free(pos, PLAYER_RADIUS_M) {
-                traversed = true;
-                break;
+            let step = swept_step_oracle(
+                &city.combined,
+                &index,
+                pos,
+                outcome.pos,
+                PLAYER_RADIUS_M,
+            );
+            flank_samples += step.samples;
+            if step.blocked() {
+                flank_traversals += 1;
             }
+            pos = outcome.pos;
         }
-        stopped_before_center && !traversed
+        stopped_before_center
     });
     checks.push(ProbeCheck {
         id: "manzana_collision",
-        ok: flank_blocked,
+        ok: flank_blocked && flank_traversals == 0,
         detail: format!(
-            "{street_name} · lateral ±X march toward each block center hits before arriving (radius {PLAYER_RADIUS_M} m at eye height · 0 traversals · both blocks block)",
+            "{street_name} · lateral ±X march toward each block center hits before arriving (radius {PLAYER_RADIUS_M} m at eye height · traversals={flank_traversals} (0 req, geometry oracle) · oracle samples={flank_samples} · both blocks block={flank_blocked})",
         ),
     });
 
@@ -235,6 +289,70 @@ pub fn city_from_landmarks(blocks: usize, landmarks: &[MeshSpec]) -> (CityLayout
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Appends a 2-triangle quad to a spec (test-local geometry builder).
+    fn push_quad(
+        spec: &mut MeshSpec,
+        a: [f32; 3],
+        b: [f32; 3],
+        c: [f32; 3],
+        d: [f32; 3],
+        normal: [f32; 3],
+    ) {
+        let base = spec.positions.len() as u32;
+        spec.positions.extend([a, b, c, d]);
+        spec.normals.extend([normal; 4]);
+        spec.indices
+            .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+
+    /// NEGATIVE CONTROL (N1) — the street-walk oracle is not tautological.
+    ///
+    /// The grid is built from the ORIGINAL city; the walk is judged against a
+    /// CLONE with a thin wall across the street at eye height. The grid cannot
+    /// see a wall it never indexed (every destination is `is_free`, so the old
+    /// counter could only report 0), therefore only the independent geometry
+    /// oracle can flag the crossing. If this reports `traversals == 0`, the
+    /// street check is blind again.
+    #[test]
+    fn street_walk_oracle_flags_a_wall_the_grid_never_indexed() {
+        let (layout, city) = synthetic_city(3);
+        let grid = CollisionGrid::from_mesh_spec(&city.combined, DEFAULT_CELL_M);
+        let (street_point, _) = street_spawn(&layout, 1);
+        let eye = [
+            street_point[0],
+            street_point[1] + EYE_HEIGHT_M,
+            street_point[2],
+        ];
+        let wall_z = eye[2] - 1.0;
+        assert!(
+            grid.is_free([eye[0], eye[1], wall_z], PLAYER_RADIUS_M),
+            "precondition: the grid built before the wall is free at the wall's cell"
+        );
+
+        let mut mutated = city.combined.clone();
+        let (x0, x1) = (eye[0] - 2.0, eye[0] + 2.0);
+        let (y0, y1) = (0.3, 2.6);
+        push_quad(
+            &mut mutated,
+            [x0, y0, wall_z],
+            [x1, y0, wall_z],
+            [x1, y1, wall_z],
+            [x0, y1, wall_z],
+            [0.0, 0.0, 1.0],
+        );
+        let index = TriAabbIndex::build(&mutated);
+        let walk = street_walk_oracle(&mutated, &index, &grid, eye, layout.total_m());
+
+        assert!(
+            walk.oracle_samples > 0,
+            "the oracle must actually sample: {walk:?}"
+        );
+        assert!(
+            walk.traversals >= 1,
+            "a grid-accepted step crossing the unindexed wall is a real traversal: {walk:?}"
+        );
+    }
 
     #[test]
     fn probe_city_001_passes_on_synthetic_city() {

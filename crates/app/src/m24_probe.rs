@@ -43,7 +43,7 @@ use daggerfall_crafting::enchanting::{
     EnchantmentSettings,
 };
 use daggerfall_crafting::magic_def::{
-    parse_magic_def, MagicItemTemplate, MAGIC_ENCHANT_SLOTS, MAGIC_DEF_FILENAME, MAGIC_RECORD_SIZE,
+    parse_magic_def, MagicItemTemplate, MAGIC_DEF_FILENAME, MAGIC_RECORD_SIZE,
 };
 use daggerfall_inventory::items::parse_item_templates;
 use std::path::PathBuf;
@@ -153,6 +153,19 @@ const CONTRACT_KEYS: [&str; 19] = [
 /// `records` is its parse.
 fn block_a_rows(records: &[MagicItemTemplate], bytes: &[u8]) -> Vec<Row> {
     let file_len = bytes.len();
+    // File-derived record size: `(file_len − 4-byte header) / recordCount`.
+    // GV-MAG-03 pins the 4-byte header + u32 count, so this quotient measures
+    // the retail stride and is independent of `MAGIC_RECORD_SIZE` (which the
+    // size row used to compare against itself).
+    let measured_size = if records.is_empty() {
+        0
+    } else {
+        file_len.saturating_sub(4) / records.len()
+    };
+    // Non-slot bytes of one record: name 32 + kind/group/group_index 3 +
+    // uses 2 + value 4 + material 1 = 42. Whatever remains are the
+    // enchantment slots (source guard: `== 10` slots, `MagicItemsFile.cs:892`).
+    let slots_bytes = measured_size.saturating_sub(42);
     let rec0 = records.first();
     let rec1 = records.get(1);
     let name0 = rec0.map(|r| r.name.as_str()).unwrap_or("");
@@ -184,9 +197,11 @@ fn block_a_rows(records: &[MagicItemTemplate], bytes: &[u8]) -> Vec<Row> {
         ),
         row(
             "GV-MAG-02",
-            format!("size={}", MAGIC_RECORD_SIZE),
+            format!("size={measured_size}"),
             "size=62".to_string(),
-            "layout 32+1+1+1+20+2+4+1 = 62 B (`:83-105`)",
+            format!(
+                "size={measured_size} · file-derived (len−4)/recordCount, independent of MAGIC_RECORD_SIZE; layout 32+1+1+1+20+2+4+1 = 62 B (`:83-105`)"
+            ),
         ),
         row(
             "GV-MAG-03",
@@ -240,9 +255,11 @@ fn block_a_rows(records: &[MagicItemTemplate], bytes: &[u8]) -> Vec<Row> {
         ),
         row(
             "GV-MAG-09",
-            format!("slots_bytes={}", MAGIC_ENCHANT_SLOTS * 2),
+            format!("slots_bytes={slots_bytes}"),
             "slots_bytes=20".to_string(),
-            "10 × (s8,s8) = 20 B (`:892` guarda == 10)",
+            format!(
+                "slots_bytes={slots_bytes} · measured size − 42 non-slot bytes (32 name + 3 kind/group/group_index + 2 uses + 4 value + 1 material) = 20 B ⇒ 10 slots; source guard `== 10` (`MagicItemsFile.cs:892`)"
+            ),
         ),
         row(
             "GV-MAG-10",

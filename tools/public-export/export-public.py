@@ -6,6 +6,10 @@ Usage:
   python3 tools/public-export/export-public.py --out /tmp/x   # concrete dir (must not exist or --force)
 
 Hard rules (CR-f9a78b9a, CR-5a5c759b): never push, never remote, never rewrite history.
+Publication origin (B7): the exporter only copies a **declared release commit** — a clean
+worktree is necessary but not sufficient. HEAD must carry a milestone tag `M<n>-YYYY-MM-DD`,
+be the tip of a `release/*` branch, or be named by `--release-commit <sha>`. Without one of
+the three it aborts before touching the destination.
 Copies the content of **git HEAD** (not the working tree: other lanes leave edits in flight),
 applies exclude.txt, applies the declared public surface (public name + links to non-exported
 paths), runs `git init` + a single commit with a deterministic date, and executes the checks.
@@ -66,7 +70,7 @@ PII_PATTERNS = [re.compile(rb"/home/[A-Za-z0-9._-]+/"),
 # Declared exemptions: DFU MIT corpus (upstream attribution) and the export tool itself.
 SCAN_SKIP = ("tools/public-export/",)
 RETAIL_ALLOW = ("reference/dfu-spec/",)
-# Third-party emails kept as MIT attribution (owner DECISION 2026-10-21, CR-5a5c759b):
+# Third-party emails kept as MIT attribution (owner DECISION 2026-10-21):
 # the DFU corpus and the NOTICE credits are NOT redacted.
 EMAIL_ALLOW = ("reference/dfu-spec/", "NOTICE")
 SECRET_PATTERNS = [
@@ -77,6 +81,8 @@ SECRET_PATTERNS = [
 ]
 LIMIT_BYTES = 50 * 1024 * 1024
 H1_PNG = "docs/sintergic/game/validation/m18-demo-20261021/m17-ui-fixed.png"
+# Milestone tags of this repository: `M13b` is the one tagged parity follow-up, hence `[a-z]?`.
+RELEASE_TAG_RX = re.compile(r"^M\d+[a-z]?-\d{4}-\d{2}-\d{2}$")
 
 # The public surface is declared piecewise so that this file does not contain
 # the literals the scanner itself looks for (0 false positives against itself).
@@ -121,6 +127,37 @@ def git_dirty():
     res = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain"], capture_output=True,
                          text=True, check=True).stdout
     return [l for l in res.splitlines() if l.strip()]
+
+
+def release_declaration(head, override):
+    """Why this HEAD is a declared release — or abort before anything is written.
+
+    An export is a publication act, so a clean tree is not enough: it only says the
+    files match HEAD, not that the commit was ever accepted. The publisher names it in
+    exactly one of three ways:
+      * a milestone tag `M<n>-YYYY-MM-DD` pointing at HEAD,
+      * a checked-out `release/*` branch at HEAD,
+      * `--release-commit <sha>` resolving exactly to HEAD (offline verification of a
+        tag or of the owner's acceptance when the tag is absent by design).
+    """
+    if override:
+        resolved = run(["git", "-C", str(REPO), "rev-parse", "--verify", "--quiet",
+                        override + "^{commit}"], REPO).stdout.strip()
+        if resolved != head:
+            sys.exit("ABORT: --release-commit %s does not resolve to HEAD (%s); refusing to "
+                     "publish a commit that was not declared as a release." % (override, head[:12]))
+        return "override:" + resolved
+    tags = run(["git", "-C", str(REPO), "tag", "--points-at", "HEAD"], REPO).stdout.split()
+    for tag in tags:
+        if RELEASE_TAG_RX.match(tag):
+            return "tag:" + tag
+    branch = run(["git", "-C", str(REPO), "rev-parse", "--abbrev-ref", "HEAD"], REPO).stdout.strip()
+    if branch.startswith("release/"):
+        return "branch:" + branch
+    sys.exit("ABORT: HEAD %s (branch %s, tags %s) is not a declared release commit.\n"
+             "Publication requires one of: a milestone tag `M<n>-YYYY-MM-DD` on HEAD, a "
+             "`release/*` branch, or --release-commit <sha> resolving to HEAD."
+             % (head[:12], branch or "detached", ", ".join(tags) or "none"))
 
 
 def head_blobs(paths):
@@ -274,6 +311,9 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--keep", action="store_true", help="do not delete the tempdir on failure")
+    ap.add_argument("--release-commit", metavar="SHA",
+                    help="declare the release commit: it must resolve to HEAD. Alternative to a "
+                         "milestone tag `M<n>-YYYY-MM-DD` or a `release/*` branch.")
     a = ap.parse_args()
 
     # --- Provenance: HEAD only, and only with a clean tree, BEFORE touching the destination.
@@ -284,6 +324,8 @@ def main():
         sys.exit("ABORT: dirty source tree (" + str(len(dirty)) + " entries); not exporting.\n"
                  + "\n".join(dirty[:10]))
     head0 = run(["git", "-C", str(REPO), "rev-parse", "HEAD"], REPO).stdout.strip()
+    # --- Publication origin (B7): clean tree + a commit declared as a release, BEFORE the destination.
+    release = release_declaration(head0, a.release_commit)
 
     out = Path(a.out) if a.out else Path(tempfile.mkdtemp(prefix="daggerfall-public-export-"))
     if out.exists() and any(out.iterdir()):
@@ -420,7 +462,7 @@ def main():
     check("excluded_prefixes_absent", bool(leaked_prefixes), {"leaked": leaked_prefixes})
     check("h1_retail_capture_absent", (out / H1_PNG).exists(), {"path": H1_PNG})
 
-    # --- Publication gate criteria (ORDER CR-5a5c759b) ---
+    # --- Publication gate criteria ---
     check("owner_email_absent", bool(owner_hits), {"files": sorted(set(owner_hits))[:20]})
     check("emails_other_absent", bool(other_emails),
           {"count": len(other_emails), "files": other_emails[:20],
@@ -467,6 +509,7 @@ def main():
     report = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source_repo": "<repo>", "source_head": run(["git", "-C", str(REPO), "rev-parse", "HEAD"], REPO).stdout.strip(),
+        "release": {"head": head0, "declared_by": release},
         "out": str(out), "commit": sha, "commit_date": head_date,
         "files_exported": len(files_out), "bytes_exported": total,
         "files_dropped": len(dropped), "dropped_by_rule": sorted(dropped_by),

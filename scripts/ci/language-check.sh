@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # language-check.sh — CI-ENGLISH-SURFACE-001 · English-only gate (M0 CI)
-# CR-6f9f4742-ee4a-4f7f-9684-4a2cf7a80edb
 #
 # Gate: the exportable surface (everything tools/public-export/exclude.txt
 # does NOT exclude) carries no Spanish prose. The policy is written in

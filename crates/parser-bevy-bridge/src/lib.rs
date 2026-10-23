@@ -1,7 +1,7 @@
 //! daggerfall-parser-bevy-bridge — parser↔Bevy bridge (M1).
 //!
-//! Contract: addendum PRE-2 §8 (`game-process-contract-addendum-CR-bbd5db82.md`)
-//! and PRE-3 decisions (`bevy-bridge-matrix-CR-bbd5db82.md` §10.1 — `MeshSpec`
+//! Contract: addendum PRE-2 §8 (`game-process-contract-addendum.md`)
+//! and PRE-3 decisions (`bevy-bridge-matrix.md` §10.1 — `MeshSpec`
 //! is kept as a pure intermediate type).
 //!
 //! Position in the DAG: `app → bridge → daggerfall_parser_rs`; the parser

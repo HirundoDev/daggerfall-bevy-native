@@ -34,19 +34,22 @@ The probe suite is the project's answer to "it renders, therefore it works". A p
 behaviour and emits a verdict:
 
 ```bash
-./scripts/launch.sh --probe ALL-001   # 27/27 at the M26 close
+./scripts/launch.sh --probe ALL-001   # 37/37 at the M29 close
 ```
 
-`ALL-001` runs 27 probes: `VIEW-001`, `CITY-001`, `INTERIOR-001`, `COMMERCE-001`,
-`FORMULA-001`, `WORLD-001`, `READMODEL-001`, `SESSION-001`, `RMB-001`, `SEED-001`, `RDB-001`,
-`AUDIO-001`, `TEXTURE-001`, `TERRAIN-001`, `NPC-001`, `TEXT-RSC-001`, `UI-001`, `MAP-001`,
-`DEMO-001`, `LOCOMOTION-001`, `STATS-001`, `ITEM-001`, `COMBAT-001`, `MAGIC-001`,
-`ENCHANT-001`, `MONSTER-001` and `NPC-AI-001`. The suite grew milestone by milestone: 18 probes at
-the M18 freeze, one more per closed gameplay milestone from M19 to M26.
+`ALL-001` runs **37 entries** covering M2 to M29, starting with the data layer (`VIEW-001`,
+`CITY-001`, `INTERIOR-001`, `COMMERCE-001`, `FORMULA-001`, `WORLD-001`, `READMODEL-001`,
+`SESSION-001`, `RMB-001`, `SEED-001`, `RDB-001`, `AUDIO-001`, `TEXTURE-001`, `TERRAIN-001`,
+`NPC-001`, `TEXT-RSC-001`, `UI-001`, `MAP-001`, `DEMO-001`) and continuing with the gameplay
+tramo (`LOCOMOTION-001`, `STATS-001`, `ITEM-001`, `COMBAT-001`, `MAGIC-001`, `ENCHANT-001`,
+`MONSTER-001`, `NPC-AI-001`, `GUILD-001`, `CRIME-001`, `LAW-001`, `EXEC-001`, `LIFECYCLE-001`,
+`JOURNAL-001` and the loop probes that belong to the milestones they certify). The suite grew
+milestone by milestone: 18 probes at the M18 freeze, one more per closed gameplay milestone from
+M19, and 37 entries at the M29 close. It prints the count for the build you run.
 
-`CLIMATE-001`, `QUEST-ORIGINAL-001`, `STEALTH-001`, `SKILLS-001`, `EQUIP-001`, `LOOT-001`,
-`COMBAT-LOOP-001`, `DEATH-001`, `EFFECT-001`, `SPELLMAKER-001`, `ENEMY-AI-001` and `ENCOUNTER-001`
-are available as standalone probes.
+`CLIMATE-001`, `QUEST-ORIGINAL-001`, `PROBE-CHUNK-001`, `PROBE-SCHEDULE-001`,
+`PROBE-MODB-ISOLATION-001`, `PROGRESSION-001`, `SKILLS-001`, `STEALTH-001`, `EQUIP-001`,
+`LOOT-001`, `SPELLMAKER-001` and `ENEMY-AI-001` remain standalone probes.
 
 ## 4. CI guardrails
 

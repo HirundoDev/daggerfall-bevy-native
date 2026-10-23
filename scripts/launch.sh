@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # launch.sh — release launcher with feature flags (release tooling).
-# CR-b8a547ad-4ac0-4c5d-a2d0-6bbe873b6e2d
 #
 # A single entry point to (a) launch the game in one of its three modes,
 # (b) run an Anti-Screen probe, (c) build without launching. No dependencies
@@ -9,7 +8,7 @@
 # manifest `crates/app/Cargo.toml` (0 invented lists).
 #
 # Contract, mode matrix and examples:
-#   docs/sintergic/game/RELEASE-TOOLING-CR-b8a547ad.md
+# docs/sintergic/game/RELEASE-TOOLING.md
 #
 # Usage: scripts/launch.sh [options] [-- <binary args>]
 #        scripts/launch.sh --help
@@ -23,7 +22,6 @@ APP_MANIFEST="$ROOT/crates/app/Cargo.toml"
 APP_PKG="daggerfall-app"
 APP_BIN="daggerfall-app"
 LAUNCHER_VERSION="1.0.0"
-CR="CR-b8a547ad-4ac0-4c5d-a2d0-6bbe873b6e2d"
 
 MODE="preview"
 PROBE=""
@@ -49,7 +47,7 @@ say() { printf '%s\n' "$*"; }
 
 usage() {
   cat <<EOF
-launch.sh ${LAUNCHER_VERSION} — release launcher (${CR})
+launch.sh ${LAUNCHER_VERSION} — release launcher
 
 Usage: scripts/launch.sh [options] [-- <binary args>]
 
@@ -202,7 +200,7 @@ if [ -n "$EXPLICIT_FEATURES" ]; then
     if is_declared_feature "$_f"; then
       add_feature "$_f"
     elif is_reserved_feature "$_f"; then
-      die 2 "feature '$_f' RESERVED: not yet present in crates/app/Cargo.toml (modern/mod pack layers). Hook documented in docs/sintergic/game/RELEASE-TOOLING-${CR}.md"
+      die 2 "feature '$_f' RESERVED: not yet present in crates/app/Cargo.toml (modern/mod pack layers)"
     else
       die 2 "unknown feature: '$_f' (declared: $(awk '/^\[features\]/{i=1;next}/^\[/{i=0}i&&/^[A-Za-z0-9_-]+[[:space:]]*=/{l=$0;sub(/[[:space:]]*=.*/,"",l);printf "%s ",l}' "$APP_MANIFEST"))"
     fi
@@ -278,7 +276,7 @@ else
 fi
 
 if [ "$PRINT_PLAN" -eq 1 ]; then
-  say "launch plan (${CR})"
+  say "launch plan"
   say "  mode       : $MODE ($PROFILE)"
   say "  features   : $FEATURE_LABEL"
   say "  headless   : $([ "$HAS_WINDOW" -eq 0 ] && echo yes || echo no)"

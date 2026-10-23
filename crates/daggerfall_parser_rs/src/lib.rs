@@ -21,6 +21,7 @@ pub mod monster;
 pub mod namegen;
 pub mod quest;
 pub mod rdb;
+pub mod rdi;
 pub mod rmb;
 pub mod rumor;
 pub mod snd;

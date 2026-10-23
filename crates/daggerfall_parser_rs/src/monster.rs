@@ -90,6 +90,34 @@ pub const MOBILE_TYPE_NAMES: [&str; MOBILE_TYPE_COUNT] = [
     "Lamia",
 ];
 
+/// `MobileTypes` humanoids in id order `128..=146`
+/// (`DaggerfallUnityEnums.cs:190-208`), indexed by
+/// `mobile − 128` (class id `0..=18`).
+///
+/// These are **class labels only**: they have no `ENEMY###.CFG` record
+/// (`MonsterFile.cs:46-47`) and their stats come from the career data (M20).
+pub const HUMANOID_TYPE_NAMES: [&str; 19] = [
+    "Mage",
+    "Spellsword",
+    "Battlemage",
+    "Sorcerer",
+    "Healer",
+    "Nightblade",
+    "Bard",
+    "Burglar",
+    "Rogue",
+    "Acrobat",
+    "Thief",
+    "Assassin",
+    "Monk",
+    "Archer",
+    "Ranger",
+    "Barbarian",
+    "Warrior",
+    "Knight",
+    "Knight_CityWatch",
+];
+
 /// `MobileTypes` id → **number** of the `ENEMY###.CFG` record that carries it.
 ///
 /// `MonsterFile.LoadMonster` builds the name `ENEMY{mobile:000}.CFG` and
@@ -140,6 +168,18 @@ pub enum MonsterError {
         /// Requested id.
         mobile: u16,
     },
+    /// A **known** humanoid `MobileTypes` id (`128..=146`) that has no
+    /// `ENEMY###.CFG` record in `MONSTER.BSA`.
+    ///
+    /// Not an unknown type: `MONSTER.BSA` carries exactly the 43 monster
+    /// classes (`MonsterFile.cs:46-47`, the `ENEMY` records are `CLASS.CFG`
+    /// records); humanoid classes come from the career data (M20 boundary).
+    HumanoidWithoutEnemyRecord {
+        /// Requested humanoid id.
+        mobile: u16,
+        /// Class slot `0..=18` (`mobile − 128`).
+        class_id: u8,
+    },
 }
 
 impl std::fmt::Display for MonsterError {
@@ -156,6 +196,11 @@ impl std::fmt::Display for MonsterError {
             Self::UnknownMobileType { mobile } => {
                 write!(f, "MobileTypes {mobile} outside 0..=42 / 128..=146")
             }
+            Self::HumanoidWithoutEnemyRecord { mobile, class_id } => write!(
+                f,
+                "humanoid MobileTypes {mobile} (class {class_id}) has no ENEMY###.CFG \
+                 in {MONSTER_FILENAME} (career data, M20)"
+            ),
         }
     }
 }
@@ -326,8 +371,10 @@ impl MonsterArchive {
 
     /// Index of the `ENEMY###.CFG` record carrying the given `MobileTypes`.
     ///
-    /// Only covers monsters (`0..=42`): humanoids `128..=146` do not live in
-    /// `MONSTER.BSA` (they are resolved with `CLASS.CFG`, M20 boundary).
+    /// Only covers monsters (`0..=42`). Humanoids (`128..=146`) are **known**
+    /// types with no record here (`MonsterFile.cs:46-47`) and return
+    /// [`MonsterError::HumanoidWithoutEnemyRecord`] with their class id;
+    /// ids outside both bands return [`MonsterError::UnknownMobileType`].
     pub fn record_for_mobile(&self, mobile: u16) -> Result<usize, MonsterError> {
         record_index_of_mobile(mobile)
     }
@@ -336,15 +383,25 @@ impl MonsterArchive {
 /// `ENEMY###.CFG` record number for a monster `MobileTypes` id.
 ///
 /// It is the DOS name number (`ENEMY{mobile:000}.CFG`), the same key
-/// used by `MonsterFile.LoadMonster`. Humanoids `128..=146` exist in
-/// `MobileTypes` but not in `MONSTER.BSA` (they are resolved with `CLASS.CFG`,
-/// M20 boundary) ⇒ [`MonsterError::UnknownMobileType`].
+/// used by `MonsterFile.LoadMonster`.
+///
+/// The two `MobileTypes` bands are distinguished instead of conflated:
+/// * `0..=42` (monsters) ⇒ `Ok(record)`;
+/// * `128..=146` (humanoids) ⇒ [`MonsterError::HumanoidWithoutEnemyRecord`]
+///   — a *known* type with **no** `ENEMY###.CFG` (`MonsterFile.cs:46-47`: the
+///   `ENEMY` records are `CLASS.CFG` records of the 43 monsters; humanoid
+///   classes come from the career data, M20 boundary);
+/// * anything else ⇒ [`MonsterError::UnknownMobileType`], raw value preserved.
 pub fn record_index_of_mobile(mobile: u16) -> Result<usize, MonsterError> {
-    let index = usize::from(mobile);
-    if index < MOBILE_TYPE_COUNT {
-        Ok(usize::from(MOBILE_TO_RECORD[index]))
-    } else {
-        Err(MonsterError::UnknownMobileType { mobile })
+    match mobile {
+        0..=42 => Ok(usize::from(MOBILE_TO_RECORD[usize::from(mobile)])),
+        MOBILE_TYPE_HUMANOID_START..=MOBILE_TYPE_HUMANOID_END => {
+            Err(MonsterError::HumanoidWithoutEnemyRecord {
+                mobile,
+                class_id: (mobile - MOBILE_TYPE_HUMANOID_START) as u8,
+            })
+        }
+        other => Err(MonsterError::UnknownMobileType { mobile: other }),
     }
 }
 
@@ -626,8 +683,49 @@ mod tests {
         assert_eq!(record_index_of_mobile(0), Ok(0)); // Rat
         assert_eq!(record_index_of_mobile(42), Ok(42)); // Lamia
         assert_eq!(record_index_of_mobile(1), Ok(1)); // Imp
-        assert!(record_index_of_mobile(128).is_err()); // humanoid: not here
-        assert!(record_index_of_mobile(43).is_err());
+        // Humanoids are known types, not unknown ones: typed, with class id.
+        assert_eq!(
+            record_index_of_mobile(128),
+            Err(MonsterError::HumanoidWithoutEnemyRecord {
+                mobile: 128,
+                class_id: 0
+            })
+        );
+        assert_eq!(
+            record_index_of_mobile(146),
+            Err(MonsterError::HumanoidWithoutEnemyRecord {
+                mobile: 146,
+                class_id: 18
+            })
+        );
+        // Gaps between the bands stay unknown, raw value preserved.
+        for mobile in [43, 61, 127, 147] {
+            assert_eq!(
+                record_index_of_mobile(mobile),
+                Err(MonsterError::UnknownMobileType { mobile })
+            );
+        }
+    }
+
+    /// The humanoid labels cover exactly `128..=146` (`DaggerfallUnityEnums.cs:190-208`).
+    #[test]
+    fn humanoid_names_cover_the_whole_humanoid_band() {
+        assert_eq!(
+            HUMANOID_TYPE_NAMES.len(),
+            usize::from(MOBILE_TYPE_HUMANOID_END - MOBILE_TYPE_HUMANOID_START) + 1
+        );
+        assert_eq!(HUMANOID_TYPE_NAMES[0], "Mage"); // 128
+        assert_eq!(HUMANOID_TYPE_NAMES[16], "Warrior"); // 144
+        assert_eq!(HUMANOID_TYPE_NAMES[18], "Knight_CityWatch"); // 146
+        for (class_id, name) in HUMANOID_TYPE_NAMES.iter().enumerate() {
+            let mobile = MOBILE_TYPE_HUMANOID_START + class_id as u16;
+            assert!(!name.is_empty(), "class {class_id} ({mobile}) has no label");
+            assert!(matches!(
+                record_index_of_mobile(mobile),
+                Err(MonsterError::HumanoidWithoutEnemyRecord { class_id: id, .. })
+                    if usize::from(id) == class_id
+            ));
+        }
     }
 
     /// Erratum 26 antibody: the retail directory interleaves `ASCR` and

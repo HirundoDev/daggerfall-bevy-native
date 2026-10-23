@@ -1,6 +1,6 @@
 //! `SPELLS.STD` — classic spell record parser (M23, REQ-L99-056).
 //!
-//! Spec: `docs/sintergic/game/programming/m23-magic-spec-CR-5243af63.md` §1
+//! Spec: `docs/sintergic/game/programming/m23-magic-spec.md` §1
 //! (measured layout + census), reference reader `DFU-UP:Assets/Scripts/
 //! Utility/DaggerfallSpellReader.cs:27-204@0038a1e6` (MIT, executable spec —
 //! the pinned DFU corpus does not include the file in the harness sparse

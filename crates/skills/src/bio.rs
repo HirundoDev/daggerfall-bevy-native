@@ -1,5 +1,5 @@
 //! `bio` — character biography: `BIO.DAT` and `BIOGnnT0.TXT` (M20;
-//! spec `m20-character-spec-CR-a64582b8.md` §6.1-§6.3).
+//! spec `m20-character-spec.md` §6.1-§6.3).
 //!
 //! MIT source (`daggerfall-unity` @ 0038a1e6):
 //! - `DFU:BioFile.cs:20-53` — `BIO.DAT`: `StreamReader.ReadToEnd()` +

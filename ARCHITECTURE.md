@@ -202,9 +202,9 @@ gates. That still buys falsifiability at almost no cost.
 
 **Proven in this repository.** The evidence discipline, organ boundaries, contract-before-code,
 probe-and-antibody split, determinism as a property and registers that survive a session are all
-exercised end to end: 26 milestones closed with recorded acceptance, a 27-probe headless suite, 534
-workspace tests passing, clippy clean in both configurations, and two CI guardrails that reject retail
-content and unauthorised marks.
+exercised end to end: 30 milestones with recorded technical acceptance (M18–M29 still awaiting the
+owner signature), a 37-probe headless suite, 854 workspace tests passing, clippy clean in both
+configurations, and two CI guardrails that reject retail content and unauthorised marks.
 
 **Still open.** These are real gaps, not roadmap poetry:
 

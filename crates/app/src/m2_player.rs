@@ -13,14 +13,17 @@
 //! `resolve_step` is the SAME one exercised by PROBE-VIEW-001 (anti-screen).
 
 use bevy::input::keyboard::KeyCode;
-use bevy::input::mouse::MouseMotion;
+use bevy::input::mouse::{MouseButton, MouseMotion};
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, CursorGrabMode, PrimaryWindow};
 
+use daggerfall_app::m2_kinematics::{step_pose, wasd_move_dir};
 use daggerfall_parser_bevy_bridge::{CellStatus, CollisionGrid};
 
-/// Walk speed (m/s).
-pub const WALK_SPEED_MPS: f32 = 3.5;
+// The walk speed lives once, in `daggerfall_app::m2_kinematics::WALK_SPEED_MPS`
+// (consumed here through `step_pose`); a `pub use` alias would be dead code in
+// this window-only module and break `-D warnings`.
+
 /// Mouse-look sensitivity (rad/px).
 pub const LOOK_SENSITIVITY: f32 = 0.0025;
 /// Pitch limit (rad, ≈±89°).
@@ -49,6 +52,14 @@ pub struct ActionState {
     pub crouch: bool,
     /// M19: `just_pressed(C)` — sneak toggle.
     pub sneak_toggle: bool,
+    /// M14: `just_pressed(MouseButton::Left)` — melee attack trigger
+    /// (consumed by the demo audio/combat system; default `false`).
+    pub attack: bool,
+    /// M28: `just_pressed(G)` — the door bash of the demo (declared binding:
+    /// `B` is already the buy key; DFU bashes by activating while in *bash*
+    /// mode, which this demo has no mode cycle for). Consumed by the M28 law
+    /// system, default `false`.
+    pub bash: bool,
 }
 
 /// First-person player (camera component).
@@ -99,23 +110,19 @@ pub fn m2_escape_cursor(
 /// Bevy input → [`ActionState`] (single input surface, D1 CR57).
 pub fn m2_gather_action(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut motion: MessageReader<MouseMotion>,
     mut action: ResMut<ActionState>,
 ) {
-    let mut dir = Vec2::ZERO;
-    if keys.pressed(KeyCode::KeyW) {
-        dir.y += 1.0;
-    }
-    if keys.pressed(KeyCode::KeyS) {
-        dir.y -= 1.0;
-    }
-    if keys.pressed(KeyCode::KeyD) {
-        dir.x += 1.0;
-    }
-    if keys.pressed(KeyCode::KeyA) {
-        dir.x -= 1.0;
-    }
-    action.move_dir = dir;
+    // The mapping itself is the pure, headless-tested `wasd_move_dir`
+    // (`m2_kinematics`): this system only reads the device state.
+    let dir = wasd_move_dir(
+        keys.pressed(KeyCode::KeyW),
+        keys.pressed(KeyCode::KeyS),
+        keys.pressed(KeyCode::KeyD),
+        keys.pressed(KeyCode::KeyA),
+    );
+    action.move_dir = Vec2::new(dir[0], dir[1]);
     let mut look = Vec2::ZERO;
     for event in motion.read() {
         look += event.delta;
@@ -133,6 +140,11 @@ pub fn m2_gather_action(
     action.run = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     action.crouch = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     action.sneak_toggle = keys.just_pressed(KeyCode::KeyC);
+    // M14: melee attack — same single input surface (`ButtonInput` is read
+    // only here; the demo combat/audio system consumes `attack`).
+    action.attack = mouse.just_pressed(MouseButton::Left);
+    // M28: door bash — same single input surface as every other key.
+    action.bash = keys.just_pressed(KeyCode::KeyG);
 }
 
 /// Look (mouse) + movement (WASD) resolved by the grid: first-person camera.
@@ -140,6 +152,11 @@ pub fn m2_gather_action(
 /// Horizontal movement at fixed eye height (M2 flat, no gravity/step-up —
 /// delta documented in the M2 note); the `resolve_step` result is always free
 /// of geometry (INV-L99-5, same function as PROBE-VIEW-001).
+///
+/// The displacement math is NOT here: [`step_pose`]
+/// (`daggerfall_app::m2_kinematics`, Bevy-free) owns it, so the input path runs
+/// in the default headless test config. This system keeps only the Bevy glue:
+/// rotation, telemetry and the block log.
 pub fn m2_apply_player_action(
     mut players: Query<(&mut Transform, &mut M2Player)>,
     action: Res<ActionState>,
@@ -160,15 +177,15 @@ pub fn m2_apply_player_action(
     }
 
     if action.move_dir != Vec2::ZERO {
-        let dir = action.move_dir.clamp_length_max(1.0);
-        // Bevy forward = -Z; with yaw=0 → (0,0,-1).
-        let forward = Vec3::new(-player.yaw.sin(), 0.0, -player.yaw.cos());
-        let right = Vec3::new(player.yaw.cos(), 0.0, -player.yaw.sin());
-        let delta = (forward * dir.y + right * dir.x) * (WALK_SPEED_MPS * time.delta_secs());
         let from = [transform.translation.x, transform.translation.y, transform.translation.z];
-        let outcome = grid
-            .0
-            .resolve_step(from, [delta.x, delta.y, delta.z], player.radius);
+        let outcome = step_pose(
+            from,
+            player.yaw,
+            [action.move_dir.x, action.move_dir.y],
+            &grid.0,
+            player.radius,
+            time.delta_secs(),
+        );
         if outcome.moved {
             transform.translation = Vec3::from_array(outcome.pos);
         } else if let Some(status) = outcome.blocked {

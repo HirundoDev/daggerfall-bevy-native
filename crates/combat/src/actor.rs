@@ -110,6 +110,21 @@ impl Combatant {
         }
     }
 
+    /// Builder for the M21→M22 boundary: the composer (app) projects the
+    /// equipped armour onto `DaggerfallEntity.ArmorValues[7]`
+    /// (`DaggerfallEntity.cs:270`, `UpdateEquippedArmorValues` `:589-636`)
+    /// and hands the finished vector in. The engine never recomputes it and
+    /// this crate keeps no `inventory` dependency (ORDER M22: 0 crate cycle).
+    ///
+    /// The vector is the entity's, not the table delta: a player starts at
+    /// **100** per part (`SerializablePlayer.cs:355-366`) and the app composes
+    /// the seed + delta in `Fighter::refresh_equipment`
+    /// (`combat_runtime.rs:275-286`).
+    pub fn with_armor_values(mut self, armor_values: [i32; 7]) -> Self {
+        self.armor_values = armor_values;
+        self
+    }
+
     /// Adrenaline bonus of THIS actor (`behavior::combat::adrenaline_bonus`).
     pub fn adrenaline_bonus(&self) -> i32 {
         daggerfall_behavior::combat::adrenaline_bonus(

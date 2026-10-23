@@ -113,9 +113,9 @@ work right now is not adding features; it is proving the ones the original game 
 - **English from the first commit.** Code, comments, commit messages, docs and pull-request text
   are written in English — written that way, not translated later. The rule covers `crates/**`,
   `scripts/**`, `tools/**`, the Cargo manifests, `README.md`, `ARCHITECTURE.md`, this file, the
-  public docs and the CI workflows. Exemptions are declared, never implicit: `docs/sintergic/**`
-  (internal engineering record, not published), `*.es.md` (local translations, excluded from the
-  export), `reference/dfu-spec/**` (vendored MIT corpus, never edited), and quoted text or
+  public docs and the CI workflows. Exemptions are declared, never implicit: the internal
+  engineering record (governance notes, not published), `*.es.md` (local translations, excluded from
+  the export), `reference/dfu-spec/**` (vendored MIT corpus, never edited), and quoted text or
   identifiers. The policy is [`docs/i18n/POLICY.md`](docs/i18n/POLICY.md); the executable gate is
   described in [The English gate](#the-english-gate).
 - **Be proportionate.** A typo fix needs a diff. A new rule needs the full loop below.

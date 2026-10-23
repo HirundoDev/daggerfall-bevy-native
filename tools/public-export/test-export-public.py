@@ -24,6 +24,18 @@ reads `git HEAD` of the repo that owns the script):
   identifiers  English Rust whose only Spanish-looking tokens are identifiers and
                short English words must PASS: the gate may not read code as prose.
 
+The publication-origin gate (B7) is probed on the same fixtures: a clean tree alone is
+not a licence to publish, so the exporter must also see a declared release commit.
+
+  release-none      clean fixture, no tag, no `--release-commit`: the exporter must
+                    abort with a non-zero exit, name the missing declaration and leave
+                    the destination untouched.
+  release-stale     `--release-commit` naming a commit that does not resolve to HEAD:
+                    same abort, on the override path.
+  release-tag       a milestone tag `M0-2026-10-21` on the fixture HEAD (fixture-only —
+                    the real M18 tag is never created here) must let the export run and
+                    report `declared_by == tag:M0-2026-10-21`.
+
 Usage:
   python3 tools/public-export/test-export-public.py [--keep]
 
@@ -58,7 +70,7 @@ SPANISH_WHERE = "%s:1:%s" % (SPANISH_FILE, SPANISH_LINES[0].strip().lstrip("/").
 
 # English Rust whose only Spanish-looking tokens live in identifiers and short English
 # words ("y", "le", "no", "se", "al"): the token-level gate flagged these as Spanish
-# (CR-abe5ff3d). The prose gate must ignore code entirely and flag none of it.
+# The prose gate must ignore code entirely and flag none of it.
 IDENTIFIER_FILES = {
     "crates/parser-bevy-bridge/src/interior_spec.rs":
         "//! - Daggerfall: Y up, left-handed; Bevy: Y up, right-handed.\n"
@@ -129,20 +141,36 @@ def exported_paths(out):
                   if p.is_file() and ".git" not in p.relative_to(out).parts)
 
 
-def run_scenario(name, spanish, keep, identifiers=False):
-    """Export a fixture; returns (report, returncode, stderr, exported set, HEAD set)."""
+def run_scenario(name, spanish, keep, identifiers=False, release="override", tag=None):
+    """Export a fixture; returns (report, returncode, stderr, exported set, HEAD set).
+
+    `release` selects the publication-origin mode (B7): `override` passes the fixture
+    HEAD through `--release-commit`, `tag` marks it with a milestone tag instead,
+    `none` declares nothing and `stale` names a commit that is not HEAD. The last two
+    must abort before writing, so they return `report = None`.
+    """
     root = Path(tempfile.mkdtemp(prefix="export-probe-%s-" % name))
     try:
         repo = root / "repo"
         repo.mkdir()
         make_repo(repo, spanish, identifiers)
+        head = git(repo, "rev-parse", "HEAD").strip()
+        if tag:
+            git(repo, "tag", tag)
         out = root / "export"
-        res = subprocess.run([sys.executable,
-                              str(repo / "tools" / "public-export" / "export-public.py"),
-                              "--out", str(out)],
-                             cwd=repo, capture_output=True, text=True, timeout=900)
+        cmd = [sys.executable, str(repo / "tools" / "public-export" / "export-public.py"),
+               "--out", str(out)]
+        if release == "override":
+            cmd += ["--release-commit", head]
+        elif release == "stale":
+            cmd += ["--release-commit", "0" * 40]
+        res = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, timeout=900)
         report_path = out.parent / (out.name + ".report.json")
         if not report_path.exists():
+            if release in ("none", "stale"):
+                expect(res.returncode != 0, "[%s] expected a non-zero exit, got 0" % name)
+                expect(not out.exists(), "[%s] aborted export created %s" % (name, out))
+                return (None, res.returncode, res.stderr, [], head_paths(repo))
             tail = "\n".join((res.stderr or res.stdout).strip().splitlines()[-8:])
             if "AttributeError" in (res.stderr or ""):
                 tail += ("\nREGRESSION: `hits` was rebound to a list — the stopword loop must use "
@@ -225,6 +253,24 @@ def check_identifiers(report, code, stderr):
     expect(not others, "[identifiers] unrelated checks failed: %r" % (others,))
 
 
+def check_release_abort(name, code, stderr, needle):
+    expect(code != 0, "[%s] export must abort, got exit %d" % (name, code))
+    expect(needle in (stderr or ""),
+           "[%s] stderr must carry %r, got %r" % (name, needle, (stderr or "").strip()[-300:]))
+
+
+def check_release_override(report):
+    rel = report["release"]
+    expect(rel["declared_by"].startswith("override:") and rel["declared_by"].endswith(rel["head"]),
+           "[release-override] declared_by %r, head %r" % (rel["declared_by"], rel["head"]))
+
+
+def check_release_tag(report):
+    expect(report["verdict"] == "PASS", "[release-tag] verdict %r" % report["verdict"])
+    expect(report["release"]["declared_by"] == "tag:M0-2026-10-21",
+           "[release-tag] declared_by %r" % (report["release"],))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true", help="keep the fixtures and exported trees")
@@ -237,13 +283,28 @@ def main():
 
     report, code, stderr, exported, head = run_scenario("clean", False, a.keep)
     check_clean(report, code, stderr, exported, head)
-    print("PASS clean: PASS verdict, delta 0, %d files match HEAD" % len(head))
+    check_release_override(report)
+    print("PASS clean: PASS verdict, delta 0, %d files match HEAD, release by override" % len(head))
+
+    _, code, stderr, _, _ = run_scenario("release-none", False, a.keep, release="none")
+    check_release_abort("release-none", code, stderr, "not a declared release commit")
+    print("PASS release-none: clean tree without a declared release aborts")
+
+    _, code, stderr, _, _ = run_scenario("release-stale", False, a.keep, release="stale")
+    check_release_abort("release-stale", code, stderr, "does not resolve to HEAD")
+    print("PASS release-stale: --release-commit that is not HEAD aborts")
+
+    report, code, stderr, exported, head = run_scenario(
+        "release-tag", False, a.keep, release="tag", tag="M0-2026-10-21")
+    check_clean(report, code, stderr, exported, head)
+    check_release_tag(report)
+    print("PASS release-tag: milestone tag M0-2026-10-21 authorises the export")
 
     report, code, stderr = run_scenario("identifiers", False, a.keep, identifiers=True)[:3]
     check_identifiers(report, code, stderr)
     print("PASS identifiers: PASS verdict, 0 of %d prose files flagged"
           % report["checks"]["spanish_stopwords_absent"]["scanned"])
-    print("OK: export-public.py stopword gate behaves as specified")
+    print("OK: export-public.py stopword + publication-origin gates behave as specified")
 
 
 if __name__ == "__main__":

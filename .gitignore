@@ -51,8 +51,8 @@ target/
 *.log
 *.tmp
 
-# ── Captura retail retirada (H1, CR-f9a78b9a): render de .IMG/.CIF de 1996 ──
-docs/sintergic/game/validation/m18-demo-20261021/m17-ui-fixed.png
+# ── Retired retail capture (never ships): 1996 .IMG/.CIF panel render ──
+**/m18-demo-20261021/m17-ui-fixed.png
 
-# ── Save de runtime (M6, CR-f9a78b9a): se escribe al jugar, nunca se versiona ──
+# ── Runtime save written while playing; never versioned ──
 saves/

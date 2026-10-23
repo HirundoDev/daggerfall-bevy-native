@@ -38,10 +38,19 @@ pub const HMI_TRACK_MAGIC: &[u8; 13] = b"HMI-MIDITRACK";
 
 /// Fixed offset of the song header.
 mod hdr {
-    /// `division` (ticks per quarter note).
+    /// `division` (ticks per quarter note) as declared by [`parse_hmi`]'s
+    /// legacy header view — **0 in every one of the 131 retail songs**.
     pub const DIVISION: usize = 0xD0;
-    /// Beats per minute declared by the song.
+    /// Beats per minute as declared by [`parse_hmi`]'s legacy header view
+    /// (holds the division of the retail files, see [`DIVISION_RETAIL`]).
     pub const BPM: usize = 0xD2;
+    /// Ticks per quarter note **measured in retail `MIDI.BSA`** @0xD2
+    /// (131/131 songs: 480). The production renderer takes the division from
+    /// here because [`DIVISION`] is 0 in the retail files.
+    pub const DIVISION_RETAIL: usize = 0xD2;
+    /// Beats per minute **measured in retail `MIDI.BSA`** @0xD4
+    /// (131/131 songs: 120).
+    pub const BPM_RETAIL: usize = 0xD4;
     /// Number of tracks (u8).
     pub const TRACK_COUNT: usize = 0xE4;
     /// Base of the track offset table (u32 LE × track_count).
@@ -151,6 +160,70 @@ impl HmiSong {
     }
 }
 
+/// One retained note-on of an HMI song (M14 production playback).
+///
+/// HMI note-on events carry the note **duration** as an extra VLQ after
+/// note/velocity (this format has no separate note-off), so a single event is
+/// enough to schedule a rendered note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoteEvent {
+    /// Track index in file order.
+    pub track: u16,
+    /// Absolute tick of the note-on (sum of the delta-times of its track).
+    pub tick: u64,
+    /// MIDI note number (0..=127).
+    pub note: u8,
+    /// Note-on velocity (> 0 — velocity 0 is never retained).
+    pub velocity: u8,
+    /// Duration in ticks, as carried by the HMI note-on.
+    pub duration_ticks: u64,
+    /// MIDI channel (`status & 0x0F`).
+    pub channel: u8,
+}
+
+/// Full decode of an HMI song with the note events **retained**
+/// ([`parse_hmi`] keeps only per-track statistics).
+///
+/// The header, track table and every event are validated with the same rules
+/// as [`parse_hmi`]; a format violation is an `HmiError`, never a panic.
+#[derive(Debug, Clone)]
+pub struct HmiSongEvents {
+    /// Ticks per quarter note **as measured in retail `MIDI.BSA`** (@0xD2;
+    /// 131/131 songs: 480). The legacy `parse_hmi` field @0xD0 is 0 there.
+    pub ticks_per_quarter: u16,
+    /// Beats per minute **as measured in retail `MIDI.BSA`** (@0xD4;
+    /// 131/131 songs: 120).
+    pub bpm: u16,
+    /// Number of tracks @0xE4.
+    pub track_count: u8,
+    /// Per-track statistics, in file order.
+    pub tracks: Vec<TrackStats>,
+    /// Retained note-ons, in decode order (track by track, time ascending
+    /// inside each track).
+    pub notes: Vec<NoteEvent>,
+    /// Last tick reached by any track (its EOT delta included).
+    pub end_tick: u64,
+}
+
+impl HmiSongEvents {
+    /// Number of retained note-ons.
+    pub fn total_note_ons(&self) -> usize {
+        self.notes.len()
+    }
+
+    /// Length of the song in seconds at the retail tempo
+    /// (`ticks_per_quarter` and `bpm` are validated by the renderer;
+    /// `0` ⇒ `0.0`).
+    pub fn duration_secs(&self) -> f64 {
+        if self.ticks_per_quarter == 0 || self.bpm == 0 {
+            return 0.0;
+        }
+        let seconds_per_tick =
+            60.0 / (f64::from(self.bpm) * f64::from(self.ticks_per_quarter));
+        self.end_tick as f64 * seconds_per_tick
+    }
+}
+
 /// Read cursor with bounds checking (0 panic: every failure → `HmiError::Truncated`).
 struct Cursor<'a> {
     data: &'a [u8],
@@ -204,16 +277,30 @@ fn channel_data_len(status: u8) -> usize {
 }
 
 /// Decodes the events of a track from `start` up to EOT.
-/// Returns the statistics; the final pointer is validated against EOT (the
-/// file is not consumed beyond the track itself).
-fn decode_track(song: &[u8], start: usize, track: usize) -> Result<TrackStats, HmiError> {
+/// Returns the statistics and the track's last tick; the final pointer is
+/// validated against EOT (the file is not consumed beyond the track itself).
+fn decode_track(song: &[u8], start: usize, track: usize) -> Result<(TrackStats, u64), HmiError> {
+    decode_track_inner(song, start, track, None)
+}
+
+/// Decodes a track retaining its note-ons when `notes` is `Some` (the
+/// [`parse_hmi_events`] path). Identical rules and error mapping as the
+/// statistics-only decode of [`parse_hmi`].
+fn decode_track_inner(
+    song: &[u8],
+    start: usize,
+    track: usize,
+    mut notes: Option<&mut Vec<NoteEvent>>,
+) -> Result<(TrackStats, u64), HmiError> {
     let mut cur = Cursor::new(song, start, track);
     let mut stats = TrackStats::default();
     let mut prior_status: Option<u8> = None;
+    // Absolute tick of this track: running sum of its delta-times.
+    let mut tick: u64 = 0;
     loop {
         // Time delta (accumulated only to validate the VLQ; the decode is
         // enough for the probe: structure + counts).
-        cur.vlq()?;
+        tick = tick.saturating_add(cur.vlq()?);
         let at = cur.pos;
         let b = cur.u8()?;
         if b == 0xFE {
@@ -245,9 +332,19 @@ fn decode_track(song: &[u8], start: usize, track: usize) -> Result<TrackStats, H
             let data_start = cur.pos;
             cur.take(channel_data_len(status))?;
             if status >> 4 == 0x9 {
-                cur.vlq()?;
+                let duration_ticks = cur.vlq()?;
                 if song[data_start + 1] > 0 {
                     stats.note_ons += 1;
+                    if let Some(vec) = notes.as_deref_mut() {
+                        vec.push(NoteEvent {
+                            track: track as u16,
+                            tick,
+                            note: song[data_start],
+                            velocity: song[data_start + 1],
+                            duration_ticks,
+                            channel: status & 0x0F,
+                        });
+                    }
                 }
             }
             stats.events += 1;
@@ -260,9 +357,19 @@ fn decode_track(song: &[u8], start: usize, track: usize) -> Result<TrackStats, H
                 let data_start = cur.pos;
                 cur.take(channel_data_len(status))?;
                 if status >> 4 == 0x9 {
-                    cur.vlq()?;
+                    let duration_ticks = cur.vlq()?;
                     if song[data_start + 1] > 0 {
                         stats.note_ons += 1;
+                        if let Some(vec) = notes.as_deref_mut() {
+                            vec.push(NoteEvent {
+                                track: track as u16,
+                                tick,
+                                note: song[data_start],
+                                velocity: song[data_start + 1],
+                                duration_ticks,
+                                channel: status & 0x0F,
+                            });
+                        }
                     }
                 }
                 stats.events += 1;
@@ -275,7 +382,7 @@ fn decode_track(song: &[u8], start: usize, track: usize) -> Result<TrackStats, H
                     let len = usize::try_from(len).map_err(|_| HmiError::Truncated { track, at })?;
                     cur.take(len)?;
                     if meta_type == 0x2F {
-                        return Ok(stats);
+                        return Ok((stats, tick));
                     }
                     stats.events += 1;
                 }
@@ -294,10 +401,18 @@ fn decode_track(song: &[u8], start: usize, track: usize) -> Result<TrackStats, H
     }
 }
 
-/// Parses a complete HMI song from its buffer (read-only, 0 copies).
-/// Validates the header and track table and decodes **all** events of
-/// **all** tracks up to EOT — any violation is `HmiError`.
-pub fn parse_hmi(song: &[u8]) -> Result<HmiSong, HmiError> {
+/// Validated HMI song header + the first-event offset of every track.
+struct HmiHeader {
+    division: u16,
+    bpm: u16,
+    track_count: u8,
+    events_start: Vec<usize>,
+}
+
+/// Validates the song header and the track table and resolves each track's
+/// first event offset. The checks (and their order) are the ones
+/// [`parse_hmi`] has always enforced; both public parsers share them.
+fn parse_header(song: &[u8]) -> Result<HmiHeader, HmiError> {
     if song.len() < 0x176 {
         return Err(HmiError::TooShort { len: song.len() });
     }
@@ -316,7 +431,7 @@ pub fn parse_hmi(song: &[u8]) -> Result<HmiSong, HmiError> {
     if table_end > song.len() {
         return Err(HmiError::BadTrackTable { track_count, len: song.len() });
     }
-    let mut tracks = Vec::with_capacity(usize::from(track_count));
+    let mut events_start = Vec::with_capacity(usize::from(track_count));
     for k in 0..usize::from(track_count) {
         let off = hdr::TRACK_OFFSETS + k * 4;
         let offset = u32::from_le_bytes([song[off], song[off + 1], song[off + 2], song[off + 3]]);
@@ -332,25 +447,81 @@ pub fn parse_hmi(song: &[u8]) -> Result<HmiSong, HmiError> {
             return Err(HmiError::EventsOutOfBounds { track: k, start: hs as u64, len: song.len() });
         }
         let header_size = u32::from_le_bytes([song[hs], song[hs + 1], song[hs + 2], song[hs + 3]]);
-        let events_start = start
+        let events_start_at = start
             .checked_add(usize::try_from(header_size).map_err(|_| HmiError::EventsOutOfBounds {
                 track: k,
                 start: hs as u64,
                 len: song.len(),
             })?)
             .ok_or(HmiError::EventsOutOfBounds { track: k, start: hs as u64, len: song.len() })?;
-        if events_start >= song.len() {
-            return Err(HmiError::EventsOutOfBounds { track: k, start: events_start as u64, len: song.len() });
+        if events_start_at >= song.len() {
+            return Err(HmiError::EventsOutOfBounds { track: k, start: events_start_at as u64, len: song.len() });
         }
-        let stats = decode_track(song, events_start, k).map_err(|e| match e {
-            HmiError::Truncated { track, at } if at >= song.len() => {
-                HmiError::MissingEndOfTrack { track }
-            }
-            other => other,
-        })?;
+        events_start.push(events_start_at);
+    }
+    Ok(HmiHeader { division, bpm, track_count, events_start })
+}
+
+/// Maps a decode error of a track to `MissingEndOfTrack` when the buffer ran
+/// out at the very end of the file (the historical [`parse_hmi`] mapping).
+fn track_error(error: HmiError, len: usize) -> HmiError {
+    match error {
+        HmiError::Truncated { track, at } if at >= len => HmiError::MissingEndOfTrack { track },
+        other => other,
+    }
+}
+
+/// Parses a complete HMI song from its buffer (read-only, 0 copies).
+/// Validates the header and track table and decodes **all** events of
+/// **all** tracks up to EOT — any violation is `HmiError`.
+pub fn parse_hmi(song: &[u8]) -> Result<HmiSong, HmiError> {
+    let header = parse_header(song)?;
+    let mut tracks = Vec::with_capacity(header.events_start.len());
+    for (k, start) in header.events_start.iter().enumerate() {
+        let (stats, _) =
+            decode_track(song, *start, k).map_err(|e| track_error(e, song.len()))?;
         tracks.push(stats);
     }
-    Ok(HmiSong { division, bpm, track_count, tracks })
+    Ok(HmiSong {
+        division: header.division,
+        bpm: header.bpm,
+        track_count: header.track_count,
+        tracks,
+    })
+}
+
+/// Additive decode of an HMI song that **retains** every note-on
+/// ([`NoteEvent`]) plus the song's last tick — the read the production
+/// renderer consumes. [`parse_hmi`] keeps its statistics-only contract; both
+/// share [`parse_header`] and the same event rules, so a song that parses in
+/// one parses in the other.
+pub fn parse_hmi_events(song: &[u8]) -> Result<HmiSongEvents, HmiError> {
+    let header = parse_header(song)?;
+    // Retail tempo: @0xD2 ticks-per-quarter, @0xD4 bpm (measured 131/131).
+    // `parse_header` already proved the header is long enough to index these,
+    // but the read stays checked (0 panic on a truncated buffer).
+    let tempo = song
+        .get(hdr::DIVISION_RETAIL..hdr::BPM_RETAIL + 2)
+        .ok_or(HmiError::TooShort { len: song.len() })?;
+    let ticks_per_quarter = u16::from_le_bytes([tempo[0], tempo[1]]);
+    let bpm = u16::from_le_bytes([tempo[2], tempo[3]]);
+    let mut tracks = Vec::with_capacity(header.events_start.len());
+    let mut notes = Vec::new();
+    let mut end_tick = 0u64;
+    for (k, start) in header.events_start.iter().enumerate() {
+        let (stats, last_tick) = decode_track_inner(song, *start, k, Some(&mut notes))
+            .map_err(|e| track_error(e, song.len()))?;
+        end_tick = end_tick.max(last_tick);
+        tracks.push(stats);
+    }
+    Ok(HmiSongEvents {
+        ticks_per_quarter,
+        bpm,
+        track_count: header.track_count,
+        tracks,
+        notes,
+        end_tick,
+    })
 }
 
 /// DFU's `SongFiles` catalogue (`DFU:Assets/Scripts/SongFiles.cs`, MIT) — the
@@ -950,6 +1121,18 @@ mod tests {
         out
     }
 
+    /// Same minimal song, but with the **retail layout** of the tempo fields
+    /// (@0xD0 = 0, @0xD2 = 480 ticks/quarter, @0xD4 = 120 bpm), which is what
+    /// the event carrier/renderer consume.
+    fn build_hmi_retail() -> Vec<u8> {
+        let mut song = build_hmi();
+        song[hdr::DIVISION..hdr::DIVISION + 2].copy_from_slice(&0u16.to_le_bytes());
+        song[hdr::DIVISION_RETAIL..hdr::DIVISION_RETAIL + 2]
+            .copy_from_slice(&480u16.to_le_bytes());
+        song[hdr::BPM_RETAIL..hdr::BPM_RETAIL + 2].copy_from_slice(&120u16.to_le_bytes());
+        song
+    }
+
     #[test]
     fn parses_minimal_hmi() {
         let song = build_hmi();
@@ -1035,6 +1218,73 @@ mod tests {
         let parsed = parse_hmi(&song).expect("parse with HMI event 0xFE");
         assert_eq!(parsed.total_events(), 2);
         assert_eq!(parsed.total_note_ons(), 1);
+    }
+
+    #[test]
+    fn retained_notes_match_statistics_decode() {
+        let song = build_hmi_retail();
+        let events = parse_hmi_events(&song).expect("parse events");
+        assert_eq!(events.track_count, 1);
+        assert_eq!(events.ticks_per_quarter, 480);
+        assert_eq!(events.bpm, 120);
+        assert_eq!(events.total_note_ons(), 1);
+        let note = events.notes[0];
+        assert_eq!(note.track, 0);
+        assert_eq!(note.tick, 0);
+        assert_eq!(note.note, 60);
+        assert_eq!(note.velocity, 100);
+        assert_eq!(note.duration_ticks, 10);
+        assert_eq!(note.channel, 0);
+        assert_eq!(events.end_tick, 0);
+        // Same acceptance set as the statistics-only parser: a song that
+        // parses here parses there, with the same note-on count.
+        let stats = parse_hmi(&song).expect("parse stats");
+        assert_eq!(stats.total_note_ons(), events.total_note_ons() as u64);
+        assert_eq!(stats.total_events(), events.tracks[0].events);
+    }
+
+    #[test]
+    fn retained_notes_accumulate_delta_ticks() {
+        let mut song = build_hmi_retail();
+        let ev = 0x1C0 + 0xB7;
+        song[ev] = 0x60; // 96-tick delta before the note-on
+        let events = parse_hmi_events(&song).expect("parse events");
+        assert_eq!(events.notes[0].tick, 96);
+        assert_eq!(events.end_tick, 96);
+        // 96 ticks at 480 ticks/quarter and 120 bpm = 0.1 s.
+        assert!((events.duration_secs() - 0.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn retained_notes_follow_running_status() {
+        let mut song = build_hmi();
+        let ev = 0x1C0 + 0xB7;
+        song.resize(ev + 14, 0u8);
+        // Replaces the original EOT with a running-status note-on (no status
+        // byte) + duration 20, then the EOT meta.
+        song[ev + 5] = 0x00;
+        song[ev + 6] = 62;
+        song[ev + 7] = 80;
+        song[ev + 8] = 20;
+        song[ev + 9] = 0x00;
+        song[ev + 10] = 0xFF;
+        song[ev + 11] = 0x2F;
+        song[ev + 12] = 0x00;
+        let events = parse_hmi_events(&song).expect("parse events");
+        assert_eq!(events.notes.len(), 2);
+        assert_eq!(events.notes[1].note, 62);
+        assert_eq!(events.notes[1].velocity, 80);
+        assert_eq!(events.notes[1].duration_ticks, 20);
+        assert_eq!(events.notes[1].tick, 0);
+        assert_eq!(events.notes[1].channel, 0);
+    }
+
+    #[test]
+    fn events_decode_rejects_bad_magic() {
+        let mut song = build_hmi();
+        song[0] = b'X';
+        assert!(matches!(parse_hmi_events(&song), Err(HmiError::BadSongMagic { .. })));
+        assert!(matches!(parse_hmi_events(&[0u8; 8]), Err(HmiError::TooShort { .. })));
     }
 
     #[test]

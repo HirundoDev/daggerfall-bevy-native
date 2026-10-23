@@ -25,7 +25,8 @@ See [`DATA-CLASSIFICATION.md`](../../DATA-CLASSIFICATION.md) for the full classi
 ## Third-party source
 
 [`reference/dfu-spec/`](../../reference/dfu-spec/) contains a pinned subset of Daggerfall Unity source
-(119 `.cs` files plus `NameGen.txt`), © 2009–2023 Daggerfall Workshop, MIT. Its original license is
+(120 `.cs` files plus `NameGen.txt`, 124 tracked files with the licence and the two custody records),
+© 2009–2023 Daggerfall Workshop, MIT. Its original license is
 preserved at [`reference/dfu-spec/LICENSE.txt`](../../reference/dfu-spec/LICENSE.txt) and its provenance
 is recorded in [`reference/dfu-spec/PROVENANCE.md`](../../reference/dfu-spec/PROVENANCE.md).
 It is documentation/specification input, not linked into any product crate.

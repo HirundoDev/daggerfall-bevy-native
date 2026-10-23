@@ -442,7 +442,11 @@ impl CollisionGrid {
     /// - geometry→grid: the centroid of **every** triangle falls in a solid cell;
     /// - grid→geometry: **deterministic** sample (stride over the grid
     ///   index; 0 HashSet iteration → reproducible) of solid cells;
-    ///   each one must overlap the AABB of some triangle (0 phantoms).
+    ///   each one must overlap the AABB of some triangle (0 phantoms). The
+    ///   predicate is evaluated through an exact bucket of `(triangle AABB,
+    ///   cell)` overlaps (same inclusive test, no approximation) so the cost is
+    ///   `Σ(triangle AABB cells)` instead of `solid cells × triangles` — the
+    ///   latter was measured as 99% of PROBE-RDB-001 over retail `.RDB` data.
     pub fn verify_layout_coherence(&self, spec: &MeshSpec) -> CoherenceReport {
         let mut report = CoherenceReport {
             solid_cells: self.solid.len(),
@@ -480,7 +484,46 @@ impl CollisionGrid {
                 report.centroids_missing += 1;
             }
         }
-        let tris: Vec<[[f32; 3]; 3]> = triangles(spec).collect();
+        // grid→geometry index: for each triangle, the cells whose box its AABB
+        // can touch, decided by the SAME inclusive `aabb_overlaps` predicate
+        // used before (the bucket only avoids re-testing every triangle for
+        // every solid cell: the old cost was O(solid cells × triangles) with
+        // the triangle AABB recomputed per pair, measured as 99% of
+        // PROBE-RDB-001's runtime over retail `.RDB` interiors). The cell
+        // range starts one cell on the negative side because the inclusive
+        // test also accepts a cell whose max face equals `tri_box[0]`.
+        let mut covered: HashSet<[i32; 3]> = HashSet::new();
+        for tri in triangles(spec) {
+            let tri_box = tri_aabb(&tri);
+            let mut i0 = [0i32; 3];
+            let mut i1 = [0i32; 3];
+            for axis in 0..3 {
+                i0[axis] =
+                    ((((tri_box[0][axis] - self.min[axis]) / self.cell).floor() as i32) - 1)
+                        .max(0);
+                i1[axis] = (((tri_box[1][axis] - self.min[axis]) / self.cell).floor() as i32)
+                    .min(self.dims[axis] - 1);
+            }
+            for x in i0[0]..=i1[0] {
+                for y in i0[1]..=i1[1] {
+                    for z in i0[2]..=i1[2] {
+                        let c = [x, y, z];
+                        if covered.contains(&c) {
+                            continue;
+                        }
+                        let lo = [
+                            self.min[0] + x as f32 * self.cell,
+                            self.min[1] + y as f32 * self.cell,
+                            self.min[2] + z as f32 * self.cell,
+                        ];
+                        let hi = [lo[0] + self.cell, lo[1] + self.cell, lo[2] + self.cell];
+                        if aabb_overlaps(&tri_box, &[lo, hi]) {
+                            covered.insert(c);
+                        }
+                    }
+                }
+            }
+        }
         let stride = [
             (self.dims[0] / 64).max(1),
             (self.dims[1] / 64).max(1),
@@ -494,16 +537,7 @@ impl CollisionGrid {
                         continue;
                     }
                     report.phantom_probes += 1;
-                    let lo = [
-                        self.min[0] + x as f32 * self.cell,
-                        self.min[1] + y as f32 * self.cell,
-                        self.min[2] + z as f32 * self.cell,
-                    ];
-                    let hi = [lo[0] + self.cell, lo[1] + self.cell, lo[2] + self.cell];
-                    if !tris
-                        .iter()
-                        .any(|tri| aabb_overlaps(&tri_aabb(tri), &[lo, hi]))
-                    {
+                    if !covered.contains(&c) {
                         report.phantom_found += 1;
                     }
                 }

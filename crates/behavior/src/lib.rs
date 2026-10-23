@@ -30,9 +30,11 @@
 //!
 //! M25: [`enemy_ai`] — observable enemy AI (spec §3-§4: states
 //! `Idle/Pursue/Attack/Retreat/OpenDoor`, senses 102.4 m / 25 m / 180°,
-//! `GiveUpTimer` 12.5 s, door at ≤ 2 m, class HP and pacification §6) and
+//! `GiveUpTimer` 12.5 s, door at ≤ 2 m, class HP and pacification §6);
 //! [`encounters`] — 45 tables of 20 enemies, context mapping (dungeon /
-//! water / weather × time band / building) and deterministic spawn (spec §5).
+//! water / weather × time band / building) and deterministic spawn (spec §5);
+//! and [`mobile_enemies`] — the 62 rows of `EnemyBasics.Enemies` (`:234` @
+//! `0038a1e6`) with the typed `mobile_enemy(id)` lookup (ORDER M25-CLOSURE).
 //! Pure: 0 Bevy, 0 I/O, 0 global RNG; rolls enter as parameters.
 //!
 //! M26: [`npc_ai`] — city population (caps §1: 24/48/72/96, 100 ms tick),
@@ -50,6 +52,33 @@
 //! cost 100/400 × level), healing (250 × disease, store quality, holidays)
 //! and donation (`2·gold/|rep|+1`, without propagation). Pure: 0 Bevy,
 //! 0 I/O, 0 global RNG (rolls enter as parameters).
+//!
+//! M28: [`law`] — crime, law and courts (REQ-L99-061): the 15 crimes and their
+//! legal-reputation loss, the per-region `LegalRep` (±100) with the People
+//! faction propagation, the court tables (P/Base/Min/Max), `punishmentType`,
+//! the fine/prison split with the gold cap, surrender, the debate/lie plea,
+//! guild rescue, the court state machine, the prison clock, the seven crime
+//! triggers and the loan default. The guard spawn is **requested** here and
+//! owned by M26; guard entities are never created by this organ. Pure:
+//! 0 Bevy, 0 I/O, 0 global RNG (a seeded [`law::DfRandom`] enters).
+//!
+//! M29: [`quests`] — playable quest machine (REQ-L99-062, SPEC-M29-QUESTS):
+//! 10 Hz [`quests::QuestMachine`], `Quest.Update` order, the five task kinds
+//! with the always-on primary/secondary rule and `Headless` born triggered
+//! (`Task.cs:181-185`), `PersistUntil`, per-action completion
+//! (`Task.cs:207-209`: `PlaySound`/`PcAt` repeat), named clocks
+//! (`60..=604800`, text forms, `ceil(s/86400)`, a `&16` clock requesting the
+//! `2.5×` round trip from M31), local/global boolean variables, journal steps
+//! and notes, `EndQuest` after two ticks with the `±5/−2` reputation as a
+//! typed request to M27, display-only messages kept out of the journal with a
+//! drainable mailbox, the `TaskSaveData_v1` shape (task
+//! `global_var`/`has_trigger_conditions` plus `ActionSaveData_v1` actions so a
+//! restored quest keeps executing), the UID/tombstone fields and the
+//! complete opcode coverage table (70 rows: 62 documented types used in
+//! retail, 7 NEGATIVE, `0x3E` documented but unused). The 87-byte record is
+//! decoded only at `+0` (type) and `+81` (message id); every other byte stays
+//! opaque. Pure: 0 Bevy, 0 I/O, 0 global RNG, 0 parser dependency; effects
+//! crossing the organ leave as [`quests::QuestRequest`].
 
 pub mod combat;
 pub mod crafting;
@@ -60,10 +89,13 @@ pub mod encounters;
 pub mod enemy_ai;
 pub mod factions;
 pub mod guild;
+pub mod law;
 pub mod locomotion;
 pub mod magic;
+pub mod mobile_enemies;
 pub mod npc_ai;
 pub mod quest;
+pub mod quests;
 
 /// Canonical organ id (Sintergic organ map, ADR-FW-104).
 pub const ORGAN: &str = "behavior";

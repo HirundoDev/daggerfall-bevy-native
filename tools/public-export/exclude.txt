@@ -1,4 +1,4 @@
-# NON-exportable surface (CR-f9a78b9a). One pattern per line; '#' starts a comment.
+# NON-exportable surface. One pattern per line; '#' starts a comment.
 # Prefix-matched directories: excludes everything inside them.
 # --- Sintergic harness: internal process, registries, telemetry, logs ---
 .sintergic/

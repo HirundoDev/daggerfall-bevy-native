@@ -160,6 +160,31 @@ fn walk_for(seed: u64, seconds: f32) -> Walker {
 // PROBE-NPC-AI-001
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ── C1-C6 literal anchors (retail/source contract, not sweep identities) ────
+//
+// Derived from the source constants `GUARD_ONE_IN = 32`, `GENDERS = 2` and
+// `OUTFIT_VARIANTS = 4` (`MobilePersonNPC.cs:144-156`), never from the roll
+// space the sweep enumerates:
+//   combos    = GUARD_ONE_IN · GENDERS · OUTFIT_VARIANTS = 32·2·4 = 256
+//   guards    = combos / GUARD_ONE_IN                   = 256 / 32 = 8
+//   civilians = combos − guards                         = 248
+//   females   = civilians / GENDERS                     = 248 / 2 = 124
+//   outfit0   = civilians / OUTFIT_VARIANTS             = 248 / 4 = 62
+//   joint     = guards: a guard is forced male + outfit 0, so every guard
+//               joins the joint event                     = 8
+const C_ANCHOR_COMBOS: usize = 256;
+const C_ANCHOR_GUARDS: usize = 8;
+const C_ANCHOR_CIVILIANS: usize = 248;
+const C_ANCHOR_FEMALES: usize = 124;
+const C_ANCHOR_OUTFIT0: usize = 62;
+const C_ANCHOR_JOINT: usize = 8;
+
+// Source constants restated so a drift in `behavior` fails this probe loudly
+// instead of silently re-deriving the anchors from the sweep loops.
+const C_SOURCE_GUARD_ONE_IN: u32 = 32;
+const C_SOURCE_GENDERS: u8 = 2;
+const C_SOURCE_OUTFIT_VARIANTS: u8 = 4;
+
 /// `PROBE-NPC-AI-001` — population caps, units, appearance and routine.
 pub fn run_npc_ai_001() -> i32 {
     println!("PROBE-NPC-AI-001 - living NPCs: population and routine (M26, REQ-L99-059 · spec §8)");
@@ -225,17 +250,22 @@ pub fn run_npc_ai_001() -> i32 {
     let civilians = sweep.combos - sweep.guards;
     rows.push(check(
         "C guards drawn",
-        sweep.guards * GUARD_ONE_IN as usize == sweep.combos
-            && sweep.females * usize::from(GENDERS) == civilians
-            && sweep.outfit0 * usize::from(OUTFIT_VARIANTS) == civilians
-            && sweep.joint == sweep.guards,
+        GUARD_ONE_IN == C_SOURCE_GUARD_ONE_IN
+            && GENDERS == C_SOURCE_GENDERS
+            && OUTFIT_VARIANTS == C_SOURCE_OUTFIT_VARIANTS
+            && sweep.combos == C_ANCHOR_COMBOS
+            && sweep.guards == C_ANCHOR_GUARDS
+            && civilians == C_ANCHOR_CIVILIANS
+            && sweep.females == C_ANCHOR_FEMALES
+            && sweep.outfit0 == C_ANCHOR_OUTFIT0
+            && sweep.joint == C_ANCHOR_JOINT,
         format!(
-            "sweep of {} rolls ({}×{}×{}): guards={}/{}=1/{} · non-guard females={}/{}=1/{} · non-guard outfit0={}/{}=1/{} · joint={} · seeded draw guards({})={guards}",
+            "sweep of {} rolls ({}×{}×{}): guards={}/{} (anchor {}) · non-guard females={}/{} (anchor {}) · non-guard outfit0={}/{} (anchor {}) · joint={} (anchor {}) · seeded draw guards({})={guards}",
             sweep.combos, GUARD_ONE_IN, GENDERS, OUTFIT_VARIANTS,
-            sweep.guards, sweep.combos, GUARD_ONE_IN,
-            sweep.females, civilians, GENDERS,
-            sweep.outfit0, civilians, OUTFIT_VARIANTS,
-            sweep.joint,
+            sweep.guards, sweep.combos, C_ANCHOR_GUARDS,
+            sweep.females, civilians, C_ANCHOR_FEMALES,
+            sweep.outfit0, civilians, C_ANCHOR_OUTFIT0,
+            sweep.joint, C_ANCHOR_JOINT,
             max_population(1, 1),
         ),
     ));
