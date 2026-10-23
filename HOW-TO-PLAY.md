@@ -168,8 +168,9 @@ elsewhere belongs to private work in progress and does not exist here.
   degrades to a null sink and prints why instead of panicking.
 - **No ocean in the current composition** (`M18 VE: 0 ocean samples ...`), so the sea is not
   reachable by walking.
-- **`CITY-001` is probe geometry, not a retail city.** It is a deterministic 4x4 city window with six
-  `ARCH3D.BSA` landmarks, low-poly by design. The retail city is the `--mode complete` demo.
+- **`CITY-001` is probe geometry, not a retail city.** The headless probe runs a deterministic 3x3
+  street grid; the M3 window (with the `window` feature) opens a 4x4 city window. Six `ARCH3D.BSA`
+  landmarks, low-poly by design. The retail city is the `--mode complete` demo.
 - **`E` opens a dialogue only in the commerce window.** In the integrated demo NPC captions are drawn
   but no dialogue window is composed.
 - **No day/night cycle and no nature sprites.** Vegetation and the visible night sky are not part of

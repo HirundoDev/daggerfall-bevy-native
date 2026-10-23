@@ -387,9 +387,10 @@ green suite prints `VERDICT: ANTI-SCREEN SUITE PASS (37/37 probes, exit 0)`.
 clickable; there is no character creation and no menu flow), the demo has no seamless
 exterior-to-interior transition and no dialogue outside the commerce window, audio stays silent unless
 you build the `audio` feature (`--features audio,window`), and the current composition logs
-`0 ocean samples`, so there is no sea to walk into. `CITY-001` is **not** the integrated city: it is
-the M3 probe scene (a 3x3 street grid with six `ARCH3D.BSA` landmarks, low-poly by design), while the
-retail city is the `--mode complete` demo above.
+`0 ocean samples`, so there is no sea to walk into. `CITY-001` is **not** the integrated city: the
+headless M3 probe scene is a deterministic 3x3 street grid with six `ARCH3D.BSA` landmarks (low-poly
+by design); the M3 window (with the `window` feature) opens a 4x4 city window with the same landmarks.
+The retail city is the `--mode complete` demo above.
 
 **Where this build stands.** This is `v0.1.0-alpha` and none of it is a parity claim. The M18
 acceptance review is **unsigned** (3 PASS, 6 PARCIAL, 12 NO; owner signature pending). M30 is frozen;
