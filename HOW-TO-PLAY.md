@@ -1,6 +1,6 @@
 # How to play and how to probe
 
-This guide is for the published `v0.1.0-alpha` build (`main` at `7902ac8`, tag `v0.1.0-alpha`). It
+This guide is for the published `v0.1.0-alpha` build (release commit `7902ac8`, tag `v0.1.0-alpha`). It
 covers what you can actually do in the window, the keys that are bound in code, how to read the probe
 harness that measures the engine, and what is known to be broken. Everything below is read from the
 code in this repository, not from memory.
