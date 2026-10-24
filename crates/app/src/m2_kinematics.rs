@@ -41,6 +41,19 @@ pub fn wasd_move_dir(w: bool, s: bool, d: bool, a: bool) -> [f32; 2] {
     [f32::from(d) - f32::from(a), f32::from(w) - f32::from(s)]
 }
 
+/// **B1-c (O9)** — attack trigger of the action layer: the left mouse button
+/// **or** the `F` key.
+///
+/// Lives here (Bevy-free, headless-tested) for the same reason as
+/// [`wasd_move_dir`]: `m2_player` is `window`-gated, so the binding that decides
+/// "is this frame an attack?" must be measurable without a window —
+/// `--probe ATTACK-KEY-001` drives it through the real `ButtonInput<KeyCode>`
+/// state of `KeyF`. `F` was free (WASD, Shift, Ctrl, Space, C, E, B, V, G, R,
+/// L, 1-4 and Esc are taken).
+pub fn attack_triggered(click_left: bool, key_f: bool) -> bool {
+    click_left || key_f
+}
+
 /// One movement tick: input + pose → grid verdict.
 ///
 /// - `translation`: current eye position (m).
@@ -283,5 +296,16 @@ mod tests {
 
         let left = step_pose(start, 0.0, wasd_move_dir(false, false, false, true), &grid, PLAYER_RADIUS_M, dt);
         assert!((left.pos[0] - (start[0] - one)).abs() < 1e-5, "{left:?}");
+    }
+
+    /// **B1-c**: the click keeps working and `F` alone triggers the attack —
+    /// the binding `ATTACK-KEY-001` measures headlessly. Inverting either side
+    /// (e.g. `&&`) fails here.
+    #[test]
+    fn attack_triggered_covers_click_and_key_f() {
+        assert!(attack_triggered(true, false), "left click alone attacks");
+        assert!(attack_triggered(false, true), "KeyF alone attacks");
+        assert!(attack_triggered(true, true), "both attack");
+        assert!(!attack_triggered(false, false), "no input → no attack");
     }
 }

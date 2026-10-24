@@ -41,7 +41,7 @@ use daggerfall_perception::read_models::{
 };
 
 /// Assets consumed by the 4 panels (headerless `RCI`/`CIF` included).
-pub const PANEL_ASSETS: [&str; 41] = [
+pub const PANEL_ASSETS: [&str; 43] = [
     "MAIN00I0.IMG",
     "MAIN02I0.IMG",
     "MAIN03I0.IMG",
@@ -83,6 +83,11 @@ pub const PANEL_ASSETS: [&str; 41] = [
     "MENU.IMG",
     "BUTN00I0.IMG",
     "BUTN03I0.IMG",
+    // **B3-c** — the two map screens (raw 320×200 RCI). Their palette index
+    // range is resolved per asset (`image::ASSET_RANGE_DERIVATIONS`), not by
+    // widening the `Map` family floor.
+    "MAP100I0.IMG",
+    "TRAV0I00.IMG",
 ];
 
 /// Aggregated result of the probe checks.

@@ -17,7 +17,7 @@ use bevy::input::mouse::{MouseButton, MouseMotion};
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, CursorGrabMode, PrimaryWindow};
 
-use daggerfall_app::m2_kinematics::{step_pose, wasd_move_dir};
+use daggerfall_app::m2_kinematics::{attack_triggered, step_pose, wasd_move_dir};
 use daggerfall_parser_bevy_bridge::{CellStatus, CollisionGrid};
 
 // The walk speed lives once, in `daggerfall_app::m2_kinematics::WALK_SPEED_MPS`
@@ -52,8 +52,9 @@ pub struct ActionState {
     pub crouch: bool,
     /// M19: `just_pressed(C)` — sneak toggle.
     pub sneak_toggle: bool,
-    /// M14: `just_pressed(MouseButton::Left)` — melee attack trigger
-    /// (consumed by the demo audio/combat system; default `false`).
+    /// M14/B1-c: melee attack trigger — `just_pressed(MouseButton::Left)` OR
+    /// `just_pressed(KeyF)` (consumed by the demo audio/combat system; default
+    /// `false`).
     pub attack: bool,
     /// M28: `just_pressed(G)` — the door bash of the demo (declared binding:
     /// `B` is already the buy key; DFU bashes by activating while in *bash*
@@ -140,9 +141,16 @@ pub fn m2_gather_action(
     action.run = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     action.crouch = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     action.sneak_toggle = keys.just_pressed(KeyCode::KeyC);
-    // M14: melee attack — same single input surface (`ButtonInput` is read
-    // only here; the demo combat/audio system consumes `attack`).
-    action.attack = mouse.just_pressed(MouseButton::Left);
+    // M14/B1-c: melee attack — same single input surface (`ButtonInput` is read
+    // only here; the demo combat/audio system consumes `attack`). Two bindings
+    // reach the one flag: the left click and `F` (B1-c, O9 — CS-21 needs an
+    // actionable keyboard attack). The decision is the pure, headless-tested
+    // `attack_triggered`, which `ATTACK-KEY-001` drives with the real
+    // `ButtonInput<KeyCode>` state of `KeyF`.
+    action.attack = attack_triggered(
+        mouse.just_pressed(MouseButton::Left),
+        keys.just_pressed(KeyCode::KeyF),
+    );
     // M28: door bash — same single input surface as every other key.
     action.bash = keys.just_pressed(KeyCode::KeyG);
 }

@@ -21,9 +21,9 @@
 //!   contrasts them against `sample_grid`;
 //! - **D3** M15 NPCs: `NpcWorld::populate` (NAMEGEN.DAT + TEXTURE.256 +
 //!   TEXT.RSC) with the flat decoded to RGBA and a retail caption;
-//! - **D4** M17 UI: the 4 panels of `ui_assets::session_panels` composed
+//! - **D4** M17 UI: the panels of `ui_assets::session_panels` composed
 //!   on the 320×200 canvas with transparency (index 0 ⇒ alpha 0) so they can
-//!   be overlaid;
+//!   be overlaid (4 1996 panels + the 2 map panels of B3-c = 6);
 //! - **D5** M20 character (spec §9): `CLASS01.CFG` → [`Career`] →
 //!   [`Character::starting`] with the [`M19_SEED`] seed and `BIO.DAT` →
 //!   [`Biography`]. The **live HUD** is the status line rendered with the
@@ -130,7 +130,7 @@ use sha2::{Digest, Sha256};
 use crate::m17_probe::PANEL_ASSETS;
 
 /// Hexadecimal `sha256` of a slice (evidence without reproducing retail text).
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -165,8 +165,13 @@ const M21_LOOT_CAP: u32 = 500;
 pub const NPC_REGION: u8 = 17;
 /// Retail subclimate (231 = Woodlands) — Breton race (`npc_spec`).
 pub const NPC_SUBCLIMATE: u8 = 231;
-/// NPCs visible in the city (ORDER M18: 2-3).
-pub const NPC_COUNT: usize = 3;
+/// NPCs visible in the city.
+///
+/// **B3-a (CS-13):** the street population is [`crate::m18_b3a::STREET_POPULATION`]
+/// (`24`, the bridge's own city population) — one source, pinned by
+/// `m18_b3a::assert_pinned` so the composition, the probe and the window can
+/// never diverge.
+pub const NPC_COUNT: usize = crate::m18_b3a::STREET_POPULATION;
 /// Maximum distance (m) at which an NPC caption is shown.
 #[cfg_attr(not(feature = "window"), allow(dead_code))]
 pub const CAPTION_RANGE_M: f32 = 9.0;
@@ -178,6 +183,20 @@ pub const TERRAIN_BLEND_M: f32 = 192.0;
 /// Sampler spacing (`TERRAIN_TILE_M / 128`) — M13.
 pub const SAMPLE_SPACING_M: f32 = bridge::SAMPLE_SPACING_M;
 
+/// Retail flat archive of the common people the demo wanders. The file header
+/// reads `medium Common people` (60 records). **Measured 2026-10-24:** M15
+/// loaded `TEXTURE.256` as the "person" archive, whose header reads `Imp`
+/// (15 records) — every NPC billboard carried the Imp art (a green winged
+/// silhouette) instead of a person. The M15 model is untouched: only the
+/// archive the demo feeds it is corrected, and the race/region archives
+/// (`TEXTURE.334` Daggerfall people, `.346` Wayrest, `.183` Noble, `.381`+ male
+/// redguard) stay an explicit residual.
+pub const PERSON_FLAT_FILE: &str = "TEXTURE.182";
+
+/// Retail flat archive of the city watch. The file header reads `    Guard`
+/// (20 records) — the archive B3-a draws the guard billboard from.
+pub const GUARD_FLAT_FILE: &str = "TEXTURE.399";
+
 /// Mandatory retail files to compose the demo (core + UI).
 const REQUIRED_CORE: &[&str] = &[
     "MAPS.BSA",
@@ -186,6 +205,8 @@ const REQUIRED_CORE: &[&str] = &[
     "WOODS.WLD",
     "NAMEGEN.DAT",
     "TEXTURE.256",
+    PERSON_FLAT_FILE,
+    GUARD_FLAT_FILE,
     "TEXT.RSC",
     "PAL.PAL",
     "FMAP_PAL.COL",
@@ -291,6 +312,17 @@ pub struct DemoTerrain {
     pub triangles: usize,
     /// Contrast samples `(sample_x, sample_z, raw f32 bits)`.
     pub raw_probe: Vec<(i32, i32, u32)>,
+    /// **CS-08** — elevation of the sea surface in mesh space, `None` when the
+    /// ring carries no `Ocean` sample.
+    ///
+    /// `OCEAN_ELEVATION − datum`: the retail sampler clamps every oceanic sample
+    /// to `OCEAN_ELEVATION` (`DefaultTerrainSampler.cs:115-118`), so the `Ocean`
+    /// band **is** a plane at that elevation; the demo datum maps it to the same
+    /// mesh space as the terrain and the `smoothstep` blend (`outside_distance /
+    /// TERRAIN_BLEND_M`) lifts it toward the city exactly like the seabed.
+    pub sea_level_m: Option<f32>,
+    /// **CS-08** — terrain quads whose band is `Ocean` (the water surface).
+    pub water_quads: usize,
 }
 
 #[cfg_attr(not(feature = "window"), allow(dead_code))]
@@ -365,6 +397,44 @@ impl DemoTerrain {
         }
         counts
     }
+
+    /// **CS-08** — is the sample nearest to `(x, z)` under the `Ocean` band?
+    ///
+    /// This is the walkability predicate of the demo (one rule, no ad-hoc `if`
+    /// in the input path): the `Ocean` band is not walkable, every other band
+    /// is. Same rule the retail sampler uses to classify the sample
+    /// (`TerrainBand::of`), so the water surface and the blocked cells can never
+    /// disagree.
+    pub fn is_water(&self, x: f32, z: f32) -> bool {
+        self.band_at(x, z) == TerrainBand::Ocean
+    }
+
+    /// **CS-08** — may the player stand on `(x, z)`?
+    pub fn walkable_at(&self, x: f32, z: f32) -> bool {
+        !self.is_water(x, z)
+    }
+
+    /// Elevation of the sea surface (`0.0` when the ring has no water), same
+    /// datum/blend as [`Self::height_at`].
+    pub fn sea_level_m(&self) -> f32 {
+        self.sea_level_m.unwrap_or(0.0)
+    }
+}
+
+/// **B1-c (O9)** — combat target projected into the HUD line.
+///
+/// CS-21 measures the feedback of a landed strike: the HUD must carry the
+/// target's **live** HP, so a hit changes the rendered line (and its digest)
+/// while a miss leaves both untouched. The label is the actor identity of the
+/// combat session (`EnemyClass 9001`), never an invented name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DemoHudTarget {
+    /// Actor tag of the combat session (`"EnemyClass 9001"`).
+    pub label: String,
+    /// Current HP after the last resolved strike.
+    pub health: i32,
+    /// HP ceiling of the target (`Combatant::max_health`).
+    pub max_health: i32,
 }
 
 /// Player spawn point in the city.
@@ -400,6 +470,9 @@ pub struct DemoScene {
     pub panel_nodes: usize,
     /// First-person spawn.
     pub spawn: DemoEye,
+    /// **CS-08/09/10** — resolved `--spawn band:<…>` viewpoint (`None` on the
+    /// default composition, whose spawn is the retail one).
+    pub spawn_band: Option<BandSpawn>,
     /// City collision grid (INV-L99-5 authority).
     pub grid: bridge::CollisionGrid,
     /// Real M20 character (`CLASS01.CFG`, [`M19_SEED`] seed, level 1).
@@ -419,6 +492,21 @@ pub struct DemoScene {
     pub city_watch_template: Option<EnemyClassTemplate>,
     /// HUD ink (HUD palette, `DEFAULT_INK`).
     pub m20_ink: [u8; 3],
+    /// **B3-a (CS-14)** — city-watch flats decoded from `TEXTURE.256` with the
+    /// retail rule of `spawn_city_guards` (`record = (i * 3) % flat_count`).
+    /// The window instantiates one billboard per arrived guard from this list
+    /// (one flat per guard of a spawn); the probe measures the rule headless.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))]
+    pub guard_flats: Vec<DemoTexture>,
+    /// **CS-14** — `(building, index)` of the scenario door injected by
+    /// [`apply_cs14_scenario`] (`None` on every normal composition). The window
+    /// keeps that single point 1.4 m ahead of the camera while `M18_CS14=1`, so
+    /// the bash interaction stays reachable wherever the campaign walked.
+    pub cs14_door: Option<(usize, usize)>,
+    /// **B1-c** — HP of the current combat target (`None` until a strike
+    /// lands; a miss never writes it). Consumed by [`Self::m20_status_line`],
+    /// so the HUD digest changes exactly when the target's HP changes.
+    pub m20_target: Option<DemoHudTarget>,
 }
 
 #[cfg_attr(not(feature = "window"), allow(dead_code))]
@@ -433,8 +521,21 @@ impl DemoScene {
     ///
     /// The separator is decided by [`m20_separator`] by measuring the retail
     /// `.FNT` (`FONT0000` does not carry U+00B7 ⇒ ASCII `" - "`).
+    ///
+    /// **B1-c (CS-21):** when a strike has landed, the same line carries the
+    /// live HP of that target — `… - TARGET EnemyClass 9001 HP 43/50`. A miss
+    /// never sets [`Self::m20_target`], so the line (and its digest) stays
+    /// byte-identical.
     pub fn m20_status_line(&self) -> String {
-        m20_status_line_for(&self.character, m20_separator(&self.m20_font))
+        let separator = m20_separator(&self.m20_font);
+        let mut line = m20_status_line_for(&self.character, separator);
+        if let Some(target) = &self.m20_target {
+            line.push_str(&format!(
+                "{separator}TARGET {} HP {}/{}",
+                target.label, target.health, target.max_health
+            ));
+        }
+        line
     }
 
     /// Re-generates the live HUD from [`Self::character`] (same `.FNT` font
@@ -442,6 +543,22 @@ impl DemoScene {
     pub fn m20_refresh_hud(&mut self) {
         let line = self.m20_status_line();
         self.m20_hud = caption_texture(&self.m20_font, self.m20_ink, &line);
+    }
+
+    /// **B1-c** — projects the HP of the combat target into the HUD and returns
+    /// the new digest (the caller contrasts it with the previous one).
+    ///
+    /// Only a **landed** strike calls this: the HP written here is the value
+    /// the M22 engine left in `SetHealth` (`DaggerfallEntity.cs:331-338`), never
+    /// a recomputation.
+    pub fn m20_set_target(&mut self, label: &str, health: i32, max_health: i32) -> u64 {
+        self.m20_target = Some(DemoHudTarget {
+            label: label.to_string(),
+            health,
+            max_health,
+        });
+        self.m20_refresh_hud();
+        self.m20_hud_digest()
     }
 
     /// FNV-1a 64 digest of the HUD RGBA (live-content evidence: it changes
@@ -479,6 +596,13 @@ impl DemoScene {
             hash.feed_str(&panel.id);
             hash.feed(&panel.rgba);
         }
+        // B3-a (CS-14): the city-watch flats are part of the composition.
+        for flat in &self.guard_flats {
+            hash.feed(&flat.key.to_le_bytes());
+            hash.feed(&flat.width.to_le_bytes());
+            hash.feed(&flat.height.to_le_bytes());
+            hash.feed(&flat.rgba);
+        }
         // M20 (spec §9): the digest changes if the character or the HUD changes.
         hash.feed(&m20_character_digest(&self.character).to_le_bytes());
         hash.feed(&self.m20_hud.rgba);
@@ -493,11 +617,18 @@ impl DemoScene {
 /// Adapter from the demo to the M19 engine [`LocomotionWorld`] trait (0
 /// duplicated logic: the window and the probe consume THIS adapter).
 ///
-/// **Declared boundaries (spec §6.5):** the demo has no water (`submerged`
-/// ⇒ `false`) and no climbable walls (`wall_ahead` ⇒ `false`): swimming and
-/// levitation are measured in the probe with its synthetic world. The M13
-/// terrain is the surface outside the city and the city height is 0 (ring
-/// datum, `DemoTerrain::height_at` ⇒ 0 at the edge).
+/// **Water (CS-08, B1-a):** the M13 ring carries the retail `Ocean` band; the
+/// demo renders it as the sea surface at [`DemoTerrain::sea_level_m`] and makes
+/// it **not walkable** — [`Self::step`] validates the destination cell exactly
+/// like the city validates an entry (`CollisionGrid::is_free`), so the player
+/// stops at the shoreline and a jump cannot cross it either. `submerged` is a
+/// real measurement over that water (eye under the sea level at an `Ocean`
+/// cell), never a constant.
+///
+/// **Declared boundary (spec §6.5):** no climbable walls (`wall_ahead` ⇒
+/// `false`): climbing and levitation are measured in the probe with its
+/// synthetic world. The M13 terrain is the surface outside the city and the
+/// city height is 0 (ring datum, `DemoTerrain::height_at` ⇒ 0 at the edge).
 pub struct DemoLocomotionWorld<'a> {
     /// Retail composition (`.RMB` grid + M13 ring).
     pub scene: &'a DemoScene,
@@ -507,6 +638,22 @@ impl DemoScene {
     /// M19 engine world over this composition.
     pub fn locomotion_world(&self) -> DemoLocomotionWorld<'_> {
         DemoLocomotionWorld { scene: self }
+    }
+
+    /// One collision step of the production adapter ([`DemoLocomotionWorld`]),
+    /// i.e. the exact primitive `Locomotion::step` calls every frame in the
+    /// window: returns `(pos, moved, blocked)`.
+    ///
+    /// `ORIGIN-001` walks the shoreline with this helper, so the walkability it
+    /// measures is the window's collision path, never a copy of it.
+    pub fn collision_step(
+        &self,
+        from: [f32; 3],
+        delta: [f32; 3],
+        radius: f32,
+    ) -> ([f32; 3], bool, bool) {
+        let outcome = self.locomotion_world().step(from, delta, radius);
+        (outcome.pos, outcome.moved, outcome.blocked)
     }
 }
 
@@ -546,6 +693,12 @@ impl LocomotionWorld for DemoLocomotionWorld<'_> {
         );
         let mut landed = from;
         let mut blocked = false;
+        // **CS-08** — the M13 destination is validated before crossing, exactly
+        // like the grid validates a city entry (`is_free`): an `Ocean` cell is
+        // water and water is not walkable. Returning `from` is the same
+        // mechanism the retail grid uses for a wall (`resolve_step` ⇒ not
+        // moved), so the input path needs no rule of its own.
+        let terrain_ok = scene.terrain.walkable_at(target[0], target[2]);
         if in_city(from) {
             let outcome = scene
                 .grid
@@ -553,7 +706,7 @@ impl LocomotionWorld for DemoLocomotionWorld<'_> {
             if outcome.moved {
                 landed = [outcome.pos[0], from[1], outcome.pos[2]];
                 blocked = outcome.blocked.is_some();
-            } else if outcome.blocked == Some(bridge::CellStatus::Outside) {
+            } else if outcome.blocked == Some(bridge::CellStatus::Outside) && terrain_ok {
                 // Legitimate exit from the city: the terrain (datum 0 at the edge).
                 landed = target;
             } else {
@@ -566,8 +719,11 @@ impl LocomotionWorld for DemoLocomotionWorld<'_> {
             } else {
                 blocked = true;
             }
-        } else {
+        } else if terrain_ok {
             landed = target;
+        } else {
+            // Shoreline: the sea is not walkable (CS-08).
+            blocked = true;
         }
         LocomotionStepOutcome {
             pos: landed,
@@ -581,9 +737,13 @@ impl LocomotionWorld for DemoLocomotionWorld<'_> {
         false
     }
 
-    fn submerged(&self, _eye: [f32; 3]) -> bool {
-        // §6.5: the demo has no water (swimming/levitation are measured in B).
-        false
+    fn submerged(&self, eye: [f32; 3]) -> bool {
+        // **CS-08**: a real measurement over the rendered sea — an eye under the
+        // sea surface at an `Ocean` cell. The walkability rule keeps the player
+        // on land, so this is false in the interactive demo; it is NOT a
+        // constant: a composition that puts the eye in the water reports it.
+        let terrain = &self.scene.terrain;
+        terrain.is_water(eye[0], eye[2]) && eye[1] <= terrain.sea_level_m()
     }
 }
 
@@ -803,6 +963,12 @@ fn build_terrain(
     }
     // Datum: raw height at the city centre (sample 64,64 of the pixel).
     let datum = raw[(64 + TERRAIN_RING as usize) * dim + (64 + TERRAIN_RING as usize)];
+    // **CS-08** — sea surface: the sampler clamps every oceanic sample to
+    // `OCEAN_ELEVATION` (`DefaultTerrainSampler.cs:115-118`), so the `Ocean`
+    // band lies on that plane; the datum maps it into the same mesh space the
+    // heights use (`(raw − datum) × blend`). `None` when the ring has no water.
+    let has_ocean = bands.contains(&TerrainBand::Ocean);
+    let sea_level_m = has_ocean.then_some(daggerfall_parser_rs::woods::OCEAN_ELEVATION - datum);
     // Mesh height = (raw − datum) × blend; exactly 0 at the edge.
     for iz in 0..dim as i32 {
         for ix in 0..dim as i32 {
@@ -815,6 +981,7 @@ fn build_terrain(
     }
 
     let mut quads = 0usize;
+    let mut water_quads = 0usize;
     let mut groups: [Option<MeshBuilder>; 3] = [None, None, None];
     for iz in 0..dim as i32 - 1 {
         for ix in 0..dim as i32 - 1 {
@@ -835,6 +1002,9 @@ fn build_terrain(
             let h01 = at(ix, iz + 1);
             let h11 = at(ix + 1, iz + 1);
             let band = bands[iz as usize * dim + ix as usize];
+            if band == TerrainBand::Ocean {
+                water_quads += 1;
+            }
             let slot = match band {
                 TerrainBand::Ocean => 0,
                 TerrainBand::Beach => 1,
@@ -909,6 +1079,8 @@ fn build_terrain(
         quads,
         triangles,
         raw_probe,
+        sea_level_m,
+        water_quads,
     })
 }
 
@@ -918,6 +1090,266 @@ struct MeshBuilder {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     indices: Vec<u32>,
+}
+
+// ── B1-a (O2): origin/mapPixel + yaw accionables ────────────────────────────
+//
+// The composition samples the M13 terrain at the capital's map-pixel. B1-a
+// makes that pixel an **input** (`--origin x,y` / `DF_M18_ORIGIN`, and the `T`
+// key which toggles to the nearest coastal pixel) plus the initial yaw
+// (`--yaw rad` / `DF_M18_YAW`, and the `,` / `.` keys). The override feeds
+// `build_terrain` ONLY: the retail city hull, its collision grid and its datum
+// plateau stay composed at the scene origin (the blend already flattens the
+// terrain under the city), so the default composition is byte-identical.
+
+/// Yaw step of the `,` / `.` keys (5°).
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
+pub const YAW_KEY_STEP_RAD: f32 = 5.0 * std::f32::consts::PI / 180.0;
+
+/// Radius, in map pixels, of the coastal search around the capital.
+///
+/// Same ring as the terrain ([`TERRAIN_RING`] samples = 32 map pixels): the
+/// search never invents a coordinate outside the band the demo composes.
+pub const COASTAL_RING: i32 = TERRAIN_RING;
+
+/// Sample stride of the cheap screening pass of [`find_coastal_pixel`].
+///
+/// `129 / 16` ⇒ a 9×9 lattice per candidate pixel. The screening only
+/// **rejects** candidates (it can never confirm one); the first candidate that
+/// passes is re-sampled over the full `129×129` grid, so the pixel the search
+/// returns is a true `Ocean>0 ∧ Beach>0` pixel of the retail sampler and the
+/// order stays deterministic. Without it the ring scan would cost
+/// `65 × 129² = 1.08 M` samples.
+const COASTAL_SCREEN_STRIDE: usize = 16;
+
+/// A map pixel whose full `129×129` sample grid carries ocean and beach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoastalPixel {
+    /// Map pixel `(x, y)` found by the ring scan.
+    pub pixel: [i32; 2],
+    /// Ocean samples of the full grid.
+    pub ocean: usize,
+    /// Beach samples of the full grid.
+    pub beach: usize,
+    /// Land samples of the full grid.
+    pub land: usize,
+}
+
+impl CoastalPixel {
+    /// Chebyshev distance in map pixels from `base`.
+    pub fn chebyshev_from(&self, base: [i32; 2]) -> i32 {
+        (self.pixel[0] - base[0]).abs().max((self.pixel[1] - base[1]).abs())
+    }
+}
+
+/// `(ocean, beach, land)` sample counts of the **full** grid of one map pixel
+/// (the same `WoodsMap::sample_grid` the terrain consumes).
+pub fn band_counts_at(woods: &WoodsMap, pixel: [i32; 2]) -> (usize, usize, usize) {
+    let mut counts = (0usize, 0usize, 0usize);
+    for gy in 0..HEIGHTMAP_DIM {
+        for gx in 0..HEIGHTMAP_DIM {
+            let sample = woods.sample_grid(pixel[0], pixel[1], gx, gy);
+            match sample.band {
+                TerrainBand::Ocean => counts.0 += 1,
+                TerrainBand::Beach => counts.1 += 1,
+                TerrainBand::Land => counts.2 += 1,
+            }
+        }
+    }
+    counts
+}
+
+/// Screening pass: does a coarse lattice already carry ocean **and** beach?
+/// `true` means "worth the full scan", never "confirmed".
+fn screen_coastal(woods: &WoodsMap, pixel: [i32; 2]) -> bool {
+    let mut ocean = false;
+    let mut beach = false;
+    let mut gy = 0usize;
+    while gy < HEIGHTMAP_DIM {
+        let mut gx = 0usize;
+        while gx < HEIGHTMAP_DIM {
+            match woods.sample_grid(pixel[0], pixel[1], gx, gy).band {
+                TerrainBand::Ocean => ocean = true,
+                TerrainBand::Beach => beach = true,
+                TerrainBand::Land => {}
+            }
+            if ocean && beach {
+                return true;
+            }
+            gx += COASTAL_SCREEN_STRIDE;
+        }
+        gy += COASTAL_SCREEN_STRIDE;
+    }
+    false
+}
+
+/// Nearest map pixel (inside [`COASTAL_RING`]) whose full sample grid carries
+/// `Ocean>0 ∧ Beach>0`, or `None` when the ring has no coast.
+///
+/// **Deterministic order** (documented contract of B1-a): ascending Chebyshev
+/// distance from `base`, then `(x, y)` ascending. The returned pixel is
+/// re-sampled over the full grid, so the counts are the retail sampler's.
+pub fn find_coastal_pixel(woods: &WoodsMap, base: [i32; 2]) -> Option<CoastalPixel> {
+    let ring = COASTAL_RING;
+    let mut candidates: Vec<([i32; 2], i32)> =
+        Vec::with_capacity(((2 * ring + 1) * (2 * ring + 1)) as usize);
+    for dx in -ring..=ring {
+        for dy in -ring..=ring {
+            candidates.push(([base[0] + dx, base[1] + dy], dx.abs().max(dy.abs())));
+        }
+    }
+    candidates.sort_by(|left, right| {
+        left.1
+            .cmp(&right.1)
+            .then(left.0[0].cmp(&right.0[0]))
+            .then(left.0[1].cmp(&right.0[1]))
+    });
+    for (pixel, _) in candidates {
+        if !screen_coastal(woods, pixel) {
+            continue;
+        }
+        let (ocean, beach, land) = band_counts_at(woods, pixel);
+        if ocean > 0 && beach > 0 {
+            return Some(CoastalPixel {
+                pixel,
+                ocean,
+                beach,
+                land,
+            });
+        }
+    }
+    None
+}
+
+/// Re-reads `WOODS.WLD` (Mode A) — the `T` key re-samples the terrain with the
+/// same bytes the composition used.
+pub fn read_woods() -> Result<WoodsMap, DemoError> {
+    let dir = arena2_dir()?;
+    let bytes = read_retail(&dir, "WOODS.WLD")?;
+    WoodsMap::parse(&bytes).map_err(|err| DemoError::Invalid(format!("WOODS.WLD: {err:?}")))
+}
+
+/// CLI/env overrides of the demo composition (**B1-a**).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct M18Overrides {
+    /// `--origin <x>,<y>` / `DF_M18_ORIGIN`: map pixel the terrain samples.
+    pub origin: Option<[i32; 2]>,
+    /// `--yaw <rad>` / `DF_M18_YAW`: initial yaw of the spawn.
+    pub yaw: Option<f32>,
+    /// `--spawn band:<ocean|beach|land>` / `DF_M18_SPAWN`: viewpoint on that
+    /// band (`--spawn origin` = the retail spawn, i.e. no override).
+    pub spawn: Option<SpawnBand>,
+}
+
+/// Parses `--origin <x>,<y>` / `--yaw <rad>` / `--spawn <…>` (and their
+/// `--flag=value` form) with the `DF_M18_ORIGIN` / `DF_M18_YAW` /
+/// `DF_M18_SPAWN` environment fallback.
+///
+/// The CLI wins over the environment; an unparsable value is an explicit error
+/// (never a silently ignored flag). The flag is matched **exactly** before its
+/// `=`: `--originX` or `--yawfoo` are unknown arguments, never a disguised
+/// `--origin` that also swallows the next argument (m-8).
+pub fn parse_overrides(args: &[String]) -> Result<M18Overrides, String> {
+    let mut overrides = M18Overrides::default();
+    let mut spawn_seen = false;
+    let mut index = 0usize;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        let (flag, inline) = match arg.split_once('=') {
+            Some((flag, value)) => (flag, Some(value)),
+            None => (arg, None),
+        };
+        let take_value = |index: &mut usize| -> Result<String, String> {
+            if let Some(value) = inline {
+                return Ok(value.to_string());
+            }
+            *index += 1;
+            args.get(*index)
+                .cloned()
+                .ok_or_else(|| format!("{flag}: missing value"))
+        };
+        if flag == "--origin" {
+            let value = take_value(&mut index)?;
+            overrides.origin = Some(parse_origin(&value)?);
+        } else if flag == "--yaw" {
+            let value = take_value(&mut index)?;
+            overrides.yaw = Some(parse_yaw(&value)?);
+        } else if flag == "--spawn" {
+            let value = take_value(&mut index)?;
+            // `--spawn origin` is the documented default: it clears the
+            // override AND wins over `DF_M18_SPAWN` (CLI > env).
+            spawn_seen = true;
+            overrides.spawn = parse_spawn(&value)?;
+        }
+        index += 1;
+    }
+    if overrides.origin.is_none() {
+        if let Ok(text) = std::env::var("DF_M18_ORIGIN") {
+            if !text.trim().is_empty() {
+                overrides.origin = Some(parse_origin(&text)?);
+            }
+        }
+    }
+    if overrides.yaw.is_none() {
+        if let Ok(text) = std::env::var("DF_M18_YAW") {
+            if !text.trim().is_empty() {
+                overrides.yaw = Some(parse_yaw(&text)?);
+            }
+        }
+    }
+    if !spawn_seen {
+        if let Ok(text) = std::env::var("DF_M18_SPAWN") {
+            if !text.trim().is_empty() {
+                overrides.spawn = parse_spawn(&text)?;
+            }
+        }
+    }
+    Ok(overrides)
+}
+
+/// `origin` | `band:<ocean|beach|land>` ⇒ spawn override.
+///
+/// `origin` returns `None` (the retail spawn of the composition): it exists so
+/// the default can be requested **explicitly**, and so a bad value is an error
+/// instead of a guess. Anything else is rejected by name.
+pub fn parse_spawn(text: &str) -> Result<Option<SpawnBand>, String> {
+    match text.trim() {
+        "origin" => Ok(None),
+        "band:ocean" => Ok(Some(SpawnBand::Ocean)),
+        "band:beach" => Ok(Some(SpawnBand::Beach)),
+        "band:land" => Ok(Some(SpawnBand::Land)),
+        other => Err(format!(
+            "spawn {other:?}: expected origin | band:ocean | band:beach | band:land"
+        )),
+    }
+}
+
+/// `<x>,<y>` ⇒ map pixel.
+pub fn parse_origin(text: &str) -> Result<[i32; 2], String> {
+    let (x, y) = text
+        .split_once(',')
+        .ok_or_else(|| format!("origin {text:?}: expected <x>,<y>"))?;
+    let x = x
+        .trim()
+        .parse::<i32>()
+        .map_err(|err| format!("origin {text:?}: x: {err}"))?;
+    let y = y
+        .trim()
+        .parse::<i32>()
+        .map_err(|err| format!("origin {text:?}: y: {err}"))?;
+    Ok([x, y])
+}
+
+/// Radians (finite, else explicit error).
+pub fn parse_yaw(text: &str) -> Result<f32, String> {
+    let yaw = text
+        .trim()
+        .parse::<f32>()
+        .map_err(|err| format!("yaw {text:?}: {err}"))?;
+    if !yaw.is_finite() {
+        return Err(format!("yaw {text:?}: not finite"));
+    }
+    Ok(yaw)
 }
 
 /// Looks for a spawn in the city: 2 m lattice from the centre, a free point
@@ -984,53 +1416,578 @@ pub fn find_city_spawn(grid: &bridge::CollisionGrid, city_m: f32) -> Option<Demo
     None
 }
 
+// ── B1-a (O2) · CS-08/09/10: spawn by terrain band ─────────────────────────
+//
+// The camera of the default composition stands at the retail spawn **inside the
+// hull**, where the city floor (height 0) overrides the M13 band and the hull
+// occludes the ring — CS-08 (ocean), CS-09 (beach) and CS-10 (mountain) could
+// be composed but never **seen**. `--spawn band:<…>` moves the **eye only**:
+// the hull, the collision grid, the NPC placement, the walkability rule and the
+// session state are the ones of the same composition, and the digest still
+// fingerprints `spawn.eye`/`spawn.yaw`, so the override is visible in evidence.
+
+/// Band the `--spawn band:<…>` override puts the camera on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnBand {
+    /// Ocean — the camera stands on the water surface next to the shoreline.
+    Ocean,
+    /// Beach — the camera stands on the sand strip facing the water.
+    Beach,
+    /// Land — the camera stands on a vantage point facing the highest relief.
+    Land,
+}
+
+impl SpawnBand {
+    /// Evidence id (`ocean` / `beach` / `land`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Ocean => "ocean",
+            Self::Beach => "beach",
+            Self::Land => "land",
+        }
+    }
+
+    /// Sampler band this spawn requires.
+    pub fn terrain_band(self) -> TerrainBand {
+        match self {
+            Self::Ocean => TerrainBand::Ocean,
+            Self::Beach => TerrainBand::Beach,
+            Self::Land => TerrainBand::Land,
+        }
+    }
+}
+
+/// Margin (m) outside the retail hull a band spawn keeps.
+///
+/// Two independent reasons, both measured: the city rectangle's terrain quads
+/// are skipped by [`build_terrain`] (`(0..HEIGHTMAP_DIM - 1).contains(&ix)`), so
+/// a camera inside it floats over nothing, and the retail floor at y=0 overrides
+/// the M13 band exactly there (the CS-08 defect of the wave-1 report).
+pub const BAND_SPAWN_HULL_MARGIN_M: f32 = 24.0;
+/// Distance window (m) of a land vantage point from the relief peak.
+const PEAK_STAND_MIN_M: f32 = 32.0;
+/// Upper bound of the same window.
+const PEAK_STAND_MAX_M: f32 = 96.0;
+/// Minimum height difference (m) a land vantage point must keep below the peak.
+pub const PEAK_STAND_MIN_RELIEF_M: f32 = 8.0;
+/// Free run (m) measured along a band spawn's yaw (same cap as [`find_city_spawn`]).
+const BAND_SPAWN_OPEN_RUN_M: f32 = 16.0;
+
+/// Resolved `--spawn band:<…>` viewpoint (evidence, never a silent change).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BandSpawn {
+    /// Band the camera stands on.
+    pub band: SpawnBand,
+    /// World `(x, z)` of the eye (mesh metres).
+    pub at: [f32; 2],
+    /// Eye position (`y = surface + EYE_HEIGHT_M`).
+    pub eye: [f32; 3],
+    /// Yaw the spawn faces (radians; toward the band target).
+    pub yaw: f32,
+    /// Terrain surface under the eye (bilinear mesh height, m).
+    pub ground_m: f32,
+    /// Surface the eye stands on: the mesh height, lifted to the sea plane over
+    /// water so the eye can never sink below the rendered sea (`m`).
+    pub surface_m: f32,
+    /// Declared sea level (`OCEAN_ELEVATION − datum`), `None` without water.
+    pub sea_level_m: Option<f32>,
+    /// What the yaw looks at (ocean centroid / relief peak), world `(x, z)`.
+    pub target: [f32; 2],
+    /// Distance to the target (m).
+    pub target_distance_m: f32,
+    /// Distance of the eye from the city rectangle (m).
+    pub outside_hull_m: f32,
+    /// **CS-08/09** — consecutive ocean samples in front of the eye (0 for a
+    /// land viewpoint): how open the sea in the frame is.
+    pub water_samples: usize,
+    /// **CS-10** — height (m) the relief peak rises above the vantage point
+    /// (0 for ocean/beach viewpoints).
+    pub relief_m: f32,
+    /// Longest walkable ground run (m) from the standpoint (CS-09 strip width).
+    pub walkable_run_m: f32,
+    /// Free run along the yaw over the M13 terrain (m; 0 over water).
+    pub open_run_m: f32,
+}
+
+/// One ring sample outside the hull (candidate of [`find_band_spawn`]).
+#[derive(Debug, Clone, Copy)]
+struct BandSample {
+    ix: i32,
+    iz: i32,
+    x: f32,
+    z: f32,
+    height: f32,
+}
+
+/// Heading (radians) whose forward vector `[-sin(yaw), -cos(yaw)]` points from
+/// `from` to `to` — the SAME forward convention of the camera/M19 engine.
+fn heading_toward(from: [f32; 2], to: [f32; 2]) -> f32 {
+    let dx = to[0] - from[0];
+    let dz = to[1] - from[1];
+    (-dx).atan2(-dz).rem_euclid(std::f32::consts::TAU)
+}
+
+/// Mean `(x, z)` of a sample set (`None` when empty).
+fn centroid(samples: &[BandSample]) -> Option<[f32; 2]> {
+    if samples.is_empty() {
+        return None;
+    }
+    let n = samples.len() as f32;
+    let x = samples.iter().map(|s| s.x).sum::<f32>() / n;
+    let z = samples.iter().map(|s| s.z).sum::<f32>() / n;
+    Some([x, z])
+}
+
+/// Distance (m) between two `(x, z)` points.
+fn distance_2d(a: [f32; 2], b: [f32; 2]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
+}
+
+/// Resolves the viewpoint of `--spawn band:<band>` (deterministic, 0 RNG).
+///
+/// Contract:
+/// - the eye stands **outside** the city rectangle by at least
+///   [`BAND_SPAWN_HULL_MARGIN_M`] and the sampler band under it **is** `band`;
+/// - `y = surface + EYE_HEIGHT_M`, the surface being [`DemoTerrain::height_at`]
+///   (the datum/blend the collision adapter uses), lifted to
+///   [`DemoTerrain::sea_level_m`] over water so the eye is never below the sea;
+/// - the yaw looks **toward the band's subject**: the ocean centroid (`ocean`,
+///   `beach`) or the relief peak (`land`);
+/// - a band the composition does not carry outside the hull is an **explicit
+///   error** naming the band — never a silent fallback to `land`;
+/// - ties are broken by distance to the target, then `(x, z)` ascending, so two
+///   runs return the same point.
+pub fn find_band_spawn(
+    terrain: &DemoTerrain,
+    city_m: f32,
+    band: SpawnBand,
+) -> Result<BandSpawn, DemoError> {
+    let dim = terrain.dim as i32;
+    let mut candidates: Vec<BandSample> = Vec::new();
+    for iz in 0..dim {
+        for ix in 0..dim {
+            let at = iz as usize * terrain.dim + ix as usize;
+            let x = (terrain.first_sample + ix) as f32 * SAMPLE_SPACING_M;
+            let z = (terrain.first_sample + iz) as f32 * SAMPLE_SPACING_M;
+            if outside_distance(x, z, city_m) < BAND_SPAWN_HULL_MARGIN_M {
+                continue;
+            }
+            let sample = BandSample {
+                ix,
+                iz,
+                x,
+                z,
+                height: terrain.heights[at],
+            };
+            if terrain.bands[at] == band.terrain_band() {
+                candidates.push(sample);
+            }
+        }
+    }
+    if candidates.is_empty() {
+        let (o, b, l) = terrain.band_counts();
+        return Err(DemoError::Invalid(format!(
+            "--spawn band:{}: the composition sampled at map-pixel ({},{}) carries 0 {} samples \
+             outside the city hull ({} m margin; ring totals ocean {o} / beach {b} / land {l}) — \
+             refusing to fall back to another band",
+            band.id(),
+            terrain.origin_pixel[0],
+            terrain.origin_pixel[1],
+            band.id(),
+            BAND_SPAWN_HULL_MARGIN_M,
+        )));
+    }
+
+    // Does the sample have a 4-neighbour of the requested kind?
+    let has_neighbour = |sample: &BandSample, ocean_kind: bool| -> bool {
+        for (dx, dz) in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
+            let (nx, nz) = (sample.ix + dx, sample.iz + dz);
+            if nx < 0 || nz < 0 || nx >= dim || nz >= dim {
+                continue;
+            }
+            let neighbour = terrain.bands[nz as usize * terrain.dim + nx as usize];
+            if ocean_kind && neighbour == TerrainBand::Ocean {
+                return true;
+            }
+            if !ocean_kind && neighbour != TerrainBand::Ocean {
+                return true;
+            }
+        }
+        false
+    };
+
+    // Outward normal of the city rectangle at a point (never looks into the hull).
+    let outward = |at: [f32; 2]| -> [f32; 2] {
+        let dx = at[0] - at[0].clamp(0.0, city_m);
+        let dz = at[1] - at[1].clamp(0.0, city_m);
+        let len = (dx * dx + dz * dz).sqrt();
+        if len < 1e-3 {
+            [1.0, 0.0]
+        } else {
+            [dx / len, dz / len]
+        }
+    };
+    // The 8 compass directions of the `(x, z)` plane (unit vectors).
+    let dirs: [[f32; 2]; 8] = [
+        [1.0, 0.0],
+        [-1.0, 0.0],
+        [0.0, 1.0],
+        [0.0, -1.0],
+        [1.0, 1.0],
+        [1.0, -1.0],
+        [-1.0, 1.0],
+        [-1.0, -1.0],
+    ]
+    .map(|[x, z]: [f32; 2]| {
+        let len = (x * x + z * z).sqrt();
+        [x / len, z / len]
+    });
+    // Consecutive ocean samples in `dir` (up to 32) — how open the sea is in front.
+    let water_depth = |sample: &BandSample, dir: [f32; 2]| -> usize {
+        let mut depth = 0usize;
+        for k in 1..=32i32 {
+            let ix = (sample.ix as f32 + dir[0] * k as f32).round() as i32;
+            let iz = (sample.iz as f32 + dir[1] * k as f32).round() as i32;
+            if ix < 0 || iz < 0 || ix >= dim || iz >= dim {
+                break;
+            }
+            if terrain.bands[iz as usize * terrain.dim + ix as usize] != TerrainBand::Ocean {
+                break;
+            }
+            depth += 1;
+        }
+        depth
+    };
+    // Deepest water around a sample: `(samples, direction)`. Directions into the
+    // hull are refused, so the camera never frames the city as if it were sea.
+    let best_water = |sample: &BandSample| -> (usize, [f32; 2]) {
+        let out = outward([sample.x, sample.z]);
+        let mut best = (0usize, dirs[0]);
+        for dir in dirs {
+            if dir[0] * out[0] + dir[1] * out[1] < -0.1 {
+                continue;
+            }
+            let depth = water_depth(sample, dir);
+            if depth > best.0 {
+                best = (depth, dir);
+            }
+        }
+        best
+    };
+    // Longest walkable run (terrain only, 8 directions, ≤ 16 m) of a sample —
+    // a beach viewpoint must stand on walkable sand, otherwise the CS-08
+    // two-sided control could only measure "everything is blocked".
+    let walk_run = |sample: &BandSample| -> f32 {
+        let mut best = 0.0f32;
+        for dir in dirs {
+            let mut run = 0.0f32;
+            while run < BAND_SPAWN_OPEN_RUN_M {
+                let probe = run + 0.5;
+                if !terrain.walkable_at(sample.x + dir[0] * probe, sample.z + dir[1] * probe) {
+                    break;
+                }
+                run = probe;
+            }
+            if run > best {
+                best = run;
+            }
+        }
+        best
+    };
+    // Shoreline standpoint of a band: the sample with the deepest water in front
+    // (open sea in the frame), ties by `(x, z)` ascending.
+    let shoreline_pick = |pool: &[BandSample]| -> (BandSample, usize, [f32; 2]) {
+        let mut best = pool[0];
+        let (mut best_depth, mut best_dir) = best_water(&best);
+        for sample in &pool[1..] {
+            let (depth, dir) = best_water(sample);
+            if depth > best_depth
+                || (depth == best_depth && (sample.x, sample.z) < (best.x, best.z))
+            {
+                best = *sample;
+                best_depth = depth;
+                best_dir = dir;
+            }
+        }
+        (best, best_depth, best_dir)
+    };
+    // Beach standpoint: the widest walkable sand first (the CS-09 strip must be
+    // perceived underfoot, and the CS-08 two-sided control must be able to walk
+    // it), deepest water in front as the tie-break.
+    let beach_pick = |pool: &[BandSample]| -> (BandSample, usize, [f32; 2]) {
+        let mut best = pool[0];
+        let (mut best_depth, mut best_dir) = best_water(&best);
+        let mut best_run = walk_run(&best);
+        for sample in &pool[1..] {
+            let (depth, dir) = best_water(sample);
+            let run = walk_run(sample);
+            let better = run > best_run + 1e-3
+                || ((run - best_run).abs() <= 1e-3
+                    && (depth > best_depth
+                        || (depth == best_depth && (sample.x, sample.z) < (best.x, best.z))));
+            if better {
+                best = *sample;
+                best_depth = depth;
+                best_dir = dir;
+                best_run = run;
+            }
+        }
+        (best, best_depth, best_dir)
+    };
+    // Heading target over the water: the last ocean sample of the open direction
+    // (a real sample), or 64 m along it when the band has no water at all.
+    let water_target = |sample: &BandSample, depth: usize, dir: [f32; 2]| -> [f32; 2] {
+        let reach = if depth == 0 {
+            64.0
+        } else {
+            depth as f32 * SAMPLE_SPACING_M
+        };
+        [sample.x + dir[0] * reach, sample.z + dir[1] * reach]
+    };
+
+    let mut water_samples = 0usize;
+    let mut relief_m = 0.0f32;
+    let (pick, target) = match band {
+        SpawnBand::Ocean => {
+            // The first water sample past the shoreline: sea underfoot and ahead,
+            // the hull behind the camera (never the frame's centre).
+            let shoreline: Vec<BandSample> = candidates
+                .iter()
+                .copied()
+                .filter(|sample| has_neighbour(sample, false))
+                .collect();
+            let pool = if shoreline.is_empty() {
+                candidates.clone()
+            } else {
+                shoreline
+            };
+            let (pick, depth, dir) = shoreline_pick(&pool);
+            water_samples = depth;
+            (pick, water_target(&pick, depth, dir))
+        }
+        SpawnBand::Beach => {
+            // The sand strip that touches the water: the beach is in the frame's
+            // foreground and the open sea beyond it.
+            let facing: Vec<BandSample> = candidates
+                .iter()
+                .copied()
+                .filter(|sample| has_neighbour(sample, true))
+                .collect();
+            // Sand that can actually be walked (≥ 4 m of ground) beats a sliver
+            // of beach whose every neighbour is water.
+            let walkable_pool: Vec<BandSample> = facing
+                .iter()
+                .copied()
+                .filter(|sample| walk_run(sample) >= 4.0)
+                .collect();
+            let pool = if !walkable_pool.is_empty() {
+                walkable_pool
+            } else if !facing.is_empty() {
+                facing
+            } else {
+                candidates.clone()
+            };
+            let (pick, depth, dir) = beach_pick(&pool);
+            water_samples = depth;
+            (
+                pick,
+                if depth > 0 {
+                    water_target(&pick, depth, dir)
+                } else {
+                    centroid(&pool).unwrap_or_else(|| water_target(&pick, depth, dir))
+                },
+            )
+        }
+        SpawnBand::Land => {
+            // Peak of the mesh, then the vantage that looks UP at it: the best
+            // height difference inside the stand window (silhouette in frame).
+            let mut peak = candidates[0];
+            for sample in &candidates {
+                if sample.height > peak.height
+                    || (sample.height == peak.height
+                        && (sample.x, sample.z) < (peak.x, peak.z))
+                {
+                    peak = *sample;
+                }
+            }
+            let stand = |window: (f32, f32), relief: f32| -> Option<BandSample> {
+                let mut best: Option<(f32, f32, BandSample)> = None;
+                for sample in &candidates {
+                    let d = distance_2d([sample.x, sample.z], [peak.x, peak.z]);
+                    if d < window.0 || d > window.1 {
+                        continue;
+                    }
+                    let drop = peak.height - sample.height;
+                    if drop < relief {
+                        continue;
+                    }
+                    let better = match best {
+                        None => true,
+                        Some((best_drop, best_d, best_sample)) => {
+                            drop > best_drop
+                                || (drop == best_drop
+                                    && (d < best_d
+                                        || (d == best_d
+                                            && (sample.x, sample.z)
+                                                < (best_sample.x, best_sample.z))))
+                        }
+                    };
+                    if better {
+                        best = Some((drop, d, *sample));
+                    }
+                }
+                best.map(|(_, _, sample)| sample)
+            };
+            let pick = stand(
+                (PEAK_STAND_MIN_M, PEAK_STAND_MAX_M),
+                PEAK_STAND_MIN_RELIEF_M,
+            )
+            .or_else(|| stand((PEAK_STAND_MIN_M / 2.0, PEAK_STAND_MAX_M * 5.0 / 3.0), 0.0));
+            let Some(pick) = pick else {
+                return Err(DemoError::Invalid(format!(
+                    "--spawn band:land: {} land samples outside the city hull but no vantage point \
+                     {}..{} m from the relief peak ({:.1} m) — refusing to fall back to another band",
+                    candidates.len(),
+                    PEAK_STAND_MIN_M,
+                    PEAK_STAND_MAX_M,
+                    peak.height,
+                )));
+            };
+            relief_m = peak.height - pick.height;
+            (pick, [peak.x, peak.z])
+        }
+    };
+
+    let at = [pick.x, pick.z];
+    let ground = terrain.height_at(at[0], at[1]);
+    let sea = terrain.sea_level_m;
+    let surface = match band {
+        SpawnBand::Land => ground,
+        // Over water the eye stands on the rendered sea, never on the seabed
+        // below the datum-blended plane.
+        SpawnBand::Ocean | SpawnBand::Beach => sea.map_or(ground, |level| ground.max(level)),
+    };
+    let eye = [at[0], surface + bridge::EYE_HEIGHT_M, at[1]];
+    // Degenerate target (a one-sample band): look away from the city centre.
+    let target = if distance_2d(at, target) < 1e-3 {
+        let centre = [city_m / 2.0, city_m / 2.0];
+        let dx = at[0] - centre[0];
+        let dz = at[1] - centre[1];
+        let len = (dx * dx + dz * dz).sqrt().max(1e-3);
+        [at[0] + dx / len * BAND_SPAWN_OPEN_RUN_M, at[1] + dz / len * BAND_SPAWN_OPEN_RUN_M]
+    } else {
+        target
+    };
+    let yaw = heading_toward(at, target);
+    let dir = [-yaw.sin(), -yaw.cos()];
+    let mut open_run_m = 0.0f32;
+    while open_run_m < BAND_SPAWN_OPEN_RUN_M {
+        let probe = open_run_m + 0.5;
+        if !terrain.walkable_at(at[0] + dir[0] * probe, at[1] + dir[1] * probe) {
+            break;
+        }
+        open_run_m = probe;
+    }
+    Ok(BandSpawn {
+        band,
+        at,
+        eye,
+        yaw,
+        ground_m: ground,
+        surface_m: surface,
+        sea_level_m: sea,
+        target,
+        target_distance_m: distance_2d(at, target),
+        outside_hull_m: outside_distance(at[0], at[1], city_m),
+        water_samples,
+        relief_m,
+        walkable_run_m: walk_run(&pick),
+        open_run_m,
+    })
+}
+
+/// Placement reaches (m) tried in order: the expansion is **fixed** (no
+/// unseeded randomness), so the placement of the [`NPC_COUNT`] NPCs is a pure
+/// function of `(grid, spawn, city_m)`.
+///
+/// **B3-a (CS-13):** the population rose from 3 to 24; a narrow retail street
+/// may hold fewer free candidates at 24 m than the population needs, so the
+/// ring grows deterministically until the population fits (or every fixed
+/// reach is exhausted and the composition fails with the measured count).
+const NPC_PLACEMENT_REACHES_M: [f32; 6] = [24.0, 32.0, 40.0, 48.0, 56.0, 64.0];
+/// Minimum separation between two placed NPCs (m).
+const NPC_MIN_SEPARATION_M: f32 = 3.0;
+
 /// Places `NPC_COUNT` NPCs at free points near the spawn (deterministic).
+///
+/// Candidates are the free cells of the retail collision grid on a 1 m lattice
+/// around the spawn, ordered by distance (ties broken by `(x, z)` so the order
+/// never depends on the sort implementation). The ring grows through
+/// [`NPC_PLACEMENT_REACHES_M`] until the population is placed; the first reach
+/// that fits wins. Returns fewer than `NPC_COUNT` only when the retail city
+/// has no room — the caller turns that into an explicit composition error.
 fn place_npcs(
     grid: &bridge::CollisionGrid,
     spawn: DemoEye,
     city_m: f32,
 ) -> Vec<[f32; 3]> {
-    let mut out: Vec<[f32; 3]> = Vec::new();
     let step = 1.0f32;
-    let reach = 24.0f32;
-    let steps = (reach * 2.0 / step) as i32;
-    let mut candidates: Vec<(f32, f32, f32)> = Vec::new();
-    for iz in 0..steps {
-        for ix in 0..steps {
-            let x = spawn.eye[0] - reach + ix as f32 * step;
-            let z = spawn.eye[2] - reach + iz as f32 * step;
-            if x < 1.0 || z < 1.0 || x > city_m - 1.0 || z > city_m - 1.0 {
-                continue;
+    let mut placed: Vec<[f32; 3]> = Vec::with_capacity(NPC_COUNT);
+    for reach in NPC_PLACEMENT_REACHES_M {
+        let steps = (reach * 2.0 / step) as i32;
+        let mut candidates: Vec<(f32, f32, f32)> = Vec::new();
+        for iz in 0..steps {
+            for ix in 0..steps {
+                let x = spawn.eye[0] - reach + ix as f32 * step;
+                let z = spawn.eye[2] - reach + iz as f32 * step;
+                if x < 1.0 || z < 1.0 || x > city_m - 1.0 || z > city_m - 1.0 {
+                    continue;
+                }
+                let dx = x - spawn.eye[0];
+                let dz = z - spawn.eye[2];
+                let d2 = dx * dx + dz * dz;
+                if d2 < 4.0 {
+                    continue;
+                }
+                if !grid.is_free([x, bridge::EYE_HEIGHT_M, z], bridge::PLAYER_RADIUS_M) {
+                    continue;
+                }
+                candidates.push((d2, x, z));
             }
-            let dx = x - spawn.eye[0];
-            let dz = z - spawn.eye[2];
-            let d2 = dx * dx + dz * dz;
-            if d2 < 4.0 {
-                continue;
-            }
-            if !grid.is_free([x, bridge::EYE_HEIGHT_M, z], bridge::PLAYER_RADIUS_M) {
-                continue;
-            }
-            candidates.push((d2, x, z));
         }
-    }
-    candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    for (_, x, z) in candidates {
-        if out.len() >= NPC_COUNT {
+        candidates.sort_by(|a, b| {
+            a.0.total_cmp(&b.0)
+                .then(a.1.total_cmp(&b.1))
+                .then(a.2.total_cmp(&b.2))
+        });
+        for (_, x, z) in candidates {
+            if placed.len() >= NPC_COUNT {
+                break;
+            }
+            // Already placed by a smaller reach: the point is a candidate of
+            // this ring too and must not be counted twice.
+            if placed.iter().any(|p| (p[0] - x).abs() < 1e-3 && (p[2] - z).abs() < 1e-3) {
+                continue;
+            }
+            let apart = placed
+                .iter()
+                .all(|p| (p[0] - x).hypot(p[2] - z) >= NPC_MIN_SEPARATION_M);
+            if apart {
+                placed.push([x, 0.0, z]);
+            }
+        }
+        if placed.len() >= NPC_COUNT {
             break;
         }
-        let apart = out
-            .iter()
-            .all(|p| (p[0] - x).hypot(p[2] - z) >= 3.0);
-        if apart {
-            out.push([x, 0.0, z]);
-        }
     }
-    out
+    placed
 }
 
 /// Renders a caption with the retail `.FNT` over a transparent RGBA buffer.
-fn caption_texture(font: &FntFile, ink: [u8; 3], text: &str) -> DemoTexture {
+///
+/// `pub(crate)` for **B3-a (CS-14)**: the window renders the actor label of a
+/// guard billboard with the same font, ink and mask path (0 duplicated logic).
+pub(crate) fn caption_texture(font: &FntFile, ink: [u8; 3], text: &str) -> DemoTexture {
     let mask = font.render_text(text);
     let mut rgba = vec![0u8; mask.width as usize * mask.height as usize * 4];
     for y in 0..mask.height {
@@ -1166,7 +2123,46 @@ fn panel_rgba(panel: &UiPanel, assets: &UiAssets) -> Result<DemoPanel, DemoError
 }
 
 /// Composes the full integrated demo (single pass, deterministic).
+///
+/// Default composition — identical to the pre-B1 build: capital map-pixel for
+/// the terrain, the retail spawn and its yaw.
 pub fn compose_demo() -> Result<DemoScene, DemoError> {
+    compose_demo_with(None, None)
+}
+
+/// Composes the integrated demo with the **B1-a** overrides.
+///
+/// - `origin`: map pixel the M13 terrain samples ([`build_terrain`] only — the
+///   retail city hull, its collision grid and its datum plateau are untouched);
+/// - `yaw`: initial yaw of the spawn ([`find_city_spawn`]'s verdict replaced by
+///   the requested angle, the eye is the same free point).
+///
+/// `compose_demo_with(None, None)` is byte-identical to [`compose_demo`]: the
+/// band spawn is `None`, so the terrain pixel, the retail spawn and the HUD are
+/// the ones of the pre-B1 build.
+pub fn compose_demo_with(
+    origin: Option<[i32; 2]>,
+    yaw: Option<f32>,
+) -> Result<DemoScene, DemoError> {
+    compose_demo_with_overrides(&M18Overrides {
+        origin,
+        yaw,
+        spawn: None,
+    })
+}
+
+/// Composes the integrated demo with every **B1-a** override (`origin`, `yaw`
+/// and `--spawn band:<…>`).
+///
+/// The band spawn is applied **after** the whole composition is built: the NPC
+/// placement (which derives from the retail spawn), the retail hull, the
+/// collision grid and the walkability rule are the default composition's, so
+/// the override is a viewpoint for the measurement and not a different session.
+/// A band the composition does not carry outside the hull is the explicit error
+/// of [`find_band_spawn`] — never a silent fallback to `land`.
+pub fn compose_demo_with_overrides(overrides: &M18Overrides) -> Result<DemoScene, DemoError> {
+    let origin = overrides.origin;
+    let yaw = overrides.yaw;
     let dir = arena2_dir()?;
     let palette_bytes = read_retail(&dir, "PAL.PAL")?;
     let palette = Palette::parse(&palette_bytes)
@@ -1178,8 +2174,11 @@ pub fn compose_demo() -> Result<DemoScene, DemoError> {
     let city = capital.city;
     let city_m = city.total_m();
     let grid = bridge::CollisionGrid::from_mesh_spec(&city.combined, bridge::DEFAULT_CELL_M);
-    let spawn = find_city_spawn(&grid, city_m)
+    let mut spawn = find_city_spawn(&grid, city_m)
         .ok_or_else(|| DemoError::Invalid("no free spawn in the retail city".into()))?;
+    if let Some(yaw) = yaw {
+        spawn.yaw = yaw;
+    }
 
     // ── D1 · M12 retail textures ────────────────────────────────────────
     let (textures, texture_failures) = decode_city_textures(&city, &dir, &palette)?;
@@ -1188,15 +2187,17 @@ pub fn compose_demo() -> Result<DemoScene, DemoError> {
     let woods_bytes = read_retail(&dir, "WOODS.WLD")?;
     let woods = WoodsMap::parse(&woods_bytes)
         .map_err(|err| DemoError::Invalid(format!("WOODS.WLD: {err:?}")))?;
-    let terrain = build_terrain(&woods, capital.map_pixel, city_m)?;
+    // B1-a: the override only moves the terrain sampling pixel.
+    let terrain_pixel = origin.unwrap_or(capital.map_pixel);
+    let terrain = build_terrain(&woods, terrain_pixel, city_m)?;
 
     // ── D3 · NPCs M15 (NAMEGEN + TEXTURE.256 + TEXT.RSC) ──────────────
     let namegen_bytes = read_retail(&dir, "NAMEGEN.DAT")?;
     let namegen = NameGen::parse(&namegen_bytes)
         .map_err(|err| DemoError::Invalid(format!("NAMEGEN.DAT: {err:?}")))?;
-    let flats_bytes = read_retail(&dir, "TEXTURE.256")?;
+    let flats_bytes = read_retail(&dir, PERSON_FLAT_FILE)?;
     let flats_archive = TextureArchive::parse(&flats_bytes)
-        .map_err(|err| DemoError::Invalid(format!("TEXTURE.256: {err:?}")))?;
+        .map_err(|err| DemoError::Invalid(format!("{PERSON_FLAT_FILE}: {err:?}")))?;
     let text_bytes = read_retail(&dir, "TEXT.RSC")?;
     let text = TextRsc::parse(&text_bytes)
         .map_err(|err| DemoError::Invalid(format!("TEXT.RSC: {err:?}")))?;
@@ -1254,6 +2255,43 @@ pub fn compose_demo() -> Result<DemoScene, DemoError> {
         });
     }
 
+    // ── B3-a (CS-14) · city-watch flats with the retail rule ────────────
+    // Same rule as `npc_spec::spawn_city_guards` (`record = (i * 3) %
+    // flat_count`, `SpawnCityGuards.cs:17-20,45-56` as transcribed at
+    // `npc_spec.rs:588-590`): one decoded flat per guard of a spawn, so the
+    // window can show the arrived guard with the retail billboard. A record
+    // that carries no image is an explicit error — 0 invented flat.
+    // The city watch has its own retail archive (`TEXTURE.399`, header
+    // `    Guard`, 20 records); the retail rule is applied against **its**
+    // record count, never against the people archive.
+    let guard_bytes = read_retail(&dir, GUARD_FLAT_FILE)?;
+    let guard_archive = TextureArchive::parse(&guard_bytes)
+        .map_err(|err| DemoError::Invalid(format!("{GUARD_FLAT_FILE}: {err:?}")))?;
+    let flat_count = guard_archive.records.len();
+    let mut guard_flats = Vec::with_capacity(crate::m18_b3a::GUARD_FLATS);
+    for index in 0..crate::m18_b3a::GUARD_FLATS {
+        let record = crate::m18_b3a::guard_flat_record(index, flat_count);
+        // H2 (M15): TEXTURE.256 models 8 directions; the measured records carry
+        // 1 frame — the render uses the available frame (the direction stays
+        // metadata), never invented 8-dir geometry.
+        let frames = guard_archive
+            .records
+            .get(record)
+            .and_then(|header| header.meta().map(|meta| meta.frame_count))
+            .unwrap_or(1)
+            .max(1);
+        let frame = u16::from((index as u8) % bridge::npc_spec::FLAT_DIRECTIONS)
+            .min(frames.saturating_sub(1));
+        let image = texture::decode_frame(&guard_bytes, &guard_archive, record, frame)
+            .map_err(|err| DemoError::Invalid(format!("guard flat {record}: {err:?}")))?;
+        guard_flats.push(DemoTexture {
+            key: record as u32,
+            width: image.width,
+            height: image.height,
+            rgba: palette.to_rgba(&image.pixels),
+        });
+    }
+
     // ── D4 · M17 UI (4 composed panels) ─────────────────────────────────
     let assets = crate::ui_assets::load_ui_assets(&dir)
         .map_err(DemoError::Invalid)?;
@@ -1306,6 +2344,7 @@ pub fn compose_demo() -> Result<DemoScene, DemoError> {
         panels: composed,
         panel_nodes,
         spawn,
+        spawn_band: None,
         grid,
         character,
         biography,
@@ -1317,10 +2356,318 @@ pub fn compose_demo() -> Result<DemoScene, DemoError> {
         },
         m20_font,
         m20_ink: ink,
+        guard_flats,
         city_watch_template,
+        cs14_door: None,
+        m20_target: None,
     };
+    // **CS-08/09/10** — `--spawn band:<…>`: the viewpoint moves, the composition
+    // (city, grid, NPCs, session state) does not. An absent band is an explicit
+    // error here, before any window opens.
+    if let Some(band) = overrides.spawn {
+        let mut band_spawn = find_band_spawn(&scene.terrain, scene.city_m(), band)?;
+        if let Some(yaw) = overrides.yaw {
+            // An explicit `--yaw` still wins; the evidence keeps both angles
+            // (the resolved heading and the requested one).
+            band_spawn.yaw = yaw;
+        }
+        scene.spawn = DemoEye {
+            eye: band_spawn.eye,
+            yaw: band_spawn.yaw,
+            open_run_m: band_spawn.open_run_m,
+        };
+        scene.spawn_band = Some(band_spawn);
+    }
+    // **CS-14** — the crime → city-watch chain needs a door to bash and the
+    // retail sub-records of this data path carry none (see
+    // [`apply_cs14_scenario`]). Gated by `M18_CS14=1`: without it the scene is
+    // byte-identical to the shipped composition.
+    if std::env::var("M18_CS14").is_ok_and(|v| !v.is_empty() && v != "0") {
+        apply_cs14_scenario(&mut scene);
+    }
     scene.m20_refresh_hud();
     Ok(scene)
+}
+
+/// Distance of the CS-14 scenario door ahead of the player (m). Below the
+/// bash reach of the demo binding (`DOOR_REACH_M = 2.5`, `m18_window.rs`).
+pub const CS14_DOOR_AHEAD_M: f32 = 1.4;
+
+/// Position of the CS-14 scenario door: `ahead` metres in front of `eye` along
+/// the camera yaw (`Quat::from_rotation_y(yaw)` applied to Bevy's `-Z`).
+///
+/// Pure geometry, shared by the scenario and its test so the door the window
+/// places and the door the test measures cannot drift.
+pub fn cs14_door_position(eye: [f32; 3], yaw: f32, ahead: f32) -> [f32; 3] {
+    let forward = [-yaw.sin(), 0.0, -yaw.cos()];
+    [eye[0] + forward[0] * ahead, 0.0, eye[2] + forward[2] * ahead]
+}
+
+/// **CS-14 (B3-a)** — injects ONE test door into the composition so the
+/// production chain `bash → crime → city watch` has a target.
+///
+/// Measured cause: every `.RMB` sub-record of the capital reports `0 door(s)`
+/// (`PROBE-RMB-001`, `RetailBuilding::doors` is empty), so `G` answered "the
+/// city composition has 0 retail doors" and no crime/guard could ever be
+/// captured. The door is a scenario asset, priced as such in the evidence: it
+/// is the door point the bash interaction reads, not a modelled retail facade.
+pub fn apply_cs14_scenario(scene: &mut DemoScene) {
+    let door = cs14_door_position(scene.spawn.eye, scene.spawn.yaw, CS14_DOOR_AHEAD_M);
+    match scene.city.buildings.first_mut() {
+        Some(building) => {
+            building.doors.push(door);
+            scene.cs14_door = Some((0, building.doors.len() - 1));
+        }
+        None => {
+            println!("M18 VE: CS14 scenario — the composition has 0 buildings; 0 doors injected");
+            return;
+        }
+    }
+    let doors: usize = scene.city.buildings.iter().map(|b| b.doors.len()).sum();
+    println!(
+        "M18 VE: CS14 scenario — 1 test door at ({:.2},{:.2}) · player at ({:.2},{:.2}) yaw {:.2} rad · ahead {:.1} m · doors in the composition: {}",
+        door[0],
+        door[2],
+        scene.spawn.eye[0],
+        scene.spawn.eye[2],
+        scene.spawn.yaw,
+        CS14_DOOR_AHEAD_M,
+        doors
+    );
+}
+
+impl DemoScene {
+    /// **B1-a** — re-samples the M13 terrain at another map pixel (`T` key).
+    ///
+    /// Only [`DemoTerrain`] is replaced (bands, heights, groups, probe set); the
+    /// retail city hull, its collision grid, the NPCs and the UI stay composed
+    /// as they are, so the toggle cannot move the player's world frame. The
+    /// datum is re-anchored at the new pixel's city centre by [`build_terrain`],
+    /// exactly like the initial composition.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))]
+    pub fn recompose_terrain(
+        &mut self,
+        woods: &WoodsMap,
+        pixel: [i32; 2],
+    ) -> Result<(), DemoError> {
+        let city_m = self.city.total_m();
+        self.terrain = build_terrain(woods, pixel, city_m)?;
+        Ok(())
+    }
+}
+
+// ── B1-c (O9) · combat pair + target feedback in the HUD ────────────────────
+//
+// The window and `ATTACK-KEY-001` consume the SAME composition and the SAME
+// strike resolver: the interactive fight and the probe cannot drift.
+
+/// Player × enemy pair of the demo, composed from the live [`Character`].
+pub struct DemoFight {
+    /// Production combat session (M22 engine over the M20 character).
+    pub session: CombatSession,
+    /// Enemy melee cadence of the retaliation (`EnemyAttack.cs:114-132`).
+    #[cfg_attr(not(feature = "window"), allow(dead_code))]
+    pub enemy_attack: daggerfall_combat::engine::EnemyAttack,
+    /// Player level the cadence rolls against.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))]
+    pub player_level: i32,
+}
+
+/// M20: single character → M22 player projection (level, live skills,
+/// attributes, health). Used at startup and on every progression change.
+pub fn m20_sync_player_fighter(
+    character: &daggerfall_skills::character::Character,
+    player: &mut Fighter,
+) {
+    player.combatant.luck = character.live(Attribute::Luck);
+    player.combatant.agility = character.live(Attribute::Agility);
+    player.combatant.critical_strike = i32::from(character.live_skill(Skill::CriticalStrike));
+    player.combatant.dodging = i32::from(character.live_skill(Skill::Dodging));
+    player.combatant.hand_to_hand_skill = i32::from(character.live_skill(Skill::HandToHand));
+    player.combatant.strength_modifier = character.damage_modifier();
+    player.combatant.health = character.health;
+    player.combatant.max_health = character.max_health;
+    player.reflexes = character.reflex as i32;
+    player.level = character.level;
+    // Unarmed ⇒ `GetLiveSkillValue(HandToHand)` (`FormulaHelper.cs:589-592`).
+    player.chance_mod = i32::from(character.live_skill(Skill::HandToHand));
+}
+
+/// M23 effect entity of the player, projected from the character sheet:
+/// `health`/`magicka`/attributes are the live values M20 keeps, never literals.
+pub fn player_effect_target(
+    character: &daggerfall_skills::character::Character,
+) -> daggerfall_behavior::magic::EffectTarget {
+    use daggerfall_behavior::magic::EffectTarget;
+    // `Character::live` takes the skills `Attribute`; both enums transcribe
+    // the same `DFCareer.Stats` order the neutral target indexes by.
+    const ATTRIBUTES: [Attribute; 8] = [
+        Attribute::Strength,
+        Attribute::Intelligence,
+        Attribute::Willpower,
+        Attribute::Agility,
+        Attribute::Endurance,
+        Attribute::Personality,
+        Attribute::Speed,
+        Attribute::Luck,
+    ];
+    let mut target = EffectTarget::new(
+        character.health,
+        character.magicka,
+        ATTRIBUTES.map(|attribute| character.live(attribute)),
+    );
+    target.max_health = character.max_health;
+    target.fatigue = character.fatigue;
+    target
+}
+
+/// Composes the demo's combat pair exactly as the window mounts it: the live
+/// M20 character as the player (id 1) and one enemy-class actor (id 9001) with
+/// the retail kit of `FALL.EXE` (steel cuirass + steel Longsword; an
+/// unavailable table degrades to an unarmoured fight with the reason printed —
+/// no item is ever invented).
+///
+/// The evidence lines keep their `M22 VE:` prefix, so the window prints the same
+/// startup evidence it printed before B1 (0 behavioral delta).
+pub fn compose_demo_fight(scene: &DemoScene) -> DemoFight {
+    let character = &scene.character;
+    let mut player_combatant = Combatant::new(1, EntityKind::Player);
+    player_combatant.strength_modifier = character.damage_modifier();
+    let mut player = Fighter::new(
+        player_combatant,
+        DeathSequence::for_player_height(1.7),
+    );
+    // Unarmed ⇒ `GetLiveSkillValue(HandToHand)` (`FormulaHelper.cs:589-592`),
+    // the same composition the demo and the probes use — and the same
+    // projection the progression driver re-applies on every skill change.
+    m20_sync_player_fighter(character, &mut player);
+    // M23 boundary: the player's effect entity is the character sheet
+    // (8 `DFCareer.Stats` attributes + live resources); the weapon's
+    // enchantment row is M24's (no item in this kit carries one), so the
+    // session hook stays armed and fires the moment a row exists.
+    player = player.with_effects(player_effect_target(character), None);
+    let mut enemy = Fighter::new(
+        Combatant::new(9_001, EntityKind::EnemyClass),
+        DeathSequence::for_enemy(),
+    );
+    // NPC attributes are M25's (no sheet in this tree): the effect entity only
+    // carries live resources until then.
+    let enemy_health = enemy.combatant.health;
+    enemy = enemy.with_effects(
+        daggerfall_behavior::magic::EffectTarget::new(enemy_health, 0, [0; 8]),
+        None,
+    );
+    // Fixture 0: no M25 class-skill composition exists in this tree, and this
+    // swing only drives the audio policy (`m22_enemy_retaliation`).
+    enemy.chance_mod = 0;
+    // The kit is the retail table (steel cuirass + steel Longsword); an
+    // unavailable table degrades to an unarmoured fight with the reason
+    // printed — no item is ever invented.
+    match retail_item_templates() {
+        Ok(templates) => {
+            let (player_cuirass, enemy_sword) = m22_kit(&templates);
+            let (enemy_cuirass, _) = m22_kit(&templates);
+            println!(
+                "M22 VE: kit from FALL.EXE — player cuirass (tpl {}, uid {}, condition {}) + \
+                 enemy steel Longsword (uid {}, condition {}) + enemy cuirass (uid {})",
+                player_cuirass.template_index,
+                player_cuirass.uid,
+                player_cuirass.current_condition,
+                enemy_sword.uid,
+                enemy_sword.current_condition,
+                enemy_cuirass.uid,
+            );
+            let player_equip = player.equip(player_cuirass);
+            let enemy_armor = enemy.equip(enemy_cuirass);
+            let enemy_weapon = enemy.equip(enemy_sword);
+            let equipped = matches!(player_equip, EquipResult::Equipped(_))
+                && matches!(enemy_armor, EquipResult::Equipped(_))
+                && matches!(enemy_weapon, EquipResult::Equipped(_));
+            println!(
+                "M22 VE: equipped={equipped} · player armor_values {:?} · enemy weapon {:?}",
+                player.equipment.armor_values(),
+                enemy.weapon.as_ref().map(|weapon| (
+                    weapon.min_damage,
+                    weapon.max_damage,
+                    weapon.to_hit_mod
+                )),
+            );
+        }
+        Err(reason) => println!(
+            "M22 VE: kit degraded — {reason}; both combatants fight unarmoured (0 invented items)"
+        ),
+    }
+    let player_level = player.level;
+    DemoFight {
+        session: CombatSession::new(player, vec![enemy], actor_seed(M19_SEED, 1)),
+        enemy_attack: daggerfall_combat::engine::EnemyAttack::new(),
+        player_level,
+    }
+}
+
+/// Actor tag of a combat-session index (`EnemyClass 9001`) — the HUD label.
+pub fn actor_label(session: &CombatSession, index: usize) -> Option<String> {
+    let enemy = session.enemies.get(index)?;
+    Some(format!("{:?} {}", enemy.combatant.kind, enemy.combatant.id))
+}
+
+/// One player strike resolved through the production session, with the **B1-c**
+/// HUD projection already applied.
+#[derive(Debug, Clone)]
+pub struct DemoStrike {
+    /// Engine report of `player_strike` (damage, hit, wear, enchantment).
+    pub strike: daggerfall_app::combat_runtime::PlayerStrike,
+    /// Actor tag written into the HUD.
+    pub target_label: String,
+    /// HP of the target before the strike.
+    pub target_health_before: i32,
+    /// HP ceiling of the target.
+    pub target_max_health: i32,
+    /// HUD digest before the strike.
+    pub hud_before: u64,
+    /// HUD digest after the strike (equal to `hud_before` on a miss).
+    pub hud_after: u64,
+}
+
+impl DemoStrike {
+    /// HP the target lost in this strike.
+    pub fn damage_taken(&self) -> i32 {
+        self.target_health_before - self.strike.target_health
+    }
+}
+
+/// Resolves the player's swing and projects a **landed** strike into the HUD.
+///
+/// The engine is the authority (`CombatSession::player_strike` with the
+/// hand-to-hand branch of the demo's bare-handed player). CS-21 wants the
+/// feedback coupled to the fact — a hit writes the target's live HP into the
+/// HUD line (so [`DemoScene::m20_hud_digest`] changes), a miss writes nothing.
+/// `None` when the session refuses the strike (target dead/absent or the player
+/// is down): the HUD is then untouched too.
+pub fn demo_player_strike(
+    scene: &mut DemoScene,
+    session: &mut CombatSession,
+    target: usize,
+) -> Option<DemoStrike> {
+    let label = actor_label(session, target)?;
+    let enemy = session.enemies.get(target)?;
+    let target_health_before = enemy.health();
+    let target_max_health = enemy.combatant.max_health;
+    let hud_before = scene.m20_hud_digest();
+    let strike = session.player_strike(target)?;
+    let hud_after = if strike.attack.hit {
+        scene.m20_set_target(&label, strike.target_health, target_max_health)
+    } else {
+        hud_before
+    };
+    Some(DemoStrike {
+        strike,
+        target_label: label,
+        target_health_before,
+        target_max_health,
+        hud_before,
+        hud_after,
+    })
 }
 
 /// Runs PROBE-DEMO-001 — headless composition of the integrated demo.
@@ -1466,13 +2813,26 @@ pub fn run_demo_001() -> i32 {
         .iter()
         .map(|panel| format!("{} {}×{} ({} opaque px)", panel.id, panel.width, panel.height, panel.opaque))
         .collect();
+    // **B3-a regression note:** the panel census is no longer the 4 panels of
+    // the pre-B3 build — `ui_assets::session_panels` carries the 4 1996 panels
+    // plus the 2 map panels of B3-c (`map-local`, `map-world`), so the expected
+    // figure is 6. The population change of B3-a did not touch this layer; the
+    // assertion is updated to the current composition and 0 panel may be empty.
+    const EXPECTED_PANELS: usize = 6;
+    let ui_ok = first.panels.len() == EXPECTED_PANELS
+        && first.panels.iter().all(|panel| panel.opaque > 0);
     println!(
-        "[OK] ui_m17 - {} paneles · {} nodos · {}",
+        "[{}] ui_m17 - {}{} paneles · {} nodos · {}",
+        if ui_ok { "OK" } else { "FAIL" },
         first.panels.len(),
+        if first.panels.len() == EXPECTED_PANELS {
+            String::new()
+        } else {
+            format!(" of {EXPECTED_PANELS} expected")
+        },
         first.panel_nodes,
         panel_rows.join(" · "),
     );
-    let ui_ok = first.panels.len() == 4 && first.panels.iter().all(|panel| panel.opaque > 0);
     if !ui_ok {
         println!("[FAIL] ui_m17 - empty or incomplete panel");
         all_ok = false;
@@ -3189,9 +4549,73 @@ pub fn run_demo_001() -> i32 {
     );
     all_ok &= m25_probes_ok;
 
+    // 4 · menu_phase (**B1-d / CS-20**) — the demo opens on the MENU: the SAME
+    // `AppPhase` + `phase_playing` run condition the window gates its world
+    // bundle with, driven headlessly (0 window, 0 GPU). Four frames in `Menu`
+    // leave the world at 0 ticks (the game clock advances off those ticks), one
+    // `Enter` switches to `Playing`, and the spawn/HUD are the composition this
+    // probe already measured — the phase changes nothing of the scene.
+    let menu_ok = {
+        use bevy::prelude::{
+            ButtonInput, IntoScheduleConfigs, KeyCode, Res, ResMut, Resource, Schedule, World,
+        };
+
+        #[derive(Resource, Default)]
+        struct Ticks(u64);
+
+        fn world_tick(mut ticks: ResMut<Ticks>) {
+            ticks.0 += 1;
+        }
+
+        fn enter_key(keys: Res<ButtonInput<KeyCode>>, mut phase: ResMut<crate::m18_phase::AppPhase>) {
+            if keys.just_pressed(KeyCode::Enter) {
+                *phase = crate::m18_phase::phase_after_enter(*phase);
+            }
+        }
+
+        let mut world = World::new();
+        world.insert_resource(crate::m18_phase::AppPhase::Menu);
+        world.insert_resource(Ticks::default());
+        world.insert_resource(ButtonInput::<KeyCode>::default());
+        let mut schedule = Schedule::default();
+        // The `Enter` handler is NOT gated (it is the way out); the world tick
+        // carries the production condition.
+        schedule.add_systems(
+            (enter_key, world_tick.run_if(crate::m18_phase::phase_playing)).chain(),
+        );
+        for _ in 0..4 {
+            schedule.run(&mut world);
+        }
+        let idle = *world.resource::<crate::m18_phase::AppPhase>()
+            == crate::m18_phase::AppPhase::Menu
+            && world.resource::<Ticks>().0 == 0;
+        world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Enter);
+        schedule.run(&mut world);
+        let entered = *world.resource::<crate::m18_phase::AppPhase>()
+            == crate::m18_phase::AppPhase::Playing
+            && world.resource::<Ticks>().0 == 1;
+        let ok = idle && entered;
+        println!(
+            "[{}] menu_phase - 4 frames MENU with {} world ticks · Enter ⇒ PLAYING in 1 frame \
+             ({} tick) · spawn=({:.2},{:.2},{:.2}) yaw={:.2} = the composition above (digest \
+             {digest_first:016x})",
+            if ok { "OK" } else { "FAIL" },
+            if idle { 0 } else { world.resource::<Ticks>().0 },
+            world.resource::<Ticks>().0,
+            first.spawn.eye[0],
+            first.spawn.eye[1],
+            first.spawn.eye[2],
+            first.spawn.yaw,
+        );
+        ok
+    };
+    all_ok &= menu_ok;
+
     if all_ok {
         println!(
-            "VERDICT: PROBE-DEMO-001 PASS - retail city {} with M12 textures + bit-exact M13 terrain + {} M15 NPCs with caption + {} M17 panels + M20 character «{}» (HUD {}×{}) · digest {digest_first:016x} ×2 → {digest_third:016x} after use · 5 M21 §8 blocks (inventory/equipment/durability/repair/probes) · 5 M22 §7 blocks (first combat: real weapon→HP in HUD/hit/wear/death/material/probes) · 4 M23 blocks (cast exact SP/effect expires round N/strike callbacks with real damage/probes) · 4 M24 §6 blocks (table 1000/600 rejects→1800 charges 10000 · cauldron 221871/25gp · dose magnitude 9 · probes) · 3 M25 §11 blocks (spawned=3 from the dungeon table · Idle→Pursue in 1 tick and contact at 2.25 m · MONSTER/ENEMY-AI/ENCOUNTER probes) · 0 panic",
+            "VERDICT: PROBE-DEMO-001 PASS - retail city {} with M12 textures + bit-exact M13 terrain + {} M15 NPCs with caption + {} M17 panels + M20 character «{}» (HUD {}×{}) · digest {digest_first:016x} ×2 → {digest_third:016x} after use · 5 M21 §8 blocks (inventory/equipment/durability/repair/probes) · 5 M22 §7 blocks (first combat: real weapon→HP in HUD/hit/wear/death/material/probes) · 4 M23 blocks (cast exact SP/effect expires round N/strike callbacks with real damage/probes) · 4 M24 §6 blocks (table 1000/600 rejects→1800 charges 10000 · cauldron 221871/25gp · dose magnitude 9 · probes) · 3 M25 §11 blocks (spawned=3 from the dungeon table · Idle→Pursue in 1 tick and contact at 2.25 m · MONSTER/ENEMY-AI/ENCOUNTER probes) · menú→PLAYING headless (B1-d: 4 frames MENU at 0 world ticks, Enter ⇒ PLAYING) · 0 panic",
             first.city_name,
             first.npcs.len(),
             first.panels.len(),
@@ -3232,6 +4656,33 @@ mod tests {
         assert_eq!(smoothstep(0.0), 0.0);
         assert_eq!(smoothstep(1.0), 1.0);
         assert!((smoothstep(0.5) - 0.5).abs() < 1e-6);
+    }
+
+    /// **m-8** — the override flags match exactly: a prefixed look-alike is an
+    /// unknown argument, never a disguised `--origin` that eats the next token.
+    ///
+    /// Negative control of the fix: with the old `strip_prefix("--origin")`,
+    /// `--originX 5,5` parsed as `--origin 5,5` and consumed `5,5`.
+    #[test]
+    fn override_flags_match_exactly() {
+        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Skipped when the environment would supply the very override.
+        if std::env::var("DF_M18_ORIGIN").is_err() {
+            let parsed = parse_overrides(&args(&["--originX", "5,5"])).unwrap_or_default();
+            assert_eq!(parsed.origin, None, "--originX is not --origin");
+        }
+        if std::env::var("DF_M18_YAW").is_err() {
+            let parsed = parse_overrides(&args(&["--yawfoo=1.0"])).unwrap_or_default();
+            assert_eq!(parsed.yaw, None, "--yawfoo is not --yaw");
+        }
+        let parsed = parse_overrides(&args(&["--origin", "10,20"])).unwrap_or_default();
+        assert_eq!(parsed.origin, Some([10, 20]));
+        let parsed = parse_overrides(&args(&["--origin=30,40"])).unwrap_or_default();
+        assert_eq!(parsed.origin, Some([30, 40]));
+        let parsed = parse_overrides(&args(&["--yaw=1.5"])).unwrap_or_default();
+        assert_eq!(parsed.yaw, Some(1.5));
+        assert!(parse_overrides(&args(&["--yaw=nan"])).is_err());
+        assert!(parse_overrides(&args(&["--origin"])).is_err());
     }
 
     /// Synthetic `CLASS01.CFG` (74 B, 0 retail bytes): same fields as the

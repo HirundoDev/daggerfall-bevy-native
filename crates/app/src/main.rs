@@ -290,6 +290,7 @@ mod m7_readmodels;
 mod m8_probe;
 mod m8_session;
 mod m10_probe;
+mod interior_transit_probe;
 mod m11_probe;
 mod m12_probe;
 mod m13_probe;
@@ -299,6 +300,12 @@ mod m16_probe;
 mod m17_probe;
 mod m18_probe;
 mod m18_demo;
+mod m18_phase;
+mod m18_b1_probe;
+mod m18_b3_probe;
+mod m18_b3a;
+mod m18_b3b;
+mod ui_weather;
 mod m19_probe;
 mod m20_probe;
 mod m21_probe;
@@ -352,6 +359,8 @@ fn main() {
             Some("SEED-001") => m10_probe::run_seed_001(),
             // M11: retail interior .RDB (REQ-L99-043).
             Some("RDB-001") => m11_probe::run_rdb_001(),
+            // M18 B2-b: world → interior → world through a door (spine §4).
+            Some("INTERIOR-TRANSIT-001") => interior_transit_probe::run_interior_transit_001(),
             // M14: retail audio MIDI.BSA + DAGGER.SND (REQ-L99-045/046).
             Some("AUDIO-001") => m14_probe::run_audio_001(),
             // M12: retail textures TEXTURE.* (DoD §c / WI-4).
@@ -370,6 +379,12 @@ fn main() {
             Some("MAP-001") => m18_probe::run_map_001(),
             // M18: integrated demo (city+T+NPC+UI) headless.
             Some("DEMO-001") => m18_demo::run_demo_001(),
+            // M18 B1 (paridad): standalone probes outside `ALL-001` —
+            // origin/yaw (B1-a), keyboard attack + HUD target (B1-c) and the
+            // startup menu phase (B1-d).
+            Some("ORIGIN-001") => m18_b1_probe::run_origin_001(),
+            Some("ATTACK-KEY-001") => m18_b1_probe::run_attack_key_001(),
+            Some("MENU-001") => m18_b1_probe::run_menu_001(),
             // M19: DFU locomotion (REQ-L99-052) + stealth.
             Some("LOCOMOTION-001") => m19_probe::run_locomotion_001(),
             Some("STEALTH-001") => m19_probe::run_stealth_001(),
@@ -432,9 +447,19 @@ fn main() {
             Some("CHUNK-001") => m9_probe::run_chunk_001(),
             Some("SCHEDULE-001") => m9_probe::run_schedule_001(),
             Some("MODB-ISOLATION-001") => m9_probe::run_modb_isolation_001(),
+            // M18 B3-d (O3/CS-12): visual precipitation fed by the M13
+            // climate index; EXIT=2 when CLIMATE.PAK is not readable.
+            Some("WEATHER-VISUAL-001") => m18_b3_probe::run_weather_visual_001(),
+            // M18 B3-c (O7/CS-18/CS-19): census of the 6 retail panels + the
+            // per-asset palette range that unblocks MAP100I0/TRAV0I00.
+            Some("PANELS-001") => m18_b3_probe::run_panels_001(),
+            // M18 B3-a (CS-13/CS-14): street population + visible city guard.
+            Some("POPULATION-001") => m18_b3a::run_population_001(),
+            // M18 B3-b (CS-15/CS-16): retail dialogue + journal overlays.
+            Some("RETAIL-TEXT-001") => m18_b3b::run_retail_text_001(),
             other => {
                 eprintln!(
-                    "--probe: unknown name {other:?} (supported: VIEW-001, CITY-001, INTERIOR-001, COMMERCE-001, FORMULA-001, WORLD-001, ALL-001, READMODEL-001, SESSION-001, RMB-001, SEED-001, RDB-001, AUDIO-001, TEXTURE-001, TERRAIN-001, CLIMATE-001, NPC-001, TEXT-RSC-001, QUEST-ORIGINAL-001, UI-001, MAP-001, DEMO-001, LOCOMOTION-001, STEALTH-001, STATS-001, SKILLS-001, PROGRESSION-001, ITEM-001, EQUIP-001, LOOT-001, COMBAT-001, COMBAT-LOOP-001, DEATH-001, MAGIC-001, EFFECT-001, SPELLMAKER-001, ENCHANT-001, POTION-001, MONSTER-001, ENEMY-AI-001, ENCOUNTER-001, NPC-AI-001, DIALOGUE-001, RUMOR-001, NPC-DEMO-001, FACTION-001, GUILD-001, M27-DEMO-001, CRIME-001, LAW-001, EXEC-001, LIFECYCLE-001, JOURNAL-001, CHUNK-001, SCHEDULE-001, MODB-ISOLATION-001)"
+                    "--probe: unknown name {other:?} (supported: VIEW-001, CITY-001, INTERIOR-001, COMMERCE-001, FORMULA-001, WORLD-001, ALL-001, READMODEL-001, SESSION-001, RMB-001, SEED-001, RDB-001, INTERIOR-TRANSIT-001, AUDIO-001, TEXTURE-001, TERRAIN-001, CLIMATE-001, NPC-001, TEXT-RSC-001, QUEST-ORIGINAL-001, UI-001, MAP-001, DEMO-001, LOCOMOTION-001, STEALTH-001, STATS-001, SKILLS-001, PROGRESSION-001, ITEM-001, EQUIP-001, LOOT-001, COMBAT-001, COMBAT-LOOP-001, DEATH-001, MAGIC-001, EFFECT-001, SPELLMAKER-001, ENCHANT-001, POTION-001, MONSTER-001, ENEMY-AI-001, ENCOUNTER-001, NPC-AI-001, DIALOGUE-001, RUMOR-001, NPC-DEMO-001, FACTION-001, GUILD-001, M27-DEMO-001, CRIME-001, LAW-001, EXEC-001, LIFECYCLE-001, JOURNAL-001, CHUNK-001, SCHEDULE-001, MODB-ISOLATION-001, ORIGIN-001, ATTACK-KEY-001, MENU-001)"
                 );
                 2
             }
@@ -555,10 +580,19 @@ fn main() {
         let legacy_m2 = args
             .iter()
             .any(|arg| arg == "--window" || arg == "--legacy-m2");
+        // B1-a: `--origin x,y` / `--yaw rad` (env `DF_M18_ORIGIN` / `DF_M18_YAW`).
+        // A malformed value is an explicit error, never a silently ignored flag.
+        let overrides = match m18_demo::parse_overrides(&args) {
+            Ok(overrides) => overrides,
+            Err(err) => {
+                eprintln!("M18: {err}");
+                std::process::exit(2);
+            }
+        };
         let launched = if legacy_m2 {
             run_windowed(&path_checker)
         } else {
-            m18_window::run_windowed_m18(&path_checker)
+            m18_window::run_windowed_m18(&path_checker, overrides)
         };
         if let Err(reason) = launched {
             eprintln!("M18 (feature window): {reason}");

@@ -22,16 +22,17 @@ corrected rather than reconciled by prose.
 
 | Milestone | State | What it means in practice |
 |:---|:---|:---|
-| **M18** | **PARTIAL** | technical closure passed, the 21 acceptance rows were measured, the **owner signature and tag are pending**. Not the same as DONE |
+| **M18** | **PARTIAL** | technical closure passed and the **B3 parity tanda closes 7/7 CS** (CS-12/13/14/15/16/18/19, PNG + sha256 each) on `main`; the 21 acceptance rows were measured, the **owner signature and tag are pending**. Not the same as DONE |
 | **M19–M29** | **DONE** | 11 milestones, each with probes and a QA verdict. "DONE" here means technical closure at the declared bar, not a signed release |
 | **M30** | **FROZEN** | economy and banking: a written specification, **no code**, frozen by owner decision |
 | **M31–M33** | **SPEC-ONLY** | travel/weather/calendar, conditions/death/rest and total savegame: one written specification each, not implemented |
-| **M34** | **SPEC-ONLY** | end-to-end integration and presentation: the spine exists, the acceptance probes have not been executed. **Closes Plan A** |
+| **M34** | **SPEC-ONLY** | end-to-end integration and presentation: only the typed spine event vocabulary exists; the event bus, the savegame and the acceptance probes are not implemented. **Closes Plan A** |
 | **M35** | **SPEC-ONLY** | biomes, 2D vegetation, sky. **Optional annex**, non-blocking, planned for `0.1.0` |
 | **M36–M48** | **NOT STARTED** | Plan B (E1–E7). Specifications exist *in the plan*; no code, no dispatch, no tag |
 | **E8** | **NOT STARTED, not estimable** | a **separate program** after M48, with its own genesis contract. It is not "M49" |
 
-Public surface: tag **`v0.1.0-alpha`** only. No milestone tag exists for M18 or later.
+Public surface: version tags **`v0.1.0-alpha`** and **`v0.2.0-alpha`** only. No milestone tag exists for
+M18 or later.
 
 ## 3. Closure rule (the only one)
 

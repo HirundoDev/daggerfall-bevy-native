@@ -61,6 +61,13 @@ pub(crate) struct RdbSources {
     /// with the parser reason preserved for the invalid ones.
     rdi: BTreeMap<String, Result<rdi::RdiFlags, String>>,
     arch: Arch3dIndex,
+    /// Records whose image DFU repairs (`FixRdbData`) that went through
+    /// [`Self::assemble`] (M18 B2-a audit trail).
+    pub(crate) repaired_blocks: usize,
+    /// Fixes actually applied over those records.
+    pub(crate) repairs_applied: usize,
+    /// Fixes the record could not accept (typed gaps, never a panic).
+    pub(crate) repair_gaps: usize,
 }
 
 /// One `.RDB` record of the directory: parsed, or with its honest error.
@@ -184,13 +191,27 @@ impl RdbSources {
 
     /// Composes the interior of ONE record (single assembly path — selection
     /// and the determinism re-composition use THIS path).
+    ///
+    /// **M18 B2-a:** DFU applies `FixRdbData` at the end of `ReadBlock`
+    /// (`BlocksFile.cs:679-682`), i.e. right after the record is parsed and
+    /// before any layout touches it. The same position here: the record is
+    /// repaired on a COPY (the census measures the FILE, so its counters never
+    /// mix with the in-memory image DFU would hand to the layout) and the
+    /// repaired image is what [`bridge::build_retail_interior`] receives.
     pub(crate) fn assemble(
         &mut self,
         record: &RdbRecord,
     ) -> Result<bridge::RetailInterior, String> {
-        let block = record.block.as_ref().map_err(|e| e.clone())?;
+        let parsed = record.block.as_ref().map_err(|e| e.clone())?;
+        let mut block = parsed.clone();
+        let repair = rdb::fix_rdb_data(&record.name, &mut block);
+        if repair.known {
+            self.repaired_blocks += 1;
+            self.repairs_applied += repair.applied.len();
+            self.repair_gaps += repair.unresolved.len();
+        }
         let arch = &mut self.arch;
-        Ok(bridge::build_retail_interior(&record.name, block, &mut |id| {
+        Ok(bridge::build_retail_interior(&record.name, &block, &mut |id| {
             arch.resolve(id)
         }))
     }
@@ -467,6 +488,9 @@ pub(crate) fn load_rdb_sources() -> Result<RdbSources, String> {
         rdi_entries,
         rdi,
         arch,
+        repaired_blocks: 0,
+        repairs_applied: 0,
+        repair_gaps: 0,
     })
 }
 
@@ -623,6 +647,197 @@ fn aggregate_census(records: &[RdbRecord]) -> RdbCensus {
     }
     census.dims.sort_by_key(|((w, h), _)| (*w, *h));
     census
+}
+
+/// B2-a census: `GetRdbType` per block + the `FixRdbData` repairs
+/// (`BlocksFile.cs:243-258` / `:500-626`), folded into a stable digest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RdbTypeCensus {
+    /// Directory records seen.
+    pub blocks: usize,
+    /// Records per [`rdb::RdbType`] in `RdbType::ALL` order.
+    pub by_type: [usize; 7],
+    /// Objects `(model, light, flat)` per type, same order.
+    pub objects: [(usize, usize, usize); 7],
+    /// Records DFU repairs (name in `rdb::RDB_FIX_BLOCKS`).
+    pub fixable: usize,
+    /// Repair operations actually applied over those records.
+    pub fixes_applied: usize,
+    /// Records that could not accept a repair (typed gaps).
+    pub gaps: usize,
+    /// `(record, fix, reason)` of every typed gap (empty in the retail
+    /// installation or evidence of the exact divergence).
+    pub gap_detail: Vec<(String, String, String)>,
+    /// FNV-1a64 over `name|type|objects|fixes` in directory order.
+    pub digest: u64,
+}
+
+/// Census of `GetRdbType` + `FixRdbData` over the whole directory.
+///
+/// Every record is repaired on a CLONE: the census measures the block type and
+/// the effect of the repair, never the parsed image itself (0 shared state).
+pub(crate) fn rdb_type_census(records: &[RdbRecord]) -> RdbTypeCensus {
+    let mut census = RdbTypeCensus {
+        blocks: records.len(),
+        by_type: [0; 7],
+        objects: [(0, 0, 0); 7],
+        fixable: 0,
+        fixes_applied: 0,
+        gaps: 0,
+        gap_detail: Vec::new(),
+        digest: rdi::FNV1A64_OFFSET_BASIS,
+    };
+    let mut line = String::new();
+    for record in records {
+        let rdb_type = rdb::rdb_type(&record.name);
+        let slot = rdb_type.to_u8() as usize;
+        census.by_type[slot] += 1;
+        let (counts, repair) = match &record.block {
+            Ok(block) => {
+                let mut image = block.clone();
+                let repair = rdb::fix_rdb_data(&record.name, &mut image);
+                (block.resource_counts(), repair)
+            }
+            Err(_) => ((0, 0, 0), rdb::fix_rdb_data(&record.name, &mut empty_rdb_block())),
+        };
+        census.objects[slot].0 += counts.0;
+        census.objects[slot].1 += counts.1;
+        census.objects[slot].2 += counts.2;
+        if repair.known {
+            census.fixable += 1;
+            census.fixes_applied += repair.applied.len();
+            census.gaps += repair.unresolved.len();
+            for gap in &repair.unresolved {
+                census.gap_detail.push((
+                    record.name.clone(),
+                    gap.fix.label().to_string(),
+                    gap.reason.clone(),
+                ));
+            }
+        }
+        line.clear();
+        line.push_str(&packed_census_line(&record.name, rdb_type, counts, &repair));
+        census.digest = rdi::fnv1a64_update(census.digest, line.as_bytes());
+    }
+    census
+}
+
+/// One canonical census line: `name|type|model,light,flat|applied|gaps;`.
+fn packed_census_line(
+    name: &str,
+    rdb_type: rdb::RdbType,
+    counts: (usize, usize, usize),
+    repair: &rdb::RdbFixReport,
+) -> String {
+    let applied = repair
+        .applied
+        .iter()
+        .map(|fix| fix.label())
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "{name}|{}|{},{},{}|{}|{};",
+        rdb_type.to_u8(),
+        counts.0,
+        counts.1,
+        counts.2,
+        applied,
+        repair.unresolved.len(),
+    )
+}
+
+/// Empty `.RDB` image: the negative control for a name whose record cannot be
+/// parsed (a repair must return typed gaps, never a panic).
+fn empty_rdb_block() -> rdb::RdbBlock {
+    rdb::RdbBlock {
+        header: rdb::RdbHeader {
+            unknown1: 0,
+            width: 1,
+            height: 1,
+            object_root_offset: rdb::object_root_offset_expected() as u32,
+            unknown2: 0,
+        },
+        model_references: Vec::new(),
+        model_data: Vec::new(),
+        roots: vec![-1],
+        objects: Vec::new(),
+    }
+}
+
+/// Negative controls of the B2-a port (executed, never declared).
+///
+/// Returns `(ok, detail)`:
+/// - a real record outside the fix table ⇒ explicit no-op, 0 mutation;
+/// - a name that does not exist ⇒ `Unknown` type + explicit no-op, 0 panic;
+/// - a known name over an empty image ⇒ typed gaps, 0 panic;
+/// - a repaired record ⇒ the fix reaches the image and the digest changes.
+pub(crate) fn fix_rdb_data_negative_controls(subject: &rdb::RdbBlock) -> (bool, String) {
+    // 1 · Real record outside the table (the M11 subject): explicit no-op.
+    let mut untouched = subject.clone();
+    let before = untouched.clone();
+    let no_op = rdb::fix_rdb_data("N0000055.RDB", &mut untouched);
+    let no_op_ok = !no_op.known
+        && no_op.applied.is_empty()
+        && no_op.unresolved.is_empty()
+        && untouched == before;
+
+    // 2 · Name that does not exist: Unknown type, no mutation, 0 panic.
+    let mut absent = subject.clone();
+    let absent_report = rdb::fix_rdb_data("X9999999.RDB", &mut absent);
+    let absent_ok = !absent_report.known
+        && absent_report.rdb_type == rdb::RdbType::Unknown
+        && absent_report.applied.is_empty()
+        && absent == before;
+
+    // 3 · Known name over an image that cannot accept it: typed gaps.
+    let mut empty = empty_rdb_block();
+    let empty_report = rdb::fix_rdb_data("W0000009.RDB", &mut empty);
+    let empty_ok = empty_report.known
+        && empty_report.applied.is_empty()
+        && !empty_report.unresolved.is_empty()
+        && empty_report.unresolved.iter().all(|gap| !gap.reason.is_empty());
+
+    // 4 · Positive control: the same repair DOES change a block it can take,
+    //     so the no-op of (1)/(2) is a real absence of repair, not a dead code
+    //     path.
+    let positive_ok = {
+        let mut block = empty_rdb_block();
+        block.header.width = 3;
+        block.roots = vec![-1, -1, 10];
+        block.objects = vec![rdb::RdbObject {
+            offset: 10,
+            next: -1,
+            previous: -1,
+            position: [0, 0, 0],
+            resource: rdb::RdbResource::Model(rdb::RdbModelResource {
+                x_rotation: 0,
+                y_rotation: 0,
+                z_rotation: 0,
+                model_index: 0,
+                trigger_flag: 0,
+                sound_index: 0,
+                action_offset: 0,
+                action: None,
+            }),
+        }];
+        let report = rdb::fix_rdb_data("N0000022.RDB", &mut block);
+        report.known
+            && report.applied == vec![rdb::RdbFix::BadDoorRemoved]
+            && block.roots[2] == -1
+            && block.objects.is_empty()
+    };
+
+    let ok = no_op_ok && absent_ok && empty_ok && positive_ok;
+    let detail = format!(
+        "unknown block N0000055.RDB ⇒ known=false applied=0 mutated=false · \
+         absent X9999999.RDB ⇒ type={} known=false mutated=false · \
+         known W0000009.RDB over an empty image ⇒ applied=0 gaps={} (0 panic) · \
+         positive N0000022.RDB over a 3-root image ⇒ applied={}",
+        absent_report.rdb_type.label(),
+        empty_report.unresolved.len(),
+        rdb::RdbFix::BadDoorRemoved.label(),
+    );
+    (ok, detail)
 }
 
 /// Census summary line (shared by PROBE-RDB-001 and block C of
@@ -865,6 +1080,68 @@ pub fn run_rdb_001() -> i32 {
         eval.report.checks.iter().filter(|c| c.ok).count(),
     );
     all_ok &= eval.report.pass;
+
+    // ── 6. B2-a: `GetRdbType` + `FixRdbData` census (M11 remainder) ───────
+    // The census is folded over TWO independent parse passes: same directory,
+    // same order, same digest or the classification is not deterministic.
+    let types = rdb_type_census(&eval.records);
+    let labels = rdb::RdbType::ALL
+        .iter()
+        .zip(types.by_type.iter().zip(types.objects.iter()))
+        .map(|(ty, (blocks, objects))| {
+            format!(
+                "{}:{blocks} ({},{},{})",
+                ty.prefix(),
+                objects.0,
+                objects.1,
+                objects.2
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+    println!(
+        "[OK] rdb_type_census - {} blocks classified by GetRdbType (`BlocksFile.cs:243-258`) · \
+         {labels} (prefix:blocks, objects model/light/flat) · \
+         FixRdbData (`:500-626`): {} fixable · {} repairs applied · {} typed gaps · digest {:016x}",
+        types.blocks, types.fixable, types.fixes_applied, types.gaps, types.digest,
+    );
+    let types_again = rdb_type_census(&eval.sources.parse_directory());
+    let types_deterministic = types_again == types;
+    for (record, fix, reason) in &types.gap_detail {
+        println!("     [GAP] {record} · {fix} · {reason}");
+    }
+    println!(
+        "[{}] rdb_type_census_deterministic - two independent parse passes · digest {:016x} vs \
+         {:016x} · {} == {} blocks · 0 variance",
+        if types_deterministic { "OK" } else { "FAIL" },
+        types.digest,
+        types_again.digest,
+        types.blocks,
+        types_again.blocks,
+    );
+    all_ok &= types_deterministic;
+
+    let subject_block = match &eval.records[eval.subject_rank].block {
+        Ok(block) => block,
+        Err(reason) => {
+            println!("[FAIL] rdb_fix_rdb_data_controls - subject unreadable: {reason}");
+            all_ok = false;
+            return if all_ok { 0 } else { 1 };
+        }
+    };
+    let (controls_ok, controls_detail) = fix_rdb_data_negative_controls(subject_block);
+    println!(
+        "[{}] rdb_fix_rdb_data_controls - {controls_detail} · 0 panics",
+        if controls_ok { "OK" } else { "FAIL" },
+    );
+    all_ok &= controls_ok;
+    println!(
+        "[OK] rdb_fix_rdb_data_assembly - fixes reach the ONE assembly path \
+         (`RdbSources::assemble`): {} repaired blocks · {} repairs applied · {} gaps · \
+         subject {} untouched (not in the fix table)",
+        eval.sources.repaired_blocks, eval.sources.repairs_applied, eval.sources.repair_gaps,
+        eval.subject.block_name,
+    );
 
     if all_ok {
         println!(

@@ -7,17 +7,20 @@ reproduction with golden vectors instead of screenshots.
 The engine itself contains **no game data**. It reads a copy of Daggerfall that you already own and
 keep outside this repository. See [Data, legal and trademarks](docs/acknowledgments/legal-and-trademarks.md).
 
-> **Release status (honest): `v0.1.0-alpha` — pre-release, M18 is still open.** M0–M29 exist and
-> each has a recorded technical closure. The only closure still missing is the **owner-signed
-> side-by-side review** of M18 — the global acceptance gate — whose 21 acceptance rows measured on
-> the real window are **3 PASS · 6 PARTIAL · 12 NO**. So this alpha carries **no `M18` tag**, makes
-> **no claim of full visual parity** with the original game, and the **0.0.0** release line ("living
-> country, fully offline") remains in progress. A technical closure is not an accepted milestone,
-> and this README does not blur the two.
+> **Release status (honest): `v0.2.0-alpha` — pre-release, M18 is still open.** `main` carries the
+> **M18 technical candidate**: the seven closure states the B3 tanda set out to close
+> (**CS-12/13/14/15/16/18/19**) are measured with window evidence (PNG + sha256), so the technical
+> side is closed. What is still missing is the **owner-signed side-by-side review** of M18 — the
+> global acceptance gate — whose 21 acceptance rows measured on the real window are
+> **3 PASS · 6 PARTIAL · 12 NO**. So this alpha carries **no `M18` tag**, makes **no claim of full
+> visual parity** with the original game, and the **0.0.0** release line ("living country, fully
+> offline") remains in progress. A technical closure is not an accepted milestone, and this README
+> does not blur the two.
 
-## What `v0.1.0-alpha` means
+## What `v0.2.0-alpha` means
 
-This is the first public pre-release. The mechanism is playable end to end and every claim below is
+This is the second public pre-release (`v0.1.0-alpha` shipped the M0–M29 tramo; this one adds the
+M18 parity tanda on top of `main`). The mechanism is playable end to end and every claim below is
 backed by an executable probe or golden vector, but the acceptance gate is unsigned and part of the
 presentation is not at parity. Concretely:
 
@@ -29,9 +32,9 @@ presentation is not at parity. Concretely:
   M18 because its closure is the owner's signature (**3 PASS · 6 PARTIAL · 12 NO**, 12 rows still
   NO). The tally is published in [Status](docs/acknowledgments/status.md#final-re-audit-of-the-campaign-m0m29).
 - **Not in the alpha:** M30 economy and banking is **frozen** (written specification, no code);
-  M31–M34 — travel/weather/calendar, conditions/death/rest, total savegame and end-to-end UI
-  integration — are specified and **not implemented**; and the visual side-by-side against the
-  original has not been signed.
+  M31–M35 — travel/weather/calendar, conditions/death/rest, total savegame, end-to-end UI
+  integration and the closing annex — are **spec-only**, not implemented; and the visual
+  side-by-side against the original has not been signed.
 - **No parity claim:** nothing here should be read as "visually identical to Daggerfall", "feature
   complete" or "release quality". What is verified is the mechanism, probe by probe.
 
@@ -46,6 +49,14 @@ closed at technical level, each adding its probes to the suite. At the M29 close
 verification of M9 re-measures **19/19 = 1.00** with its full denominator (the earlier `15/15` claim
 excluded four critical rows; the erratum is recorded in [Status](docs/acknowledgments/status.md)).
 
+**On the M18 technical candidate (this release).** The parity tanda that closes the technical side of
+M18 — street population and the city watch, the retail dialogue and journal overlays, the two map
+panels and visual precipitation — lands **7 of 7 CS** (CS-12/13/14/15/16/18/19), each with a captured
+PNG and its sha256. On `main` `cargo test --workspace` reports **905 passed / 0 failed** and the
+`--features window` configuration adds **157 passed / 0 failed**; `cargo check --workspace
+--all-targets` is clean. None of that changes the tally above: the 21 acceptance rows stay
+**3 PASS · 6 PARTIAL · 12 NO** and the owner signature stays **PENDING**.
+
 - **Closed with evidence:** M19 locomotion · M20 stats/skills · M21 items, equipment and loot ·
   M22 combat · M23 magic · M24 enchanting/alchemy · M25 monsters, enemy AI and encounters ·
   M26 living NPCs (schedules, faction dialogue, `RUMOR.DAT` rumours) · M27 guilds and factions
@@ -57,10 +68,12 @@ excluded four critical rows; the erratum is recorded in [Status](docs/acknowledg
   put six milestones below the acceptance bar — M2, M5, M11, M12 and M19 on named parity defects, and
   M18 because its closure is the owner's signature. The tally and the residual defects are published
   in [Status](docs/acknowledgments/status.md#final-re-audit-of-the-campaign-m0m29).
-- **In flight:** nothing at code level. Owner signature and tag are pending for M18–M29 alike.
+- **In flight:** nothing at code level. The **owner signature** of M18 is pending; no `M18` tag exists
+  and this release's tag (`v0.2.0-alpha`) is a version tag, not a milestone tag.
 - **Frozen:** M30 economy and banking — a written specification, no code, frozen by owner decision.
-- **Specified, not implemented:** M31–M34 — travel/weather/calendar, conditions/death/rest, total
-  savegame, and end-to-end integration with the full UI. One written specification each, no code.
+- **Specified, not implemented:** M31–M35 — travel/weather/calendar, conditions/death/rest, total
+  savegame, end-to-end integration with the full UI, and the closing annex. One written
+  specification each, no code.
 - **Design landed 2026-10-21 (no code):** instance taxonomy and biomes, procedural classification and
   asset modularity, and a generative-asset catalogue with a VRAM budget — design only.
 
@@ -76,7 +89,8 @@ of truth, real state, closure rule, limits, how to continue).
 
 State in one line: **M18 PARTIAL** (owner signature pending) · **M19–M29 DONE** (technical closure,
 no milestone tags) · **M30 FROZEN** (written specification, no code) · **M31–M35 SPEC-ONLY** ·
-**M36–M48 NOT STARTED** · **E8 a separate program**. Public tag: `v0.1.0-alpha` only.
+**M36–M48 NOT STARTED** · **E8 a separate program**. Public release tags: `v0.1.0-alpha` and
+`v0.2.0-alpha` (version tags only — no `M18` tag).
 
 | M | Epic | Scope | State | `u` nominal (range) | Gate |
 |:-:|:---|:---|:---|--:|:---|
@@ -397,7 +411,7 @@ Two things you can do with this tree: play the current build, and measure it. Bo
 entry point.
 
 ```bash
-# Play the integrated demo (opens directly in the world: this alpha has no title screen)
+# Play the integrated demo (opens on the retail main-menu panel; Enter enters the world)
 ./scripts/launch.sh --mode complete
 
 # The same composition, measured headless instead of shown
@@ -417,18 +431,19 @@ unavailable (the probes that declare that contract), `3` window without a displa
 green suite prints `VERDICT: ANTI-SCREEN SUITE PASS (37/37 probes, exit 0)`.
 
 **What it does not do.** The panels are retail images with **no interactive widgets** (nothing is
-clickable; there is no character creation and no menu flow), the demo has no seamless
-exterior-to-interior transition and no dialogue outside the commerce window, audio stays silent unless
-you build the `audio` feature (`--features audio,window`), and the current composition logs
-`0 ocean samples`, so there is no sea to walk into. `CITY-001` is **not** the integrated city: the
-headless M3 probe scene is a deterministic 3x3 street grid with six `ARCH3D.BSA` landmarks (low-poly
-by design); the M3 window (with the `window` feature) opens a 4x4 city window with the same landmarks.
-The retail city is the `--mode complete` demo above.
+clickable; the main-menu buttons open nothing, and there is no character creation), the demo has no
+seamless exterior-to-interior transition (the state machine is measured by `INTERIOR-TRANSIT-001`, the
+window wiring is not in this build), audio stays silent unless you build the `audio` feature
+(`--features audio,window`), and the default composition logs `0 ocean samples` — `T` moves the
+terrain origin to a coastal pixel, so a sea is drawn there, but it is not walkable. `CITY-001` is
+**not** the integrated city: the headless M3 probe scene is a deterministic 3x3 street grid with six
+`ARCH3D.BSA` landmarks (low-poly by design); the M3 window (with the `window` feature) opens a 4x4
+city window with the same landmarks. The retail city is the `--mode complete` demo above.
 
-**Where this build stands.** This is `v0.1.0-alpha` and none of it is a parity claim. The M18
-acceptance review is **unsigned** (3 PASS, 6 PARCIAL, 12 NO; owner signature pending). M30 is frozen;
-M31, M32, M33 and M34 are specified but **not implemented**; M35 is out of scope for this alpha. No
-date is promised.
+**Where this build stands.** This is `v0.2.0-alpha` and none of it is a parity claim. `main` carries
+the M18 **technical** candidate (7/7 CS of the B3 tanda, PNG + sha256 each); the M18 **acceptance**
+review is **unsigned** (3 PASS · 6 PARTIAL · 12 NO; owner signature pending) and no `M18` tag
+exists. M30 is frozen; M31–M35 are spec-only, **not implemented**. No date is promised.
 
 **[How to play and how to probe](HOW-TO-PLAY.md)** has the verified key map, the 37-member probe
 matrix (M2-M29) with its expected PASS lines, how to triage a failure, and the full known-issue list.

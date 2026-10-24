@@ -51,6 +51,11 @@ M19, and 37 entries at the M29 close. It prints the count for the build you run.
 `PROBE-MODB-ISOLATION-001`, `PROGRESSION-001`, `SKILLS-001`, `STEALTH-001`, `EQUIP-001`,
 `LOOT-001`, `SPELLMAKER-001` and `ENEMY-AI-001` remain standalone probes.
 
+The **M18 parity probes** added after the freeze are standalone too: `ORIGIN-001`, `ATTACK-KEY-001`,
+`MENU-001` (B1), `INTERIOR-TRANSIT-001` (B2) and `WEATHER-VISUAL-001`, `PANELS-001`, `POPULATION-001`,
+`RETAIL-TEXT-001` (B3). The B3 tanda closes **7 of 7 CS** (CS-12/13/14/15/16/18/19), each row backed
+by a captured PNG and its sha256 — window evidence, not a screenshot claim.
+
 ## 4. CI guardrails
 
 ```bash

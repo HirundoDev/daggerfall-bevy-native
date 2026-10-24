@@ -132,6 +132,7 @@ pub use interior_probe::{
 pub use interior_retail::{
     build_retail_interior, retail_world, run_retail_interior_probe, RetailFlat, RetailInterior,
     RetailInteriorReport, RetailLight, RetailModel, Side, ENTER_DEPTH_M, RDB_SIDE_M,
+    STREET_MARGIN_M,
 };
 pub use interior_spec::{
     build_shop_mesh, world_mesh, ShopMesh, DOOR_HEIGHT_M, DOOR_Z_MAX, DOOR_Z_MIN,
@@ -151,11 +152,12 @@ pub use terrain_spec::{
 };
 pub use ui_spec::{
     assert_no_generic_widgets, build_all_panels, build_hud_panel, build_inventory_panel,
-    build_main_menu_panel, build_quests_panel, canvas_rgba, compose, family_histogram, fit_text,
-    palette_compliance, palette_hash, present_delta, present_interpolated_pixels, present_nearest,
-    Framebuffer, FramebufferPalette, HudPanelData, InventoryPanelData, PresentFrame, PresentMode,
-    QuestPanelData, UiAnchor, UiAsset, UiAssets, UiNode, UiNodeKind, UiPanel, UiPanelId, UiRect,
-    UiSpecError, BUTTON_CELL, CANVAS_HEIGHT, CANVAS_WIDTH, DEFAULT_FONT, DEFAULT_INK, FONT_FILES,
-    LETTERBOX, MENU_CLIP_HEIGHT, PRESENT_HEIGHT, PRESENT_SCALE, PRESENT_WIDTH,
+    build_main_menu_panel, build_map_panels, build_quests_panel, canvas_rgba, compose,
+    family_histogram, fit_text, palette_compliance, palette_hash, present_delta,
+    present_interpolated_pixels, present_nearest, Framebuffer, FramebufferPalette, HudPanelData,
+    InventoryPanelData, PresentFrame, PresentMode, QuestPanelData, UiAnchor, UiAsset, UiAssets,
+    UiNode, UiNodeKind, UiPanel, UiPanelId, UiRect, UiSpecError, BUTTON_CELL, CANVAS_HEIGHT,
+    CANVAS_WIDTH, DEFAULT_FONT, DEFAULT_INK, FONT_FILES, LETTERBOX, MAP_LOCAL_ASSET,
+    MAP_WORLD_ASSET, MENU_CLIP_HEIGHT, PRESENT_HEIGHT, PRESENT_SCALE, PRESENT_WIDTH,
 };
 pub use view_probe::{run_view_probe, ProbeCheck, ViewProbeReport, EYE_HEIGHT_M, PLAYER_RADIUS_M};

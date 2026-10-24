@@ -1226,6 +1226,93 @@ pub fn asset_index_range(name: &str) -> std::ops::RangeInclusive<u8> {
     family_index_range(family_for_asset(name))
 }
 
+/// **Measured per-asset index-range derivations** (M18 B3-c).
+///
+/// A handful of retail assets carry palette indices **below** the family
+/// floor of [`family_index_range`]. Those two rows were derived by measuring
+/// the asset's own bytes (`observed_index_range`), never by widening the family
+/// rule:
+///
+/// | Asset | Bytes | Span of the non-zero indices | Painted pixels `< 63` |
+/// |:---|:---|---:|---:|
+/// | `MAP100I0.IMG` | 64 000 B (raw 320×200 `RCI`, no `ImgFile` header) | `16..=254` | 8 475 |
+/// | `TRAV0I00.IMG` | 64 000 B (raw 320×200 `RCI`, no `ImgFile` header) | `33..=254` | 2 628 |
+///
+/// (`MAP100I0` also carries 4 624 transparent pixels — index 0 — so a count
+/// `≤ 62` that includes them reads 13 099; only the 8 475 painted ones matter.)
+///
+/// **Why the family rule does not cover them:** `PaletteFamily::Map` is
+/// `63..=254` — the span measured on the `FMAP*` region maps, which is where
+/// the rule comes from. The travel screen is a different asset family: its
+/// bytes prove it legally uses the low indices, so the compositor resolves
+/// **that asset's** range from that asset. The derivation is a table entry
+/// with the measurement that justifies it, so the gate can never relax
+/// silently: an asset that is not listed here and paints outside its declared
+/// range still raises `PaletteViolation`.
+///
+/// The palette family of these two assets stays `Map` (`FMAP_PAL.COL`): the
+/// measured colours of the indices they use agree with `PAL.PAL` (the two
+/// palettes share those entries), so the index range — not the palette — was
+/// the wrong part of the rule.
+pub const ASSET_RANGE_DERIVATIONS: [(&str, u8, u8, &str); 2] = [
+    (
+        "MAP100I0",
+        16,
+        254,
+        "raw 320x200 RCI (64000 B, no ImgFile header): non-zero span 16..=254, 8475 painted px < 63 (measured 2026-10-23)",
+    ),
+    (
+        "TRAV0I00",
+        33,
+        254,
+        "raw 320x200 RCI (64000 B, no ImgFile header): non-zero span 33..=254, 2628 painted px < 63 (measured 2026-10-23)",
+    ),
+];
+
+/// Stem of a retail asset name (`MAP100I0.IMG` ⇒ `MAP100I0`, uppercase).
+fn asset_stem(name: &str) -> String {
+    std::path::Path::new(name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(name)
+        .to_ascii_uppercase()
+}
+
+/// Range derived from the asset itself, when the asset has a recorded
+/// measurement in [`ASSET_RANGE_DERIVATIONS`] (`None` ⇒ the declared
+/// `asset_index_range` is authoritative).
+pub fn asset_index_range_derived(name: &str) -> Option<std::ops::RangeInclusive<u8>> {
+    let stem = asset_stem(name);
+    ASSET_RANGE_DERIVATIONS
+        .iter()
+        .find(|(asset, _, _, _)| *asset == stem)
+        .map(|(_, low, high, _)| *low..=*high)
+}
+
+/// **Range the compositor enforces for an asset**: the recorded derivation if
+/// the asset has one, else the declared [`asset_index_range`].
+///
+/// This is the single entry point of the per-asset rule (M18 B3-c): a new
+/// asset that paints outside its declared range does **not** inherit another
+/// asset's derivation, it violates the gate.
+pub fn asset_index_range_resolved(name: &str) -> std::ops::RangeInclusive<u8> {
+    asset_index_range_derived(name).unwrap_or_else(|| asset_index_range(name))
+}
+
+/// Span of the **non-zero** palette indices of a decoded image (`None` when
+/// every pixel is 0, i.e. the asset paints nothing).
+///
+/// Index 0 is the transparent colour, so it never belongs to the painted span.
+pub fn observed_index_range(image: &DecodedImage) -> Option<std::ops::RangeInclusive<u8>> {
+    let mut low: Option<u8> = None;
+    let mut high: Option<u8> = None;
+    for index in image.pixels.iter().copied().filter(|index| *index != 0) {
+        low = Some(low.map_or(index, |current: u8| current.min(index)));
+        high = Some(high.map_or(index, |current: u8| current.max(index)));
+    }
+    Some(low?..=high?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1476,4 +1563,82 @@ mod tests {
         assert_eq!(asset_index_range("BODY00I0.IMG"), 0..=127);
         assert_eq!(family_index_range(PaletteFamily::Map), 63..=254);
     }
+
+    /// OWN fixture (0 retail bytes): a raw `RCI` 320×200 index image.
+    fn synthetic_raw_canvas(indices: &[(usize, u8)]) -> DecodedImage {
+        let mut pixels = vec![0u8; RCI_DIMENSIONS[0].0 as usize * RCI_DIMENSIONS[0].1 as usize];
+        for (at, index) in indices {
+            pixels[*at] = *index;
+        }
+        DecodedImage {
+            x_offset: 0,
+            y_offset: 0,
+            width: RCI_DIMENSIONS[0].0,
+            height: RCI_DIMENSIONS[0].1,
+            compression: 0,
+            pixels,
+            embedded_palette: None,
+            kind: ImageKind::Rci,
+        }
+    }
+
+    #[test]
+    fn observed_index_range_ignores_transparency() {
+        let image = synthetic_raw_canvas(&[(0, 0), (1, 5), (2, 0), (3, 200), (4, 63)]);
+        assert_eq!(observed_index_range(&image), Some(5..=200));
+        assert_eq!(
+            observed_index_range(&synthetic_raw_canvas(&[(0, 0), (1, 0)])),
+            None,
+            "a fully transparent asset paints nothing"
+        );
+    }
+
+    /// **Per-asset rule (M18 B3-c):** only the assets with a recorded
+    /// measurement resolve outside their family range; every other asset of
+    /// the same family keeps the declared range (0 silent relaxation).
+    #[test]
+    fn per_asset_range_derivation_is_explicit() {
+        assert_eq!(asset_index_range("MAP100I0.IMG"), 63..=254);
+        assert_eq!(asset_index_range_resolved("MAP100I0.IMG"), 16..=254);
+        assert_eq!(asset_index_range_resolved("TRAV0I00.IMG"), 33..=254);
+        // Same family, no derivation ⇒ the family floor is untouched.
+        assert_eq!(asset_index_range_resolved("FMAP0I17.IMG"), 63..=254);
+        assert_eq!(asset_index_range_resolved("AMAP00I0.IMG"), 63..=254);
+        assert_eq!(asset_index_range_resolved("MASK01I0.IMG"), 144..=158);
+        assert_eq!(asset_index_range_resolved("MAIN00I0.IMG"), 0..=254);
+        // Every derivation starts below the `Map` floor and stays inside the
+        // complete UI palette range (`Hud`, 0..=254) — the palette authority of
+        // these screens (`TRAV0I00` resolves Hud by its name, `MAP100I0` Map).
+        let map_floor = *family_index_range(PaletteFamily::Map).start();
+        for (asset, low, high, _) in ASSET_RANGE_DERIVATIONS {
+            assert!(
+                matches!(
+                    family_for_asset(asset),
+                    PaletteFamily::Map | PaletteFamily::Hud
+                ),
+                "{asset}: unexpected family"
+            );
+            assert!(low < map_floor, "{asset}: derivation must reach below 63");
+            assert_eq!(high, 254, "{asset}: derivation must end at the last index");
+            let hud = family_index_range(PaletteFamily::Hud);
+            assert!(hud.contains(&low) && hud.contains(&high));
+        }
+    }
+
+    /// The derivation covers exactly the measured span of the recorded asset.
+    #[test]
+    fn derivation_covers_the_measured_span() {
+        let (_, low, high, _) = ASSET_RANGE_DERIVATIONS[0];
+        let image = synthetic_raw_canvas(&[(0, low), (1, 62), (2, high)]);
+        let span = observed_index_range(&image).expect("span");
+        let resolved = asset_index_range_resolved("MAP100I0.IMG");
+        assert!(resolved.contains(span.start()));
+        assert!(resolved.contains(span.end()));
+        // The family floor alone would reject the measured span (that is why
+        // the derivation exists) …
+        assert!(!asset_index_range("FMAP0I17.IMG").contains(span.start()));
+        // … and the recorded derivation is exactly the measured span.
+        assert_eq!(low..=high, 16..=254);
+    }
 }
+

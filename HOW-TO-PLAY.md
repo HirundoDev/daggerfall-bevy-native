@@ -1,9 +1,9 @@
 # How to play and how to probe
 
-This guide is for the published `v0.1.0-alpha` build (release commit `7902ac8`, tag `v0.1.0-alpha`). It
-covers what you can actually do in the window, the keys that are bound in code, how to read the probe
-harness that measures the engine, and what is known to be broken. Everything below is read from the
-code in this repository, not from memory.
+This guide is for the published `v0.2.0-alpha` build — the commit of `main` that the annotated
+`v0.2.0-alpha` tag points at. It covers what you can actually do in the window, the keys that are
+bound in code, how to read the probe harness that measures the engine, and what is known to be
+broken. Everything below is read from the code in this repository, not from memory.
 
 ## 1. What you are running
 
@@ -34,9 +34,11 @@ export DF_APP_ROOT="$HOME/Games/Daggerfall/app"     # or: ./scripts/launch.sh --
 ```
 
 `--mode complete` builds the parser, the bridge, the runtime and `daggerfall-app` in release and
-opens the window. **There is no title screen and no main menu in this alpha:** the window opens
-directly in the integrated demo (`--mode complete` with no `--probe`). There is no character
-creation, no new-game flow and no options screen.
+opens the window. **The window opens on the retail main-menu panel** (`main-menu`, `TITL00I0` +
+`MENU.IMG` + two buttons) with every world system gated: the clock stays at 0 minutes and nothing in
+the scene moves until you press `Enter`, which enters the integrated demo (`--mode complete` with no
+`--probe`). The transition is one-way. The panel is a picture: there is no character creation, no
+new-game flow and no options screen behind the buttons.
 
 Log lines worth knowing while the window is open:
 
@@ -59,7 +61,17 @@ system. Every row cites the file that consumes the key.
 | `Shift` (either) | run | `crates/app/src/m2_player.rs` |
 | `Ctrl` (either) | crouch | `crates/app/src/m2_player.rs` |
 | `Esc` | release the cursor (the window stays open; press again to reclaim input) | `crates/app/src/m2_player.rs` |
-| `1` `2` `3` `4` | show one of the four composed world panels: HUD, inventory, quests, main menu | `crates/parser-bevy-bridge/src/ui_spec.rs` + `crates/app/src/m18_window.rs` |
+| `Enter` | leave the main menu and enter the world (one-way: `Menu` ⇒ `Playing`) | `crates/app/src/m18_window.rs` (`m18_phase_keys`) + `crates/app/src/m18_phase.rs` |
+| `1` `2` `3` `4` | show one of the four 1996 world panels: HUD, inventory, quests, main menu | `crates/parser-bevy-bridge/src/ui_spec.rs` + `crates/app/src/m18_window.rs` |
+| `5` | show the `map-local` panel (`MAP100I0.IMG`) | `crates/app/src/m18_window.rs` (`m18_switch_panel`) |
+| `6` | show the `map-world` panel (`TRAV0I00.IMG`) | `crates/app/src/m18_window.rs` (`m18_switch_panel`) |
+| `,` `.` | rotate the view ∓/± 5° (`YAW_KEY_STEP_RAD`), works in both phases | `crates/app/src/m18_window.rs` (`m18_yaw_keys`) |
+| `T` | move the terrain origin between the capital pixel and the nearest coastal pixel of `WOODS.WLD` (re-samples and respawns the terrain) | `crates/app/src/m18_window.rs` (`m18_origin_toggle`) |
+| `J` | toggle the retail dialogue overlay (`TEXT.RSC`; one overlay at a time) | `crates/app/src/m18_window.rs` (`m18_overlay_keys`) |
+| `I` | toggle the retail journal overlay | `crates/app/src/m18_window.rs` (`m18_overlay_keys`) |
+| `O` | advance to the next retail climate of `CLIMATE.PAK` that precipitates, rewriting the precipitation sheet in place | `crates/app/src/m18_window.rs` (`m18_weather_key`) |
+| `F` | attack — the second binding of the one `attack` flag (the first is the left click) | `crates/app/src/m2_player.rs` (`attack_triggered`) |
+| `Space` | jump (DFU locomotion) | `crates/app/src/m2_player.rs` (`ActionState.jump`) |
 | `C` | sneak toggle (feeds the stealth engine: detection radius and noise) | `crates/app/src/m2_player.rs` |
 | `R` | save the session (`M20`) | `crates/app/src/m2_player.rs`, `crates/memory/src/lib.rs` |
 | `L` | load the last session save (`M20`) | `crates/app/src/m2_player.rs`, `crates/memory/src/lib.rs` |
@@ -75,8 +87,9 @@ Inside the **commerce window** (`--mode complete --probe COMMERCE-001`, `M5`) ad
 | `Enter` | close the dialogue |
 | `M` | (in the shop) open the merchant's stock |
 
-Not bound in this alpha: there is no map panel key, no `,`/`.` keyboard yaw and no `T` terrain
-toggle (those arrived with later parity work and are not part of `v0.1.0-alpha`).
+The panels are pictures: `1`–`6` choose which surface is drawn, and nothing on them is clickable
+(there is no widget model yet). Mouse look and `,`/`.` yaw both drive the same camera; the mouse
+cannot be scripted, which is why the automated captures use the keys.
 
 ## 5. How to read a probe
 
@@ -152,9 +165,14 @@ Expected decisive line for every member is `VERDICT: PROBE-<ID> PASS` (with its 
 
 A green suite prints `VERDICT: ANTI-SCREEN SUITE PASS (37/37 probes, exit 0)`.
 
-There is **no M30 or later probe in this alpha**: M30 is frozen and M31-M34 are specified but not
-implemented. Anything you see named `PANELS-001`, `MENU-001`, `SPINE-001` or `INTERIOR-TRANSIT-001`
-elsewhere belongs to private work in progress and does not exist here.
+There is **no M30 or later probe in this build**: M30 is frozen and M31-M35 are specified but not
+implemented, so no `SHOP-001`, `ECONOMY-001`, `BANK-001`, `TRAVEL-001`, `WEATHER-001`,
+`CALENDAR-001`, `CONDITION-001`, `VAMPIRE-001`, `REST-001` or `SPINE-001` exists here.
+
+The M18 parity probes added after the 37-member freeze are **standalone** (outside `ALL-001`) and
+exist in this build: `ORIGIN-001`, `ATTACK-KEY-001`, `MENU-001`, `INTERIOR-TRANSIT-001`,
+`WEATHER-VISUAL-001`, `PANELS-001`, `POPULATION-001` and `RETAIL-TEXT-001`. Run them one at a time
+with `--probe <name>`.
 
 ## 7. Known issues
 
@@ -162,17 +180,22 @@ elsewhere belongs to private work in progress and does not exist here.
   composed as retail images with **0 interactive widgets**. Nothing is clickable; there is no button
   navigation and no character creation.
 - **No seamless exterior-to-interior transition in the demo.** Walking the city does not take you
-  inside a building; interiors are shown by the `INTERIOR-001` probe window.
+  inside a building; interiors are shown by the `INTERIOR-001` probe window, and the
+  `INTERIOR-TRANSIT-001` probe measures the transition state machine headlessly (steps 4–5 of the
+  spine smoke). Wiring it into the live window is not part of this build.
 - **Audio is silent unless you build the `audio` feature.**
   `./scripts/launch.sh --mode complete --features audio,window`. Without a usable device the engine
   degrades to a null sink and prints why instead of panicking.
-- **No ocean in the current composition** (`M18 VE: 0 ocean samples ...`), so the sea is not
-  reachable by walking.
+- **The default composition has no ocean** (`M18 VE: 0 ocean samples ...`). Press `T` and the
+  terrain origin moves to the nearest coastal pixel of `WOODS.WLD`, which does carry an ocean band
+  (logged as `coastal pixel (x,y) ... ocean N / beach N / land N`); the water surface is drawn at
+  sea level and is **not walkable** — walking into it is blocked by design.
 - **`CITY-001` is probe geometry, not a retail city.** The headless probe runs a deterministic 3x3
   street grid; the M3 window (with the `window` feature) opens a 4x4 city window. Six `ARCH3D.BSA`
   landmarks, low-poly by design. The retail city is the `--mode complete` demo.
-- **`E` opens a dialogue only in the commerce window.** In the integrated demo NPC captions are drawn
-  but no dialogue window is composed.
+- **Two different dialogue surfaces.** `E` runs the M5 commerce dialogue; in the integrated demo `J`
+  toggles the retail `TEXT.RSC` dialogue overlay and `I` the journal overlay (one overlay at a time,
+  both read-only pictures — 0 invented text).
 - **No day/night cycle and no nature sprites.** Vegetation and the visible night sky are not part of
   this alpha.
 - **No damage numbers on screen.** Combat resolves and the HUD shows HP, but the hit number is not
@@ -183,9 +206,12 @@ elsewhere belongs to private work in progress and does not exist here.
 
 ## 8. Where this build stands
 
-`v0.1.0-alpha`, no parity claim. The M18 acceptance review is **unsigned**: 3 PASS, 6 PARCIAL, 12 NO
-rows, and the owner signature is pending. M30 is frozen; M31, M32, M33 and M34 are specified but not
-implemented; M35 is out of scope for this alpha. No date is promised for any of them.
+`v0.2.0-alpha`, no parity claim. `main` carries the **M18 technical candidate**: the seven closure
+states of the B3 tanda it set out to close (CS-12/13/14/15/16/18/19) are measured with window
+evidence — PNG plus sha256 — so the technical side is closed. The **acceptance** review is not: the
+21 acceptance rows read **3 PASS · 6 PARTIAL · 12 NO**, the owner signature is **pending**, and no
+`M18` tag exists. M30 is frozen; M31–M35 are specified but not implemented. No date is promised for
+any of them.
 
 ## 9. Where to look next
 

@@ -4,3 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Perception organ — rendering, input and sensory pipelines (F0 scaffold)"
+
+[dependencies]
+# Spine §5: `UiShell` opens/closes the `WindowId`s the bus carries
+# (`GameEvent::UiRequested`). Vocabulary lives in 🧬 nervous (0 cycle).
+daggerfall-nervous = { path = "../nervous" }

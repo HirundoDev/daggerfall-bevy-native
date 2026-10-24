@@ -2,10 +2,12 @@
 
 *Case file split from [`docs/ACKNOWLEDGMENTS.md`](../ACKNOWLEDGMENTS.md): the body was moved and later cleaned of working notes; the verified facts are unchanged.*
 
-**Public release line: `v0.1.0-alpha` (pre-release).** The alpha publishes the mechanism measured
-below; it does **not** claim acceptance. M18 — the global acceptance gate — is open: its 21
-acceptance rows measured on the real window are **3 PASS · 6 PARTIAL · 12 NO**, the owner's
-side-by-side signature is pending, and no `M18` tag exists.
+**Public release line: `v0.2.0-alpha` (pre-release).** The alpha publishes the mechanism measured
+below; it does **not** claim acceptance. `main` carries the **M18 technical candidate** — the seven
+closure states of the B3 tanda (CS-12/13/14/15/16/18/19) are measured with window evidence, PNG plus
+sha256, so the technical side is closed. The global acceptance gate is still open: its 21 acceptance
+rows measured on the real window are **3 PASS · 6 PARTIAL · 12 NO**, the owner's side-by-side
+signature is pending, and no `M18` tag exists. The release tag is a version tag, not a milestone tag.
 
 M0–M17 carry annotated git tags of the form `M<n>-YYYY-MM-DD`, with matching `release/M<n>`
 branches (`M13b` is a tagged parity follow-up). M18–M29 have **technical** closures with recorded
@@ -33,7 +35,7 @@ closures contain.
 | **M15** | NPC population, name banks, captions, spawn guards | `PROBE-NPC-001` 18/18; deterministic population digest reproduced twice |
 | **M16** | Lore, text and quests: `TEXT.RSC`, `.QBN`, `.QRC`, quest verbs, books | 18,501 text tokens, 247/247 QBN tiled, 244/244 QRC validated, 82 quest verbs, 79 quests, 91 books |
 | **M17** | 1996-style UI (IMG/CIF/FNT/RCI assets, windows, HUD) | `PROBE-UI-001` PASS (43/43 checks, 18 golden vectors); `--features window` build EXIT=0; visual signature deferred to M18 |
-| **M18** | Full-map index probe, release scan, final acceptance | **Technical closure PASS (2026-10-20)** — `PROBE-MAP-001` resolves 15,251/15,251 locations (0 skipped, 0 panics, identical digest twice); the suite froze at 18/18 for this milestone and has grown with every later one; the 21 acceptance rows were measured on the real window (**3 PASS · 6 PARTIAL · 12 NO**); **owner side-by-side PENDING**, so no tag exists |
+| **M18** | Full-map index probe, release scan, final acceptance | **Technical closure PASS (2026-10-20)** — `PROBE-MAP-001` resolves 15,251/15,251 locations (0 skipped, 0 panics, identical digest twice); the suite froze at 18/18 for this milestone and has grown with every later one; the 21 acceptance rows were measured on the real window (**3 PASS · 6 PARTIAL · 12 NO**); the **B3 parity tanda** closes **7 of 7 CS** (CS-12/13/14/15/16/18/19) with captured PNG + sha256 each — `POPULATION-001`, `RETAIL-TEXT-001`, `PANELS-001`, `WEATHER-VISUAL-001`; **owner side-by-side PENDING**, so no tag exists |
 | **M19** | Player locomotion and body: DFU speeds, jump/gravity/fall damage, climbing, levitation, swimming and breath, encumbrance, stealth formulas | **Technical closure PASS (2026-10-21)** — `behavior::locomotion` (21 tests, no Bevy, no I/O) consumed by the demo and the window through a single `Locomotion::step`; `PROBE-LOCOMOTION-001` 70 checks (formulas / runtime / stealth / retail demo), `STEALTH-001` 16 checks |
 | **M20–M26** | Gameplay parity, first tramo: stats and skills (M20), items/equipment/loot (M21), combat (M22), magic (M23), enchanting and alchemy (M24), monsters, enemy AI and encounters (M25), living NPCs, faction dialogue and `RUMOR.DAT` rumours (M26) | Each closed at technical level with its probe added to the suite: 18 probes at the M18 freeze → 27/27 at the M26 close. At the M26 close: **534 tests passed / 0 failed**, clippy clean in both configurations |
 | **M27** | Guilds and factions: `FACTION.TXT` graph (365 ids), reputation with tree propagation, ranks 0–9, per-rank services | **Technical closure PASS (2026-10-21)** — `PROBE-FACTION-001` 17/17, `PROBE-GUILD-001` 33/33, `M27-DEMO-001` 15/15; the suite went from 27 to 28 probes |
@@ -52,7 +54,7 @@ that did not exist were implemented with falsifiable negative controls and the v
 re-measured over the full 19 rows: **19/19 = 1.00 PASS, 0 exclusions, 0 rows pending**. The history
 is not rewritten: both numbers, and the reason they differ, stay on the record.
 
-## Verified facts at the M29 close (current head)
+## Verified facts at the M29 close (historical, before the M18 parity tanda)
 
 - `cargo test --workspace`: **854 tests passed, 0 failed** across 36 test suites.
 - `cargo clippy --workspace --all-targets -- -D warnings` and
@@ -63,6 +65,19 @@ is not rewritten: both numbers, and the reason they differ, stay on the record.
 - `scripts/ci/run-ci.sh`: **PASS (3/3)** · `scripts/ci/content-scan.sh`: **0/0/0** (no tracked BSA,
   no BSA in the tree, no BSA signature inside binaries), including build artifacts.
 - `ASSET-REGISTRY.json` records **492 assets** by path, size and SHA-256 — hashes and metadata only.
+
+## Verified facts on the M18 technical candidate (this release, `main`)
+
+- `cargo check --workspace --all-targets`: **clean** (0 errors), and
+  `cargo check -p daggerfall-app --all-targets --features window`: **clean**.
+- `cargo test --workspace`: **905 tests passed, 0 failed** across 36 test suites.
+- `cargo test -p daggerfall-app --features window`: **157 passed, 0 failed** (the window-gated M18
+  tests included).
+- **B3 parity tanda: 7/7 CS** — CS-12 precipitation, CS-13 street population, CS-14 city watch,
+  CS-15 dialogue overlay, CS-16 journal overlay, CS-18 `map-local`, CS-19 `map-world`; each with a
+  captured PNG and its sha256.
+- This does **not** move the acceptance tally: the 21 rows stay **3 PASS · 6 PARTIAL · 12 NO** and
+  the owner signature stays **PENDING**.
 
 ## Verified facts at the M18 technical closure (2026-10-20, pre-signature)
 
@@ -97,6 +112,6 @@ fall damage on slip, `water walking` claimed but absent), and **M18**, open on t
   battery is run locally by contributors and reviewers, not yet as required CI jobs.
 - **Windows/macOS.** Development and verification are Linux-first. The Bevy window feature is
   portable, but no Windows/macOS release has been validated yet.
-- **Gameplay parity.** M30 is **frozen** (specification only, no code) and M31–M34 are specified and
+- **Gameplay parity.** M30 is **frozen** (specification only, no code) and M31–M35 are spec-only and
   not implemented. "100% of the data definition of done" is not "100% of the game"; see
   [Roadmap](roadmap.md).

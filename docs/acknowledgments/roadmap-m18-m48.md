@@ -26,7 +26,7 @@
 | Block | Milestones | State |
 |:---|:---|:---|
 | Closed, technically | M19–M29 (11 milestones) | **DONE** (each with its probes and QA score) |
-| Open | M18 | **PARTIAL** (technical pass; owner signature and tag pending) |
+| Open | M18 | **PARTIAL** (technical pass incl. the B3 tanda at 7/7 CS; owner signature and tag pending) |
 | Frozen | M30 | **FROZEN** (written specification, no code) |
 | Specified, not implemented | M31–M35 (5 milestones) | **SPEC-ONLY** |
 | Plan B | M36–M48 (13 milestones) | **NOT STARTED** |
@@ -90,7 +90,7 @@ says otherwise. None of them reduces scope; all of them prevent a false gate.
 
 | M | Epic | Scope | State | `u` remaining |
 |:-:|:---|:---|:---|--:|
-| **M18** | slice | presentation parity + map closure | **PARTIAL** (technical pass; owner signature pending) | 5.60 |
+| **M18** | slice | presentation parity + map closure | **PARTIAL** (technical pass, B3 tanda at 7/7 CS; owner signature pending) | 5.60 |
 | **M19** | slice | locomotion and body | **DONE** | 0 |
 | **M20** | slice | character and progression | **DONE** | 0 |
 | **M21** | slice | items, equipment, loot | **DONE** | 0 |
