@@ -22,7 +22,7 @@
 | **M31–M32 — travel/weather/calendar · conditions/death/rest** | **Specified, not implemented** | One written specification each; no code |
 | **M33 — total savegame (v2)** | **Specified, not implemented** | Save v2 specification; no probe executed |
 | **M34 — end-to-end integration + presentation** | Specified, not implemented | The E2E spine plus the full presentation pass; its acceptance probes have not run. **Closes Plan A** |
-| **M35 — biomes, 2D vegetation, sky** | Specified, not implemented | **Optional annex**, non-blocking, delivered within the `0.1.0` surface. Not a gate for closing Plan A |
+| **M35 — biomes, 2D vegetation, sky** | Specified, not implemented | **Optional annex**, non-blocking, planned for the `0.1.0` surface. Not a gate for closing Plan A |
 | **M36–M48 — Plan B (E1–E7)** | Not started | 13 milestones. Each one is listed with its scope, gate and `u` in [Plan B in detail](#plan-b-in-detail--13-milestones-m36m48--e8) below, and broken into work packages in the [complete plan](roadmap-m18-m48.md#3-atomic-work-breakdown-for-plan-b) |
 | **E8 — Starfield-like horizon** | Not started; not estimable | A **separate program** after M48, with its own genesis contract. Never "M49" |
 | After M18 — content packs | Design | Declarative packs, a manifest with dependencies, load order, per-pack settings; no code execution |
@@ -56,7 +56,8 @@ no dispatch, no tag. `u` is a nominal estimate with its rounding range (§3.15 o
 
 **Totals.** 13 milestones M36–M48 = **382.50 u** nominal (**253.40–508.55**). E8 is counted
 **separately**: it is a program, not a milestone, and never "M49". M36 closes Plan A's UI gate only when
-`UI-FULL-001` prints 85/85; Plan A itself already closes at **M34 PASS**, with M35 as a non-blocking annex.
+`UI-FULL-001` prints 85/85; Plan A closes when **M34 PASS** is measured (today SPEC-ONLY), with M35 as a
+non-blocking annex.
 
 ---
 

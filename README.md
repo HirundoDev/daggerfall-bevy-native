@@ -95,9 +95,10 @@ no milestone tags) · **M30 FROZEN** (written specification, no code) · **M31�
 | **M48** | E7 MODERN | opt-in modern layer (pristine/modern) | NOT STARTED | 31.00 (20.00–41.00) | `MODERN-001` · `MODERN-002` |
 | **E8** | Starfield-like | **separate program** after M48, own genesis contract (`E8` is not "M49") | NOT STARTED / not estimable | — | own contract |
 
-**Totals.** M36–M48 = **382.50 u** nominal (**253.40–508.55**); **E8 counted separately**. Plan A closes
-at **M34 PASS**; **M35 is an optional non-blocking annex** (`0.1.0`). The UI gate of M36–M40 is the
-stretch that decides whether the game *feels* the original — it is specified, not started.
+**Totals.** M36–M48 = **382.50 u** nominal (**253.40–508.55**); **E8 counted separately**. Plan A is
+**planned scope, not delivery**: it closes at **M34 PASS** (today SPEC-ONLY), and **M35 is an optional
+non-blocking annex** planned for `0.1.0`. The UI gate of M36–M40 is the stretch that decides whether the
+game *feels* the original — it is specified, not started.
 
 ## What this is
 

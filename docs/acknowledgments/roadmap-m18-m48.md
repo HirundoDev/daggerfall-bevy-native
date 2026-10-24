@@ -1,7 +1,8 @@
 # Roadmap — M18 to M48, plus E8
 
 > **What this is.** The complete, single plan of the program up to its declared ending:
-> **Plan A** (M18–M35 — foundation and vertical slice, already measured) plus **Plan B**
+> **Plan A** (M18–M35 — foundation and vertical slice: M18–M29 measured and technically closed;
+> M30 frozen; M31–M35 specified) plus **Plan B**
 > (M36–M48 — the epics E1–E7 turned into milestones with an atomic work breakdown) plus
 > **E8** (a Starfield-like horizon, a **separate program** after M48, never "M49").
 >
@@ -46,7 +47,7 @@ them apart.
 
 | Definition | Milestones | What it includes | Size |
 |:---|:---|:---|:---|
-| **Plan A** (foundation + slice) | **M18–M35** | retail data, 49 systems at slice depth, presentation UI, E2E and save | **51.85 u** with the M35 annex · **49.95 u** without it |
+| **Plan A** (foundation + slice) — **planned scope, not delivery** | **M18–M35** | retail data, 49 systems at slice depth, presentation UI, E2E and save. State today: **M18 PARTIAL · M19–M29 DONE · M30 FROZEN · M31–M35 SPEC-ONLY** | **51.85 u** with the M35 annex · **49.95 u** without it |
 | **100% original** | **M36–M44** | full UI (E1) + real system depth (E2) + dungeon content (E3) | **2.8–5.6×** Plan A |
 | **Retail-ready** | **M36–M44 + M47** | 100% original + platform and distribution (E6) | **3.0–6.0×** |
 | **Full vision** | **M36–M48** | E1–E7 | **4.9–9.8×** |
@@ -301,7 +302,7 @@ declared `NEGATIVE` with proof, never implemented by conjecture.
 
 ### 3.9 M44 — DUN-1: dungeon content (39.00 u; range 25.50–52.00)
 
-**Goal:** the **geometry already enters in M34**; here enters the **content** and its state. The working
+**Goal:** the **geometry is specified in M34** (SPEC-ONLY, not implemented); here enters the **content** and its state. The working
 specification today is an analysis, not an acceptance spec: M44's first act is to write the spec with
 golden vectors.
 
@@ -620,7 +621,7 @@ enables an early side-by-side).
 ### 6.1 Method and declared limit
 
 1. **Base:** the `u` of the M18–M35 program (**51.85 u** with the annex). The multipliers are the ones
-   already fixed by the Plan A records; **no new ones are invented**.
+   set by the Plan A records; **no new ones are invented**.
 2. **Decomposition:** each epic-sized milestone is split into work packages with a nominal `u` and a
    range of ±(20–30%) depending on novelty (6.3), and the total is **summed**, not estimated again.
 3. **Limit:** there is no historical series of modules this size. The measured cadence (**13.1
@@ -648,7 +649,7 @@ enables an early side-by-side).
 
 | Nature | Milestones | Factor | Why |
 |:---|:---|:---:|:---|
-| **Transcription with golden vectors** | M38 (creation part), M42-4/M42-5 (action goldens), M43 (tables already resolved in M30–M32) | ×1.0 | the `u` measures transcription |
+| **Transcription with golden vectors** | M38 (creation part), M42-4/M42-5 (action goldens), M43 (tables specified in M30–M32, not implemented) | ×1.0 | the `u` measures transcription |
 | **Extension of an existing system** | M41, M42, M43 | ×1.3 | density without a new spec per rule |
 | **New design without a golden** | M36, M37, M39, M40, M44, M45, M46, M48 | ×1.6–2.0 | where the historical record does **not** calibrate |
 | **Multi-environment platform** | M47 | ×1.5 | 3 OS, modest hardware, CI |
@@ -743,7 +744,7 @@ A gap with an owner and a work package is the plan working; a hidden gap is not.
 | State | Means | Does not mean |
 |:---|:---|:---|
 | **M34 PASS** | **Plan A closed**: foundation + vertical slice + E2E/presentation integration | "Daggerfall complete" |
-| **M35 PASS** (`0.1.0`, **optional annex**) | annex delivered (biomes, 2D vegetation, sky) within the `0.1.0` surface; **not a closure gate** | "a necessary condition to close Plan A" |
+| **M35 PASS** (`0.1.0`, **optional annex**) | annex complete (biomes, 2D vegetation, sky) within the `0.1.0` surface; **not a closure gate** | "a necessary condition to close Plan A" |
 | **M40 PASS** | UI 78/78 + 7/7 classified, complete input, accessibility | "game finished" |
 | **M44 PASS** | **100% original**: UI + depth + dungeon content | "store-ready" |
 | **M47 PASS** (`1.0.0`) | **Retail-ready**: multiplatform, packaging, 60 fps, audited accessibility | "full vision" |
@@ -751,7 +752,7 @@ A gap with an owner and a work package is the plan working; a hidden gap is not.
 | **E8** | a **new** program with a new genesis contract | nothing above |
 
 **Plan A cut (declared correction).** Plan A closes with **M34 PASS** (**49.95 u** strict). **M35** is an
-**optional, non-blocking annex** delivered within the `0.1.0` surface; its PASS is **not** required to
+**optional, non-blocking annex** planned for the `0.1.0` surface; its PASS is **not** required to
 declare Plan A closed. The multiplier base (1.2, `B = 51.85 u`) **includes** the M35 annex for continuity
 of the historical series; it is declared so no reading confuses "Plan A closed" (M34) with "Plan A with
 annex" (M34 + M35).

@@ -27,7 +27,7 @@ corrected rather than reconciled by prose.
 | **M30** | **FROZEN** | economy and banking: a written specification, **no code**, frozen by owner decision |
 | **M31–M33** | **SPEC-ONLY** | travel/weather/calendar, conditions/death/rest and total savegame: one written specification each, not implemented |
 | **M34** | **SPEC-ONLY** | end-to-end integration and presentation: the spine exists, the acceptance probes have not been executed. **Closes Plan A** |
-| **M35** | **SPEC-ONLY** | biomes, 2D vegetation, sky. **Optional annex**, non-blocking, delivered within `0.1.0` |
+| **M35** | **SPEC-ONLY** | biomes, 2D vegetation, sky. **Optional annex**, non-blocking, planned for `0.1.0` |
 | **M36–M48** | **NOT STARTED** | Plan B (E1–E7). Specifications exist *in the plan*; no code, no dispatch, no tag |
 | **E8** | **NOT STARTED, not estimable** | a **separate program** after M48, with its own genesis contract. It is not "M49" |
 
@@ -46,8 +46,9 @@ Two consequences that are frequently violated:
    separate act and belongs to the owner.
 2. **The plan is not a checklist of intentions.** A work package without a named probe does not exist.
 
-**Plan A vs Plan B cut.** Plan A closes at **M34 PASS** (49.95 u strict). **M35** is an optional,
-non-blocking annex delivered inside the `0.1.0` surface; it is not a gate for closing Plan A. The
+**Plan A vs Plan B cut.** Plan A closes at **M34 PASS** (49.95 u strict) — today M34 is **SPEC-ONLY**, so
+Plan A is **planned scope, not delivery**. **M35** is an optional, non-blocking annex planned for the
+`0.1.0` surface; it is not a gate for closing Plan A. The
 multiplier base (51.85 u) includes M35 for continuity of the historical series, and the roadmap declares
 both figures so the two readings never merge.
 
