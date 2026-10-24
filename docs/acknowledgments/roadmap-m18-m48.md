@@ -24,14 +24,14 @@
 
 | Block | Milestones | State |
 |:---|:---|:---|
-| Closed, technically | M19–M32 (14 milestones) | **DONE** (each with its probes and QA score) |
+| Closed, technically | M19–M29 (11 milestones) | **DONE** (each with its probes and QA score) |
 | Open | M18 | **PARTIAL** (technical pass; owner signature and tag pending) |
-| In flight | M33 | **WIP** (savegame v2 checkpoint) |
-| Specified, not implemented | M34, M35 | **SPEC-ONLY** |
+| Frozen | M30 | **FROZEN** (written specification, no code) |
+| Specified, not implemented | M31–M35 (5 milestones) | **SPEC-ONLY** |
 | Plan B | M36–M48 (13 milestones) | **NOT STARTED** |
 | Separate program | E8 | **NOT STARTED, not estimable** |
 
-Recount: **14 DONE · 1 PARTIAL · 1 WIP · 2 SPEC-ONLY · 13 NOT STARTED · 1 separate program.**
+Recount: **11 DONE · 1 PARTIAL · 1 FROZEN · 5 SPEC-ONLY · 13 NOT STARTED · 1 separate program.**
 No milestone tag exists for M18 or later.
 
 ---
@@ -101,10 +101,10 @@ says otherwise. None of them reduces scope; all of them prevent a false gate.
 | **M27** | slice | guilds and factions | **DONE** | 0 |
 | **M28** | slice | crime, law and courts | **DONE** | 0 |
 | **M29** | slice | playable quests | **DONE** | 0 |
-| **M30** | slice | economy and banking | **DONE** | 0 |
-| **M31** | slice | travel, weather, calendar | **DONE** | 0 |
-| **M32** | slice | conditions, death, rest | **DONE** | 0 |
-| **M33** | slice | total persistence (save v2) | **WIP** | 1.65 |
+| **M30** | slice | economy and banking | **FROZEN** (written specification, no code) | — |
+| **M31** | slice | travel, weather, calendar | **SPEC-ONLY** | — |
+| **M32** | slice | conditions, death, rest | **SPEC-ONLY** | — |
+| **M33** | slice | total persistence (save v2) | **SPEC-ONLY** | 1.65 |
 | **M34** | slice | end-to-end integration + presentation | **SPEC-ONLY** | 5.85 |
 | **M35** | slice (annex) | biomes, 2D vegetation, sky | **SPEC-ONLY** (non-blocking, `0.1.0`) | 1.90 |
 | **M36** | **UI-0** | audit of the 85 windows + patch/rewrite decision + compatibility contract + E1 re-estimate | **NOT STARTED** | 2.00 |
@@ -124,6 +124,10 @@ says otherwise. None of them reduces scope; all of them prevent a false gate.
 
 **Reading note.** The 31 rows M18–M48 are the program; **E8 is not row 32** and not an "M49": it is a
 program with its own genesis contract, its own definition of done and its own budget.
+
+**Frozen and spec-only block.** M30 economy and banking is **frozen**: a written specification and no
+code. M31–M35 keep one written specification each and no implementation. `—` in the `u` column means the
+remaining envelope of that block was not re-measured in this edition; the Plan B figures in §3 stand.
 
 ---
 
@@ -721,7 +725,7 @@ A gap with an owner and a work package is the plan working; a hidden gap is not.
 ## 9. Declared residuals (not hidden)
 
 1. **M18 remains `PARTIAL`**: Plan B does not wait for its signature, but the M18 tag is the owner's.
-2. **M33 remains `WIP`**: three Plan B work packages depend on save sections; if M33 closes first, their
+2. **M33 remains `SPEC-ONLY`**: three Plan B work packages depend on save sections; if M33 closes first, their
    QA is consumed and that save stretch disappears (0 duplicated work).
 3. **The UI today is 6 static panels**; the census of 85 belongs to the original, it is not a delivery.
 4. **Plan B `u` has no historical series**: nominal plus range, never a date (6.4, R-9).

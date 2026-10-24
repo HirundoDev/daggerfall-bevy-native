@@ -67,6 +67,38 @@ excluded four critical rows; the erratum is recorded in [Status](docs/acknowledg
 The full per-milestone record — scope and evidence at each closure, the verified facts and the
 declared known gaps — is in [Status: what is actually done](docs/acknowledgments/status.md).
 
+## Roadmap M18–M48 + E8
+
+The single canonical plan is **[Roadmap M18 to M48 + E8](docs/acknowledgments/roadmap-m18-m48.md)**:
+atomic work breakdown, gates, dependencies, risks, estimates in `u` and **zero dates**. Start there, or
+at the **[Agent entry point](docs/acknowledgments/agent-entrypoint.md)** for the operating rules (source
+of truth, real state, closure rule, limits, how to continue).
+
+State in one line: **M18 PARTIAL** (owner signature pending) · **M19–M29 DONE** (technical closure,
+no milestone tags) · **M30 FROZEN** (written specification, no code) · **M31–M35 SPEC-ONLY** ·
+**M36–M48 NOT STARTED** · **E8 a separate program**. Public tag: `v0.1.0-alpha` only.
+
+| M | Epic | Scope | State | `u` nominal (range) | Gate |
+|:-:|:---|:---|:---|--:|:---|
+| **M36** | UI-0 | audit the 85 windows, patch/rewrite rule, compatibility contract, E1 re-estimate | NOT STARTED | 2.00 (1.60–2.40) | `UI-AUDIT-001` A+B+C |
+| **M37** | UI-1 | UI compatibility layer (7 axes) | NOT STARTED | 4.50 (3.45–5.60) | `UI-BASE-001` + `UI-INPUT-001` (3 pilot windows) |
+| **M38** | UI-2 | 16 creation + 11 configuration + menus (27 surfaces) | NOT STARTED | 6.50 (4.95–8.40) | `UI-CREATE-001` 16/16 · `UI-CONFIG-001` 11/11 |
+| **M39** | UI-3 | 51 interactive playable windows | NOT STARTED | 7.50 (5.65–9.40) | `UI-JUGABLE-001` A–H |
+| **M40** | UI-4 | UI gate + side-by-side + input + accessibility | NOT STARTED | 3.50 (2.45–4.55) | `UI-FULL-001` 85/85 |
+| **M41** | SYS-1 | depth: combat, magic, items, stats, resistances | NOT STARTED | 63.00 (41.30–84.70) | work-package gates (§3.6) |
+| **M42** | SYS-2 | depth: NPCs, guilds, crime and law, quests | NOT STARTED | 42.00 (28.00–56.00) | work-package gates (§3.7) |
+| **M43** | SYS-3 | depth: economy, travel, weather, calendar, conditions | NOT STARTED | 51.00 (33.50–67.50) | work-package gates (§3.8) |
+| **M44** | DUN-1 | dungeon content: grid + loot/respawn/bosses/instances | NOT STARTED | 39.00 (25.50–52.00) | work-package gates (§3.9) |
+| **M45** | E4 MODS | declarative mod pipeline | NOT STARTED | 39.00 (26.00–52.00) | `MODS-001` · `MODS-002` |
+| **M46** | E5 ONLINE | optional online: lobby, instances, authority (**owner go required**) | NOT STARTED | 78.00 (51.00–104.00) | `ONLINE-001`–`003` |
+| **M47** | E6 PLATFORM | packaging, multi-OS CI, sustained perf, accessibility | NOT STARTED | 15.50 (10.00–21.00) | `PLATFORM-001`–`003` |
+| **M48** | E7 MODERN | opt-in modern layer (pristine/modern) | NOT STARTED | 31.00 (20.00–41.00) | `MODERN-001` · `MODERN-002` |
+| **E8** | Starfield-like | **separate program** after M48, own genesis contract (`E8` is not "M49") | NOT STARTED / not estimable | — | own contract |
+
+**Totals.** M36–M48 = **382.50 u** nominal (**253.40–508.55**); **E8 counted separately**. Plan A closes
+at **M34 PASS**; **M35 is an optional non-blocking annex** (`0.1.0`). The UI gate of M36–M40 is the
+stretch that decides whether the game *feels* the original — it is specified, not started.
+
 ## What this is
 
 Daggerfall is a large, systemic RPG: a province-scale world map, procedurally assembled cities and
