@@ -34,7 +34,7 @@
 
 ## Plan B in detail — 13 milestones M36–M48 + E8
 
-All 14 rows are **NOT STARTED**: specifications live in the [complete plan](roadmap-m18-m48.md), no code,
+All 13 milestones and E8 are **NOT STARTED**: specifications live in the [complete plan](roadmap-m18-m48.md), no code,
 no dispatch, no tag. `u` is a nominal estimate with its rounding range (§3.15 of the plan); no dates.
 
 | M | Epic | Scope | State | `u` nominal (range) | Gate | Plan |

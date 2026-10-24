@@ -67,7 +67,7 @@ the ones fixed by the Plan A records: `E1 0.3–0.6×` · `E2 2–4×` · `E3 0.
 Plan A has **18 rows** and **51.85 u**, i.e. **2.88 u per row**. Keeping that granularity, Plan B would
 be **50–101 milestones** for 100% original and **88–177** for the full vision. **M36–M48 are therefore
 epic-sized and variable** (2.0 u the smallest, 78.0 u the largest), not 2 u modules. A reader who counts
-"13 modules" and expects the pace of M19–M32 is off by an order of magnitude.
+"13 modules" and expects the pace of M19–M29 is off by an order of magnitude.
 
 ### 1.4 Measured corrections of premise
 
@@ -76,7 +76,7 @@ says otherwise. None of them reduces scope; all of them prevent a false gate.
 
 | # | Premise | Measured | Consequence |
 |:-:|:---|:---|:---|
-| **C-1** | "M18–M32 are DONE" | M19–M32 DONE (14 rows); **M18 PARTIAL** (technical pass, owner signature pending) | the matrix marks M18 `PARTIAL`; Plan B does **not** depend on its signature |
+| **C-1** | "M18–M32 are DONE" | **M18 PARTIAL**; **M19–M29 DONE** (11 rows, technical closure, no tags); **M30 FROZEN** (spec, no code); **M31–M34 SPEC-ONLY** (not implemented); **M35 SPEC-ONLY** optional; **M36–M48 NOT STARTED**; **E8 separate** | the matrix marks M18 `PARTIAL`; Plan B does **not** depend on its signature |
 | **C-2** | "UI is 51/85 (60%) delivered" | 51/85 is a census ratio (playable windows within the 85), not a delivery. Delivered today: **6 static panels** and a shell with a registry and a stack | M36 measures the real per-window state; the M40 gate is per **interactive flow**, not per "panel present" |
 | **C-3** | "34 are missing" | 34 = 16 character-creation + 11 configuration + 7 infrastructure | **M38 reverses part of that `N/A`**: the 11 configuration pages enter with **functional** parity (not pixel). The 7 infrastructure entries stay out: they are base classes, factories and constants, not windows |
 | **C-4** | "Gate: 85/85 interactive windows" | 7 of the 85 are not windows | the gate is stated exactly: **78/78 interactive windows + 7/7 classified infrastructure + 0 rows without a verdict = 85/85 resolved** |
