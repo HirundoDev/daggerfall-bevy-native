@@ -54,5 +54,10 @@ target/
 # ── Retired retail capture (never ships): 1996 .IMG/.CIF panel render ──
 **/m18-demo-20261021/m17-ui-fixed.png
 
+# ── Derived audio evidence (B1-b): retail-derived WAV, reproducible at run
+# time by `cargo run --features window`; the `.json` footprint + sha256 line
+# stays versionable, the binary never is (INV-L99-6, m-6).
+docs/sintergic/l5-mission/m18-owner-gate/evidence/audio/*.wav
+
 # ── Runtime save written while playing; never versioned ──
 saves/

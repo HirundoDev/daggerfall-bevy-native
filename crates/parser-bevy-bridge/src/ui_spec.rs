@@ -26,7 +26,7 @@
 use std::collections::BTreeMap;
 
 use daggerfall_parser_rs::image::{
-    asset_index_range, family_index_range, DecodedImage, FntFile, PaletteFamily,
+    asset_index_range_resolved, family_index_range, DecodedImage, FntFile, PaletteFamily,
 };
 use daggerfall_parser_rs::texture::Palette;
 
@@ -208,6 +208,10 @@ pub enum UiPanelId {
     Quests,
     /// Main menu.
     MainMenu,
+    /// Local map screen (`MAP100I0.IMG`, 320×200) — **B3-c**.
+    MapLocal,
+    /// World / travel map screen (`TRAV0I00.IMG`, 320×200) — **B3-c**.
+    MapWorld,
 }
 
 impl UiPanelId {
@@ -218,6 +222,8 @@ impl UiPanelId {
             Self::Inventory => "inventory",
             Self::Quests => "quests",
             Self::MainMenu => "main-menu",
+            Self::MapLocal => "map-local",
+            Self::MapWorld => "map-world",
         }
     }
 }
@@ -910,6 +916,51 @@ pub fn build_all_panels(
     ])
 }
 
+/// Full-screen asset of the local map (`320×200`, raw `RCI` — **B3-c**).
+pub const MAP_LOCAL_ASSET: &str = "MAP100I0.IMG";
+/// Full-screen asset of the world/travel map (`320×200`, raw `RCI` — **B3-c**).
+pub const MAP_WORLD_ASSET: &str = "TRAV0I00.IMG";
+
+/// **B3-c (O7)** — the two map panels, in painting order (`map-local`,
+/// `map-world`).
+///
+/// Each panel is the retail full-screen screen asset placed at its own
+/// declaration (`0,0`) with no invented layout, no invented text and no
+/// widget: 1 sprite node per panel, exactly like the shipped screen.
+///
+/// **Index-range rule:** both assets are raw `RCI` 320×200 files whose measured
+/// non-zero span falls below the `Map` family floor of `63`
+/// (`MAP100I0`: `16..=254` · `TRAV0I00`: `33..=254`). The compositor resolves
+/// their range **per asset** from `image::ASSET_RANGE_DERIVATIONS` — the
+/// measurement, not a global widening (M18 B3-c, `image.rs`).
+pub fn build_map_panels(assets: &UiAssets) -> Result<[UiPanel; 2], UiSpecError> {
+    let local = UiPanel {
+        id: UiPanelId::MapLocal,
+        nodes: vec![declared_sprite(
+            "map-local",
+            "map100",
+            assets,
+            MAP_LOCAL_ASSET,
+            UiRect::canvas(),
+            "MAP100I0 is a raw 320×200 RCI (no ImgFile header): the local-map screen fills the canvas",
+            None,
+        )?],
+    };
+    let world = UiPanel {
+        id: UiPanelId::MapWorld,
+        nodes: vec![declared_sprite(
+            "map-world",
+            "trav00",
+            assets,
+            MAP_WORLD_ASSET,
+            UiRect::canvas(),
+            "TRAV0I00 is a raw 320×200 RCI (no ImgFile header): the world/travel map fills the canvas",
+            None,
+        )?],
+    };
+    Ok([local, world])
+}
+
 /// C7a assert: no node may be a generic widget nor use fonts
 /// outside the `.FNT` registry. Returns the violation list (empty = PASS).
 pub fn assert_no_generic_widgets(panels: &[UiPanel]) -> Vec<UiSpecError> {
@@ -1066,7 +1117,10 @@ pub fn compose(panels: &[UiPanel], assets: &UiAssets) -> Result<Framebuffer, UiS
             match node.kind {
                 UiNodeKind::Sprite => {
                     let asset = require_image(assets, panel.id.as_str(), &node.asset)?;
-                    let range = asset_index_range(&node.asset);
+                    // **Per-asset range (M18 B3-c):** the declared family/asset
+                    // range, widened only for the assets whose own bytes were
+                    // measured to exceed it (`image::ASSET_RANGE_DERIVATIONS`).
+                    let range = asset_index_range_resolved(&node.asset);
                     let source = node
                         .source
                         .unwrap_or_else(|| UiRect::new(0, 0, asset.image.width, asset.image.height));
@@ -1271,7 +1325,7 @@ pub fn palette_compliance(fb: &Framebuffer) -> Vec<(usize, u8, (u8, u8))> {
             violations.push((at, *index, (0, 0)));
             continue;
         };
-        let range = asset_index_range(&entry.asset);
+        let range = asset_index_range_resolved(&entry.asset);
         if !range.contains(index) {
             violations.push((at, *index, (*range.start(), *range.end())));
         }

@@ -372,7 +372,7 @@ fn split_entry<'a>(line: &'a str, expected: &str) -> Result<(&'a str, &'a str), 
 }
 
 /// Escapes `\`, `|` and newlines in text fields (exact roundtrip).
-fn escape(raw: &str) -> String {
+pub(crate) fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
         match ch {
@@ -386,7 +386,7 @@ fn escape(raw: &str) -> String {
     out
 }
 
-fn unescape(escaped: &str) -> Result<String, SaveError> {
+pub(crate) fn unescape(escaped: &str) -> Result<String, SaveError> {
     let mut out = String::with_capacity(escaped.len());
     let mut chars = escaped.chars();
     while let Some(ch) = chars.next() {
@@ -410,7 +410,7 @@ fn unescape(escaped: &str) -> Result<String, SaveError> {
 }
 
 /// FNV-1a 64 (deterministic, 0 dependencies — corruption detection).
-fn fnv1a64(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash = FNV_OFFSET_BASIS;
     for byte in bytes {
         hash ^= u64::from(*byte);

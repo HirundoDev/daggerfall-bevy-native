@@ -12,8 +12,8 @@
 use std::path::Path;
 
 use daggerfall_parser_bevy_bridge::ui_spec::{
-    build_all_panels, HudPanelData, InventoryPanelData, QuestPanelData, UiAssets, UiPanel,
-    FONT_FILES,
+    build_all_panels, build_map_panels, HudPanelData, InventoryPanelData, QuestPanelData,
+    UiAssets, UiPanel, FONT_FILES,
 };
 use daggerfall_parser_rs::image::{decode_img_file, FntFile};
 use daggerfall_parser_rs::texture::Palette;
@@ -51,9 +51,29 @@ pub(crate) fn load_ui_assets(dir: &Path) -> Result<UiAssets, String> {
     Ok(assets)
 }
 
-/// The 4 session panels (HUD · inventory · quests · menu) from the M7 read
-/// models with the canonical contract M17 data.
+/// The session panels: the 4 M17 panels (HUD · inventory · quests · menu) plus
+/// the two **B3-c** map panels (`map-local` · `map-world`), built from the M7
+/// read models with the canonical contract M17 data.
+///
+/// Census: **6** panels. The map panels are the retail full-screen screens
+/// (`MAP100I0.IMG` / `TRAV0I00.IMG`); their index range is resolved **per
+/// asset** by the compositor (see `build_map_panels`).
 pub(crate) fn session_panels(assets: &UiAssets) -> Result<Vec<UiPanel>, String> {
+    session_panels_with_quests(
+        assets,
+        &[
+            "The Scholar's Request".to_string(),
+            "A Rat in the Cellar".to_string(),
+        ],
+    )
+}
+
+/// The session panels with an explicit quest list (the demo passes the retail
+/// journal titles; `PROBE-UI-001` keeps its own fixture).
+pub(crate) fn session_panels_with_quests(
+    assets: &UiAssets,
+    quests: &[String],
+) -> Result<Vec<UiPanel>, String> {
     let hud = HudReadModel::project(&HudSource {
         health: 100,
         max_health: 100,
@@ -68,12 +88,9 @@ pub(crate) fn session_panels(assets: &UiAssets) -> Result<Vec<UiPanel>, String> 
             ("potion".to_string(), 3),
             ("scroll".to_string(), 2),
         ],
-        quests: vec![
-            "The Scholar's Request".to_string(),
-            "A Rat in the Cellar".to_string(),
-        ],
+        quests: quests.to_vec(),
     });
-    build_all_panels(
+    let mut panels = build_all_panels(
         &HudPanelData {
             health: hud.health,
             max_health: hud.max_health,
@@ -91,5 +108,9 @@ pub(crate) fn session_panels(assets: &UiAssets) -> Result<Vec<UiPanel>, String> 
         },
         assets,
     )
-    .map_err(|err| err.to_string())
+    .map_err(|err| err.to_string())?;
+    let [local, world] = build_map_panels(assets).map_err(|err| err.to_string())?;
+    panels.push(local);
+    panels.push(world);
+    Ok(panels)
 }

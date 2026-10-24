@@ -80,11 +80,24 @@
 //! opaque. Pure: 0 Bevy, 0 I/O, 0 global RNG, 0 parser dependency; effects
 //! crossing the organ leave as [`quests::QuestRequest`].
 
+//! M30: [`economy`] — shops, inns, banking and transport (REQ-L99-063,
+//! SPEC-M30): the nine `storeBuysItemType` buildings with their 36
+//! `(building, group)` pairs and five trade modes, `CalculateCost` +
+//! `ApplyRegionalPriceAdjustment` with the 250..4000 drift, the 53 retail
+//! holidays, repair/identify quotes, `CalculateRoomCost`, the per-region
+//! bank ledger (deposit/withdraw/LOC/loans `+10 %`/houses/ships) with the
+//! five loan events and the overdue default as a typed [`economy::LoanCrime`],
+//! and the four transport modes with their DFU speeds. The haggling stage
+//! stays in the Skills organ (`calculate_trade_price`, M5); the `app`
+//! composes both. Pure: 0 Bevy, 0 I/O, 0 global RNG (rolls enter as
+//! parameters).
+
 pub mod combat;
 pub mod crafting;
 pub mod dialogue;
 mod determinism;
 pub mod durability;
+pub mod economy;
 pub mod encounters;
 pub mod enemy_ai;
 pub mod factions;

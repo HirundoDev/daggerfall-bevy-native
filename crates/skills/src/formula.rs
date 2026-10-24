@@ -59,7 +59,9 @@ pub struct FormulaVector {
 
 /// DFU parity golden vectors (11 vectors: buy/sell + domain edges: quality
 /// 0/20, stats 0/100, cost 0). Independent transcription of
-/// `FormulaHelper.cs:1976-2001` (2026-10-19).
+/// `FormulaHelper.cs:1960-1988` (verified against upstream `0038a1e6`,
+/// 2026-10-23; the earlier `:1976-2001` citation did not match v1.1.1 —
+/// SPEC-M30 §9).
 pub const GOLDEN_VECTORS: &[FormulaVector] = &[
     FormulaVector { cost: 100, shop_quality: 10, selling: false, player_mercantile: 50, player_personality: 50, expected: 56 },
     FormulaVector { cost: 100, shop_quality: 10, selling: true, player_mercantile: 50, player_personality: 50, expected: 50 },

@@ -7,10 +7,12 @@
 //! the binary (M14: `audio` + `mode_a`; M22: `combat_runtime`; M23:
 //! `m23_window`, the demo window's pure magic layer; M2: `m2_kinematics`, the
 //! input→displacement math the `window`-gated action system runs, exported so
-//! the default test config can execute the input path).
+//! the default test config can execute the input path; M18 B2-b:
+//! `interior_transit`, the spine's `SceneTransition` + door activation).
 
 pub mod audio;
 pub mod combat_runtime;
+pub mod interior_transit;
 pub mod law_runtime;
 pub mod m23_window;
 pub mod m2_kinematics;

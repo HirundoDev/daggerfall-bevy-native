@@ -597,6 +597,603 @@ fn parse_resource(
     }
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Block type + DFU data fixes — M18 B2-a (M11 remainder, REQ-L99-043)
+//
+// Port of the two DFU entry points the M11 audit left missing
+// (`campaign-final-reaudit-CR-acc1b551.md:216`):
+//
+// | DFU source (`/tmp` corpus `DaggerfallConnect/API/BlocksFile.cs`) | Here |
+// |:---|:---|
+// | `GetRdbType(string blockName)` `:243-258` | [`rdb_type`] |
+// | `FixRdbData(int block)` `:500-626` | [`fix_rdb_data`] |
+// | `private bool Read(int block) → … FixRdbData(block)` `:679-682` | applied by the caller right after [`parse`] |
+//
+// `DFBlock.RdbTypes` (`DFBlock.cs:92-113`) is mirrored with its exact
+// discriminants instead of a fresh enum, so a future save/telemetry field can
+// carry the value unchanged. `Start` stays declared for that reason only:
+// `GetRdbType` never returns it (it is derived from map data, `:238-243`).
+// ───────────────────────────────────────────────────────────────────────────
+
+/// `DFBlock.RdbTypes` (`DFBlock.cs:92-113`), discriminants preserved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RdbType {
+    /// Not defined (`0`).
+    Unknown = 0,
+    /// Border block used to seal a dungeon (`1`).
+    Border = 1,
+    /// Normal block (`2`).
+    Normal = 2,
+    /// Flooded block (`3`).
+    Wet = 3,
+    /// Used in the main quest (`4`).
+    Quest = 4,
+    /// Crypt block (`5`).
+    Mausoleum = 5,
+    /// Start block — derived from map data, never by [`rdb_type`] (`6`).
+    Start = 6,
+}
+
+impl RdbType {
+    /// Every value in discriminant order (deterministic census order).
+    pub const ALL: [RdbType; 7] = [
+        RdbType::Unknown,
+        RdbType::Border,
+        RdbType::Normal,
+        RdbType::Wet,
+        RdbType::Quest,
+        RdbType::Mausoleum,
+        RdbType::Start,
+    ];
+
+    /// Discriminant (`DFBlock.RdbTypes` value).
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    /// Short label for evidence lines.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Border => "border",
+            Self::Normal => "normal",
+            Self::Wet => "wet",
+            Self::Quest => "quest",
+            Self::Mausoleum => "mausoleum",
+            Self::Start => "start",
+        }
+    }
+
+    /// Name prefix that identifies the type (`"B"`, `"W"`, …; `"?"` for
+    /// `Unknown`).
+    pub const fn prefix(self) -> &'static str {
+        match self {
+            Self::Border => "B",
+            Self::Wet => "W",
+            Self::Quest => "S",
+            Self::Mausoleum => "M",
+            Self::Normal => "N",
+            // No prefix classifies into these two.
+            Self::Start | Self::Unknown => "?",
+        }
+    }
+}
+
+/// `BlocksFile.GetRdbType` (`BlocksFile.cs:243-258`): the block type is the
+/// **first letter of the record name**, in the source's order of tests.
+///
+/// The comparison is case-sensitive, as the C# `StartsWith(string)` overload
+/// is ordinal: `"n0000042.RDB"` is `Unknown`, not `Normal`. `Start` is never
+/// returned (`BlocksFile.cs:238-243`).
+pub fn rdb_type(block_name: &str) -> RdbType {
+    match block_name.chars().next() {
+        Some('B') => RdbType::Border,
+        Some('W') => RdbType::Wet,
+        Some('S') => RdbType::Quest,
+        Some('M') => RdbType::Mausoleum,
+        Some('N') => RdbType::Normal,
+        _ => RdbType::Unknown,
+    }
+}
+
+/// Synthetic `offset` of an object created by a data fix (DFU appends a new
+/// `RdbObject` to the root's array, `BlocksFile.cs:566-575`): it has no byte
+/// position in the record, so the identity lives above any real offset.
+///
+/// It must stay inside `i32` (the type of `next`/`previous`) AND above any
+/// record length: 1 GiB is ~4 orders of magnitude over the largest `.RDB`
+/// record in `BLOCKS.BSA` (32 MiB for the whole archive).
+pub const SYNTHETIC_OFFSET_BASE: usize = 1 << 30;
+
+/// One object chain of `ObjectRootList` — DFU `ObjectRootList[root].RdbObjects`
+/// (`BlocksFile.cs:243…`), as indices into [`RdbBlock::objects`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RdbChain {
+    /// Root cell index in `ObjectRootList` (`0..width*height`).
+    pub root: usize,
+    /// Object indices of the chain, in link order.
+    pub objects: Vec<usize>,
+}
+
+impl RdbBlock {
+    /// Rebuilds the per-root object chains from the flat, deduplicated
+    /// [`RdbBlock::objects`] list.
+    ///
+    /// The image is reconstructed, not re-read: roots are walked in cell
+    /// order and each chain follows `next` (cycle-guarded, like [`parse`]).
+    /// A node already emitted by another root ends the chain — the same
+    /// truncation [`parse`] performs on a shared chain.
+    pub fn chains(&self) -> Vec<RdbChain> {
+        let mut by_offset: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::with_capacity(self.objects.len());
+        for (index, object) in self.objects.iter().enumerate() {
+            by_offset.entry(object.offset).or_insert(index);
+        }
+        let mut chains = Vec::new();
+        for (root, head) in self.roots.iter().enumerate() {
+            if *head < 0 {
+                continue;
+            }
+            let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+            let mut objects = Vec::new();
+            let mut cursor = *head as usize;
+            while let Some(&index) = by_offset.get(&cursor) {
+                if !seen.insert(index) {
+                    break;
+                }
+                objects.push(index);
+                let next = self.objects[index].next;
+                if next < 0 {
+                    break;
+                }
+                cursor = next as usize;
+            }
+            if !objects.is_empty() {
+                chains.push(RdbChain { root, objects });
+            }
+        }
+        chains
+    }
+}
+
+/// The seven data fixes of `BlocksFile.FixRdbData` (`:502-625`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RdbFix {
+    /// `N0000071.RDB` — connect the lower western dead-end with models 10/11
+    /// (`BlocksFile.cs:502-508`).
+    WesternDeadEndConnected,
+    /// `N0000022.RDB` / `N0000023.RDB` — drop the bad door chain
+    /// (`BlocksFile.cs:509-512`).
+    BadDoorRemoved,
+    /// `N0000035.RDB` — correct a door height (`BlocksFile.cs:513-516`).
+    DoorHeightCorrected,
+    /// `N0000052.RDB` — correct a lever placement (`BlocksFile.cs:517-520`).
+    LeverPlacementCorrected,
+    /// `W0000009.RDB` — move the exit to another corner and seal it with a
+    /// brick wall (`BlocksFile.cs:521-575`).
+    ExitMovedAndSealed,
+    /// `W0000018.RDB` — join the upper rooms with a corridor and fix a door
+    /// (`BlocksFile.cs:576-601`).
+    UpperRoomsJoined,
+    /// `W0000020.RDB` — open the lower western dead-end with a stair
+    /// (`BlocksFile.cs:602-625`).
+    LowerDeadEndOpened,
+}
+
+impl RdbFix {
+    /// Stable label for evidence/digest lines.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::WesternDeadEndConnected => "western_dead_end_connected",
+            Self::BadDoorRemoved => "bad_door_removed",
+            Self::DoorHeightCorrected => "door_height_corrected",
+            Self::LeverPlacementCorrected => "lever_placement_corrected",
+            Self::ExitMovedAndSealed => "exit_moved_and_sealed",
+            Self::UpperRoomsJoined => "upper_rooms_joined",
+            Self::LowerDeadEndOpened => "lower_dead_end_opened",
+        }
+    }
+}
+
+/// A fix that could not be applied to the record as parsed (missing root,
+/// missing chain position, non-model resource, no free model reference).
+///
+/// This is NOT a parse error: DFU would throw `IndexOutOfRangeException` on
+/// the same record; here the record stays usable and the gap is explicit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RdbFixGap {
+    /// Fix that could not be applied.
+    pub fix: RdbFix,
+    /// Exact reason (root/position/what was missing).
+    pub reason: String,
+}
+
+/// Outcome of [`fix_rdb_data`] on ONE record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RdbFixReport {
+    /// Record name the report refers to.
+    pub block: String,
+    /// [`rdb_type`] of the name (computed even for unknown blocks).
+    pub rdb_type: RdbType,
+    /// `true` if the name is one of the eight records DFU repairs. An unknown
+    /// record is an explicit no-op, never a silent PASS.
+    pub known: bool,
+    /// Fixes actually applied, in application order.
+    pub applied: Vec<RdbFix>,
+    /// Fixes the record could not accept (never a panic).
+    pub unresolved: Vec<RdbFixGap>,
+}
+
+impl RdbFixReport {
+    /// `true` if the record was repaired (≥1 fix applied, 0 gaps).
+    pub fn pass(&self) -> bool {
+        self.unresolved.is_empty() && !self.applied.is_empty()
+    }
+}
+
+/// Record names repaired by `BlocksFile.FixRdbData` and the DFU directory
+/// indices the corpus comments document (`:502`, `:509`, `:513`, `:517`,
+/// `:521`, `:576`, `:602`). Keying by NAME instead of the index keeps the port
+/// stable against directory-order replacements (`WorldDataReplacement`,
+/// `BlocksFile.cs:270-273`).
+pub const RDB_FIX_BLOCKS: [&str; 8] = [
+    "N0000071.RDB",
+    "N0000022.RDB",
+    "N0000023.RDB",
+    "N0000035.RDB",
+    "N0000052.RDB",
+    "W0000009.RDB",
+    "W0000018.RDB",
+    "W0000020.RDB",
+];
+
+/// Applies `BlocksFile.FixRdbData` (`:500-626`) to ONE parsed record.
+///
+/// DFU calls it at the end of `ReadBlock` (`:679-682`), i.e. right after the
+/// record is parsed and before any layout uses it; callers here do the same.
+/// The function is total: an unknown name returns an explicit
+/// `known: false` report, and a known name whose image cannot accept a fix
+/// returns the consumed fixes plus a typed [`RdbFixGap`] — never a panic and
+/// never a silent PASS.
+pub fn fix_rdb_data(block_name: &str, block: &mut RdbBlock) -> RdbFixReport {
+    let mut report = RdbFixReport {
+        block: block_name.to_string(),
+        rdb_type: rdb_type(block_name),
+        known: RDB_FIX_BLOCKS
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(block_name)),
+        applied: Vec::new(),
+        unresolved: Vec::new(),
+    };
+    let canonical = RDB_FIX_BLOCKS
+        .iter()
+        .copied()
+        .find(|name| name.eq_ignore_ascii_case(block_name));
+    let Some(name) = canonical else {
+        return report;
+    };
+
+    match name {
+        // `:502-508` — connect the western dead-end to the rest of the block.
+        "N0000071.RDB" => {
+            let fix = RdbFix::WesternDeadEndConnected;
+            let mut gaps = Vec::new();
+            for (root, position, index, x) in [
+                (4usize, 18usize, Some(10u16), Some(640i32)),
+                (5, 8, Some(11), None),
+            ] {
+                match object_at(block, root, position) {
+                    Some(object) => {
+                        if let Some(index) = index {
+                            gaps.extend(set_model_index(block, object, index).err());
+                        }
+                        if let Some(x) = x {
+                            block.objects[object].position[0] = x;
+                        }
+                    }
+                    None => gaps.push(missing(block, root, position)),
+                }
+            }
+            record(&mut report, fix, gaps);
+        }
+        // `:509-512` — remove the bad door chain.
+        "N0000022.RDB" | "N0000023.RDB" => {
+            let fix = RdbFix::BadDoorRemoved;
+            let chains = block.chains();
+            let Some(chain) = chains.iter().find(|chain| chain.root == 2) else {
+                record(
+                    &mut report,
+                    fix,
+                    vec!["root 2 has no object chain".to_string()],
+                );
+                return report;
+            };
+            let offsets: Vec<usize> = chain
+                .objects
+                .iter()
+                .map(|index| block.objects[*index].offset)
+                .collect();
+            // Drop the chain: the objects disappear from the reachable image
+            // and the root stops pointing at them (`RdbObjects = null`, `:511`).
+            block
+                .objects
+                .retain(|object| !offsets.contains(&object.offset));
+            block.roots[2] = -1;
+            record(&mut report, fix, Vec::new());
+        }
+        // `:513-516` — correct the door height.
+        "N0000035.RDB" => {
+            let fix = RdbFix::DoorHeightCorrected;
+            let gaps = match object_at(block, 0, 36) {
+                Some(object) => {
+                    block.objects[object].position[1] = -300;
+                    Vec::new()
+                }
+                None => vec![missing(block, 0, 36)],
+            };
+            record(&mut report, fix, gaps);
+        }
+        // `:517-520` — correct the lever placement.
+        "N0000052.RDB" => {
+            let fix = RdbFix::LeverPlacementCorrected;
+            let gaps = match object_at(block, 0, 24) {
+                Some(object) => {
+                    block.objects[object].position[0] = 543;
+                    Vec::new()
+                }
+                None => vec![missing(block, 0, 24)],
+            };
+            record(&mut report, fix, gaps);
+        }
+        // `:521-575` — move the exit to another corner, add a brick wall door.
+        "W0000009.RDB" => {
+            let fix = RdbFix::ExitMovedAndSealed;
+            let mut gaps = Vec::new();
+            // First unused model reference becomes the wall door `72100` "DOR".
+            let wall = block
+                .model_references
+                .iter()
+                .position(|reference| reference.model_id.is_none())
+                .filter(|index| *index < u16::MAX as usize);
+            let Some(wall_index) = wall else {
+                record(
+                    &mut report,
+                    fix,
+                    vec!["ModelReferenceList without a free slot (0…750)".to_string()],
+                );
+                return report;
+            };
+            block.model_references[wall_index] = RdbModelReference {
+                model_id: Some(72100),
+                description: *b"DOR",
+            };
+            // Corner near the original exit gets a door model and moves 1 m.
+            let Some(corner) = object_at(block, 5, 39) else {
+                record(&mut report, fix, vec![missing(block, 5, 39)]);
+                return report;
+            };
+            block.objects[corner].position[0] += 64;
+            block.objects[corner].position[2] -= 64;
+            let (x, y, z) = (
+                block.objects[corner].position[0],
+                block.objects[corner].position[1],
+                block.objects[corner].position[2],
+            );
+            gaps.extend(set_model_index(block, corner, 35).err());
+            gaps.extend(set_y_rotation(block, corner, -512).err());
+            // The exit moves to the corner door.
+            match object_at(block, 8, 0) {
+                Some(object) => {
+                    block.objects[object].position[0] = x;
+                    block.objects[object].position[2] = z + 126;
+                }
+                None => gaps.push(missing(block, 8, 0)),
+            }
+            // The start marker follows the exit.
+            match object_at(block, 4, 5) {
+                Some(object) => {
+                    block.objects[object].position[0] = x;
+                    block.objects[object].position[2] = z;
+                }
+                None => gaps.push(missing(block, 4, 5)),
+            }
+            // A wall seals the door when the block is not the starting one.
+            let wall_position = [x, y, z + 128];
+            if gaps.is_empty() {
+                gaps.extend(
+                    append_model(block, 8, wall_position, wall_index as u16, -512).err(),
+                );
+            }
+            record(&mut report, fix, gaps);
+        }
+        // `:576-601` — turn two upper corners into T junctions + corridor.
+        "W0000018.RDB" => {
+            let fix = RdbFix::UpperRoomsJoined;
+            let mut gaps = Vec::new();
+            for (root, position, rotation) in [(4usize, 38usize, -512i32), (5, 40, -2560)] {
+                match object_at(block, root, position) {
+                    Some(object) => {
+                        gaps.extend(set_model_index(block, object, 10).err());
+                        gaps.extend(set_y_rotation(block, object, rotation).err());
+                    }
+                    None => gaps.push(missing(block, root, position)),
+                }
+            }
+            if gaps.is_empty() {
+                gaps.extend(
+                    append_model(block, 6, [1152, -1792, 1920], 11, -512).err(),
+                );
+            }
+            // Fix a door.
+            match object_at(block, 2, 0) {
+                Some(object) => gaps.extend(set_model_index(block, object, 23).err()),
+                None => gaps.push(missing(block, 2, 0)),
+            }
+            record(&mut report, fix, gaps);
+        }
+        // `:602-625` — open the lower western dead-end with a stair.
+        "W0000020.RDB" => {
+            let fix = RdbFix::LowerDeadEndOpened;
+            let mut gaps = Vec::new();
+            match object_at(block, 4, 15) {
+                Some(object) => gaps.extend(set_model_index(block, object, 5).err()),
+                None => gaps.push(missing(block, 4, 15)),
+            }
+            match object_at(block, 5, 34) {
+                Some(object) => {
+                    gaps.extend(set_model_index(block, object, 7).err());
+                    gaps.extend(set_y_rotation(block, object, -512).err());
+                }
+                None => gaps.push(missing(block, 5, 34)),
+            }
+            if gaps.is_empty() {
+                gaps.extend(append_model(block, 5, [1152, -384, 1408], 4, 512).err());
+            }
+            record(&mut report, fix, gaps);
+        }
+        other => {
+            // `RDB_FIX_BLOCKS` and this match must stay in lockstep.
+            report.unresolved.push(RdbFixGap {
+                fix: RdbFix::BadDoorRemoved,
+                reason: format!("fix table entry {other} without a ported branch"),
+            });
+        }
+    }
+    report
+}
+
+/// Moves a completed fix (or its gaps) into the report.
+fn record(report: &mut RdbFixReport, fix: RdbFix, gaps: Vec<String>) {
+    if gaps.is_empty() {
+        report.applied.push(fix);
+    } else {
+        for reason in gaps {
+            report.unresolved.push(RdbFixGap { fix, reason });
+        }
+    }
+}
+
+/// `(root, chain position)` → index into [`RdbBlock::objects`].
+///
+/// The lookup does NOT require a `Model`: DFU moves `XPos`/`YPos`/`ZPos` of
+/// any object (e.g. `W0000009.RDB` root 4 position 5, `:570-573`). The setters
+/// that need a model (`ModelIndex`, `YRotation`) report the type mismatch
+/// themselves instead of hiding it behind "not found".
+fn object_at(block: &RdbBlock, root: usize, position: usize) -> Option<usize> {
+    let chains = block.chains();
+    let chain = chains.iter().find(|chain| chain.root == root)?;
+    chain.objects.get(position).copied()
+}
+
+/// Gap message for a missing `(root, position)`.
+fn missing(block: &RdbBlock, root: usize, position: usize) -> String {
+    let chains = block.chains();
+    match chains.iter().find(|chain| chain.root == root) {
+        Some(chain) => format!(
+            "root {root} chain has {} objects (position {position} out of range)",
+            chain.objects.len()
+        ),
+        None => format!(
+            "root {root} has no chain (roots {} of {} used)",
+            block.used_roots(),
+            block.root_count()
+        ),
+    }
+}
+
+/// Sets `ModelResource.ModelIndex` of one object (`:503`, `:557`, …).
+fn set_model_index(block: &mut RdbBlock, object: usize, index: u16) -> Result<(), String> {
+    if index as usize >= block.model_references.len() {
+        return Err(format!(
+            "ModelIndex {index} outside the ModelReferenceList ({} entries)",
+            block.model_references.len()
+        ));
+    }
+    match &mut block.objects[object].resource {
+        RdbResource::Model(model) => {
+            model.model_index = index;
+            Ok(())
+        }
+        other => Err(format!(
+            "object {object} is a {}, not a Model",
+            resource_label(other)
+        )),
+    }
+}
+
+/// Label of a resource for gap messages.
+const fn resource_label(resource: &RdbResource) -> &'static str {
+    match resource {
+        RdbResource::Model(_) => "Model",
+        RdbResource::Light(_) => "Light",
+        RdbResource::Flat(_) => "Flat",
+    }
+}
+
+/// Sets `ModelResource.YRotation` of one object (`:561`, `:591`).
+fn set_y_rotation(block: &mut RdbBlock, object: usize, rotation: i32) -> Result<(), String> {
+    match &mut block.objects[object].resource {
+        RdbResource::Model(model) => {
+            model.y_rotation = rotation;
+            Ok(())
+        }
+        other => Err(format!(
+            "object {object} is a {}, not a Model",
+            resource_label(other)
+        )),
+    }
+}
+
+/// Appends a new `Model` object to the chain of `root` (`Index = count`,
+/// `:566-575`), linking it so [`RdbBlock::chains`] reaches it.
+fn append_model(
+    block: &mut RdbBlock,
+    root: usize,
+    position: [i32; 3],
+    model_index: u16,
+    y_rotation: i32,
+) -> Result<(), String> {
+    let chains = block.chains();
+    let Some(chain) = chains.iter().find(|chain| chain.root == root) else {
+        return Err(format!("root {root} has no chain to append to"));
+    };
+    if model_index as usize >= block.model_references.len() {
+        return Err(format!(
+            "ModelIndex {model_index} outside the ModelReferenceList"
+        ));
+    }
+    let previous = chain
+        .objects
+        .last()
+        .map(|index| block.objects[*index].offset);
+    let synthetic = SYNTHETIC_OFFSET_BASE
+        + block
+            .objects
+            .iter()
+            .filter(|object| object.offset >= SYNTHETIC_OFFSET_BASE)
+            .count();
+    if let Some(last) = chain.objects.last() {
+        block.objects[*last].next = synthetic as i32;
+    }
+    block.objects.push(RdbObject {
+        offset: synthetic,
+        next: -1,
+        previous: previous.map_or(-1, |offset| offset as i32),
+        position,
+        resource: RdbResource::Model(RdbModelResource {
+            x_rotation: 0,
+            y_rotation,
+            z_rotation: 0,
+            model_index,
+            trigger_flag: 0,
+            sound_index: 0,
+            action_offset: 0,
+            action: None,
+        }),
+    });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -793,5 +1390,329 @@ mod tests {
             parse(&rec),
             Err(RdbError::RootOffsetMismatch { found: 0, .. })
         ));
+    }
+
+    // ── M18 B2-a: `GetRdbType` / `FixRdbData` port ─────────────────────
+
+    fn model_object(offset: usize, next: i32, position: [i32; 3], index: u16) -> RdbObject {
+        RdbObject {
+            offset,
+            next,
+            previous: -1,
+            position,
+            resource: RdbResource::Model(RdbModelResource {
+                x_rotation: 0,
+                y_rotation: 0,
+                z_rotation: 0,
+                model_index: index,
+                trigger_flag: 0,
+                sound_index: 0,
+                action_offset: 0,
+                action: None,
+            }),
+        }
+    }
+
+    /// Block image with `roots` (all -1 by default) and the given object
+    /// chains, each linked in order (`next` = following offset).
+    fn block_image(roots: usize, chains: &[&[(usize, [i32; 3], u16)]]) -> RdbBlock {
+        let mut block = RdbBlock {
+            header: RdbHeader {
+                unknown1: 0,
+                width: roots as u32,
+                height: 1,
+                object_root_offset: object_root_offset_expected() as u32,
+                unknown2: 0,
+            },
+            model_references: (0..MODEL_REFERENCE_COUNT)
+                .map(|_| RdbModelReference {
+                    model_id: Some(1),
+                    description: *b"WAL",
+                })
+                .collect(),
+            model_data: vec![0; MODEL_REFERENCE_COUNT],
+            roots: vec![-1; roots],
+            objects: Vec::new(),
+        };
+        for (root, chain) in chains.iter().enumerate() {
+            for (position, (offset, position_xyz, index)) in chain.iter().enumerate() {
+                let next = chain.get(position + 1).map_or(-1, |(next, _, _)| *next as i32);
+                block
+                    .objects
+                    .push(model_object(*offset, next, *position_xyz, *index));
+            }
+            if !chain.is_empty() {
+                block.roots[root] = chain[0].0 as i32;
+            }
+        }
+        block
+    }
+
+    #[test]
+    fn rdb_type_matches_blocks_file_prefixes() {
+        // `BlocksFile.cs:243-258`, in the source's order of tests.
+        assert_eq!(rdb_type("B0000000.RDB"), RdbType::Border);
+        assert_eq!(rdb_type("W0000009.RDB"), RdbType::Wet);
+        assert_eq!(rdb_type("S0000001.RDB"), RdbType::Quest);
+        assert_eq!(rdb_type("M0000001.RDB"), RdbType::Mausoleum);
+        assert_eq!(rdb_type("N0000055.RDB"), RdbType::Normal);
+        // Not a prefix of the source: Unknown (never Start, `:238-243`).
+        assert_eq!(rdb_type("X0000001.RDB"), RdbType::Unknown);
+        assert_eq!(rdb_type(""), RdbType::Unknown);
+        // Case-sensitive, as C# `StartsWith(string)` is ordinal.
+        assert_eq!(rdb_type("n0000055.RDB"), RdbType::Unknown);
+        assert_eq!(RdbType::Border.to_u8(), 1);
+        assert_eq!(RdbType::Start.to_u8(), 6);
+        assert_eq!(RdbType::ALL.len(), 7);
+    }
+
+    #[test]
+    fn chains_reconstruct_root_lists_in_cell_order() {
+        let block = block_image(
+            4,
+            &[
+                &[(100, [1, 2, 3], 1), (200, [4, 5, 6], 1)],
+                &[],
+                &[(300, [7, 8, 9], 1)],
+            ],
+        );
+        let chains = block.chains();
+        assert_eq!(chains.len(), 2);
+        assert_eq!(chains[0].root, 0);
+        assert_eq!(chains[0].objects, vec![0, 1]);
+        assert_eq!(chains[1].root, 2);
+        assert_eq!(chains[1].objects, vec![2]);
+    }
+
+    #[test]
+    fn fix_rdb_data_is_an_explicit_no_op_for_unknown_blocks() {
+        // Negative control: a real record that DFU does NOT repair.
+        let mut block = block_image(1, &[&[(100, [1, 2, 3], 7)]]);
+        let before = block.clone();
+        let report = fix_rdb_data("N0000055.RDB", &mut block);
+        assert!(!report.known, "N0000055 is not in FixRdbData");
+        assert!(!report.pass(), "no-op is not a PASS");
+        assert!(report.applied.is_empty());
+        assert!(report.unresolved.is_empty());
+        assert_eq!(block, before, "0 mutation without a fix");
+        assert_eq!(report.rdb_type, RdbType::Normal);
+    }
+
+    #[test]
+    fn fix_rdb_data_never_panics_on_a_malformed_known_block() {
+        // Known name, empty image: every root is missing → typed gaps.
+        let mut block = block_image(1, &[]);
+        let report = fix_rdb_data("N0000071.RDB", &mut block);
+        assert!(report.known);
+        assert!(!report.applied.is_empty() || !report.unresolved.is_empty());
+        assert!(!report.pass(), "gaps are not a PASS");
+        assert!(report.unresolved.iter().all(|gap| !gap.reason.is_empty()));
+
+        // Model reference table exhausted: explicit gap, not an index panic.
+        let mut block = block_image(2, &[&[(100, [0, 0, 0], 0)]]);
+        for reference in &mut block.model_references {
+            reference.model_id = Some(1);
+        }
+        let report = fix_rdb_data("W0000009.RDB", &mut block);
+        assert!(report.unresolved.iter().any(|gap| gap
+            .reason
+            .contains("ModelReferenceList without a free slot")));
+    }
+
+    #[test]
+    fn fix_rdb_data_removes_the_bad_door_of_n0000022_and_n0000023() {
+        for name in ["N0000022.RDB", "N0000023.RDB"] {
+            let mut block = block_image(
+                6,
+                &[
+                    &[(100, [0, 0, 0], 1)],
+                    &[(200, [0, 0, 0], 1)],
+                    &[(300, [0, 0, 0], 1), (400, [0, 0, 0], 1)],
+                ],
+            );
+            let report = fix_rdb_data(name, &mut block);
+            assert_eq!(report.applied, vec![RdbFix::BadDoorRemoved]);
+            assert!(report.pass());
+            assert_eq!(block.roots[2], -1, "root 2 stops pointing at the door");
+            assert_eq!(block.objects.len(), 2, "door chain dropped");
+            assert_eq!(block.resource_counts().0, 2);
+        }
+    }
+
+    #[test]
+    fn fix_rdb_data_restores_the_western_dead_end_of_n0000071() {
+        // Roots 4 and 5 with ≥19 / ≥9 objects so positions 18 and 8 exist.
+        let mut chain4: Vec<(usize, [i32; 3], u16)> = (0..19)
+            .map(|i| (1000 + i * 10, [0, 0, 0], 1))
+            .collect();
+        chain4[18] = (1180, [0, 0, 0], 1);
+        let mut chain5: Vec<(usize, [i32; 3], u16)> = (0..9)
+            .map(|i| (2000 + i * 10, [0, 0, 0], 1))
+            .collect();
+        chain5[8] = (2080, [0, 0, 0], 1);
+        let chains: Vec<&[(usize, [i32; 3], u16)]> = vec![
+            &[],
+            &[],
+            &[],
+            &[],
+            &chain4,
+            &chain5,
+            &[],
+        ];
+        let mut block = block_image(7, &chains);
+        let report = fix_rdb_data("N0000071.RDB", &mut block);
+        assert_eq!(report.applied, vec![RdbFix::WesternDeadEndConnected]);
+        let chains = block.chains();
+        let root4 = chains.iter().find(|chain| chain.root == 4).unwrap();
+        let object18 = &block.objects[root4.objects[18]];
+        assert_eq!(object18.position[0], 640, "XPos connected");
+        let RdbResource::Model(model) = object18.resource else {
+            panic!("expected a Model");
+        };
+        assert_eq!(model.model_index, 10);
+        let root5 = chains.iter().find(|chain| chain.root == 5).unwrap();
+        let RdbResource::Model(model) = block.objects[root5.objects[8]].resource else {
+            panic!("expected a Model");
+        };
+        assert_eq!(model.model_index, 11);
+    }
+
+    #[test]
+    fn fix_rdb_data_appends_the_wall_and_links_the_chain_of_w0000009() {
+        // Root 5 (39 objects), root 8 (exit), root 4 (start marker).
+        let chain5: Vec<(usize, [i32; 3], u16)> = (0..40)
+            .map(|i| (3000 + i * 10, [0, 0, 0], 1))
+            .collect();
+        let chain8: Vec<(usize, [i32; 3], u16)> = vec![(4000, [0, 0, 0], 1)];
+        let chain4: Vec<(usize, [i32; 3], u16)> = (0..6)
+            .map(|i| (5000 + i * 10, [0, 0, 0], 1))
+            .collect();
+        let chains: Vec<&[(usize, [i32; 3], u16)]> = vec![
+            &[],
+            &[],
+            &[],
+            &[],
+            &chain4,
+            &chain5,
+            &[],
+            &[],
+            &chain8,
+        ];
+        let mut block = block_image(9, &chains);
+        // One free model reference at slot 5, the rest used.
+        for (index, reference) in block.model_references.iter_mut().enumerate() {
+            reference.model_id = (index != 5).then_some(1);
+        }
+        let before = block.objects.len();
+        let report = fix_rdb_data("W0000009.RDB", &mut block);
+        assert_eq!(report.applied, vec![RdbFix::ExitMovedAndSealed]);
+        assert!(report.pass(), "gaps: {:?}", report.unresolved);
+        assert_eq!(block.objects.len(), before + 1, "the wall is appended");
+        // Wall door model 72100 "DOR" landed on the free slot.
+        assert_eq!(block.model_references[5].model_id, Some(72100));
+        assert_eq!(&block.model_references[5].description, b"DOR");
+        // The chain of root 8 reaches the new wall.
+        let chains = block.chains();
+        let root8 = chains.iter().find(|chain| chain.root == 8).unwrap();
+        assert_eq!(root8.objects.len(), 2);
+        let wall = &block.objects[root8.objects[1]];
+        assert_eq!(wall.offset, SYNTHETIC_OFFSET_BASE);
+        let RdbResource::Model(model) = wall.resource else {
+            panic!("the wall is a Model");
+        };
+        assert_eq!(model.model_index, 5);
+        assert_eq!(model.y_rotation, -512);
+        // Exit and start marker followed the corner.
+        let chains = block.chains();
+        let root5 = chains.iter().find(|chain| chain.root == 5).unwrap();
+        let corner = &block.objects[root5.objects[39]];
+        assert_eq!(block.objects[root8.objects[0]].position[0], corner.position[0]);
+        assert_eq!(
+            block.objects[root8.objects[0]].position[2],
+            corner.position[2] + 126
+        );
+        assert_eq!(wall.position[2], corner.position[2] + 128);
+    }
+
+    #[test]
+    fn fix_rdb_data_appends_corridor_and_stair_models() {
+        let chain6: Vec<(usize, [i32; 3], u16)> = (0..4)
+            .map(|i| (6000 + i * 10, [0, 0, 0], 1))
+            .collect();
+        let chain2: Vec<(usize, [i32; 3], u16)> = vec![(6500, [0, 0, 0], 1)];
+        let chain4: Vec<(usize, [i32; 3], u16)> = (0..39)
+            .map(|i| (7000 + i * 10, [0, 0, 0], 1))
+            .collect();
+        let chain5: Vec<(usize, [i32; 3], u16)> = (0..41)
+            .map(|i| (8000 + i * 10, [0, 0, 0], 1))
+            .collect();
+        let chains: Vec<&[(usize, [i32; 3], u16)]> = vec![
+            &[],
+            &[],
+            &chain2,
+            &[],
+            &chain4,
+            &chain5,
+            &chain6,
+        ];
+        let mut block = block_image(7, &chains);
+        let report = fix_rdb_data("W0000018.RDB", &mut block);
+        assert_eq!(report.applied, vec![RdbFix::UpperRoomsJoined]);
+        assert!(report.pass(), "gaps: {:?}", report.unresolved);
+        let last = block.objects.last().unwrap();
+        assert_eq!(last.position, [1152, -1792, 1920]);
+        let RdbResource::Model(model) = last.resource else {
+            panic!("the corridor is a Model");
+        };
+        assert_eq!(model.model_index, 11);
+        assert_eq!(model.y_rotation, -512);
+
+        let mut block = block_image(
+            6,
+            &[
+                &[],
+                &[],
+                &[],
+                &[],
+                &(0..16).map(|i| (8000 + i * 10, [0, 0, 0], 1)).collect::<Vec<_>>(),
+                &(0..35).map(|i| (9000 + i * 10, [0, 0, 0], 1)).collect::<Vec<_>>(),
+            ],
+        );
+        let report = fix_rdb_data("W0000020.RDB", &mut block);
+        assert_eq!(report.applied, vec![RdbFix::LowerDeadEndOpened]);
+        let last = block.objects.last().unwrap();
+        assert_eq!(last.position, [1152, -384, 1408]);
+        let RdbResource::Model(model) = last.resource else {
+            panic!("the stair is a Model");
+        };
+        assert_eq!(model.model_index, 4);
+        assert_eq!(model.y_rotation, 512);
+    }
+
+    #[test]
+    fn fix_rdb_data_is_deterministic_for_the_same_image() {
+        let build = || {
+            let chain5: Vec<(usize, [i32; 3], u16)> = (0..40)
+                .map(|i| (3000 + i * 10, [0, 0, 0], 1))
+                .collect();
+            let chains: Vec<&[(usize, [i32; 3], u16)]> = vec![
+                &[],
+                &[],
+                &[],
+                &[],
+                &[(5000, [0, 0, 0], 1)],
+                &chain5,
+                &[],
+                &[],
+                &[(4000, [0, 0, 0], 1)],
+            ];
+            block_image(9, &chains)
+        };
+        let mut first = build();
+        let mut second = build();
+        let a = fix_rdb_data("W0000009.RDB", &mut first);
+        let b = fix_rdb_data("W0000009.RDB", &mut second);
+        assert_eq!(a, b);
+        assert_eq!(first, second);
     }
 }

@@ -2010,6 +2010,10 @@ dependencies = [
 [[package]]
 name = "daggerfall-heart"
 version = "0.1.0"
+dependencies = [
+ "daggerfall-memory",
+ "daggerfall-nervous",
+]
 
 [[package]]
 name = "daggerfall-inventory"
@@ -2041,6 +2045,9 @@ version = "0.1.0"
 [[package]]
 name = "daggerfall-perception"
 version = "0.1.0"
+dependencies = [
+ "daggerfall-nervous",
+]
 
 [[package]]
 name = "daggerfall-skills"

@@ -36,10 +36,22 @@
 //! `.RMB` grid inside the city (INV-L99-5) and M13 sampler outside. Jump
 //! (Space), run (Shift), crouch (Ctrl) and sneak (C, toggle) change the speed
 //! resolved by the DFU source (`PlayerSpeedChanger`); the title bar shows the
-//! engine mode, the breath and the M20 status line. The demo has no water
-//! (§6.5): swimming is measured in `PROBE-LOCOMOTION-001` with its synthetic
-//! world; levitation arrives with M23's cast (L), driving the same engine
-//! (`MoveInput.levitating`).
+//! engine mode, the breath and the M20 status line. **Water (CS-08):** the
+//! `Ocean` band is rendered as the sea surface at
+//! [`crate::m18_demo::DemoTerrain::sea_level_m`] and it is **not walkable** —
+//! the adapter validates the destination cell exactly like the grid validates
+//! a city entry, so the player and a jump stop at the shoreline. No climbable
+//! wall is modelled (§6.5): climbing is measured in `PROBE-LOCOMOTION-001` with
+//! its synthetic world; levitation arrives with M23's cast (L), driving the same
+//! engine (`MoveInput.levitating`).
+//!
+//! **Startup (B1-d, CS-20):** the app opens in [`crate::m18_phase::AppPhase::Menu`]
+//! and shows the retail `main-menu` panel (`TITL00I0` + `MENU.IMG` +
+//! `BUTN00`/`BUTN03`, index 3 of `ui_spec::build_all_panels`) full screen with
+//! the HUD hidden and no music; `Enter` switches to `Playing`, which restores the
+//! `hud` panel + HUD sprite, starts the city context song and lets the world
+//! systems tick. The surface is selected by [`crate::m18_phase::visible_panel_index`],
+//! the same function `MENU-001` reads.
 //!
 //! Combat (M22): the interactive fight runs through the production
 //! [`daggerfall_app::combat_runtime::CombatSession`] — the same composition
@@ -77,10 +89,10 @@ use bevy::window::PrimaryWindow;
 use daggerfall_behavior::locomotion::{
     max_breath, Dice100, Frame, Locomotion, MotionMode, MoveInput, PlayerBody,
 };
-use daggerfall_combat::{actor_seed, Combatant, EntityKind};
+use daggerfall_combat::actor_seed;
 use daggerfall_heart::clock::{GameClock, TIME_SCALE_GAME_SECONDS_PER_REAL_SECOND};
 use daggerfall_parser_bevy_bridge as bridge;
-use daggerfall_skills::character::{Attribute, Skill, SKILL_CHECK_INTERVAL_MINUTES};
+use daggerfall_skills::character::{Skill, SKILL_CHECK_INTERVAL_MINUTES};
 use daggerfall_skills::progression::{DriverStep, MotionSignals, SkillDriver};
 
 use crate::m18_demo::{DemoScene, DemoTexture, CAPTION_RANGE_M, M19_SEED};
@@ -88,10 +100,12 @@ use daggerfall_app::law_runtime::{
     city_watch_fighter, GuardOrder, GuardPlacement, LawRuntime, CITY_WATCH_CLASS_FILE,
 };
 use daggerfall_behavior::law::{
-    CrimeTrigger, DfRandom, GuardSpawnContext, GUARD_ATTENTION_RADIUS_METERS,
+    CrimeTrigger, Crimes, DfRandom, GuardSpawnContext, GUARD_ATTENTION_RADIUS_METERS,
     GUARD_REPLACE_MIN_ANGLE_DEGREES, GUARD_REPLACE_ONE_IN,
 };
 use crate::m2_player;
+use crate::ui_weather::{Precipitation, WeatherKind};
+use daggerfall_parser_rs::climate::ClimateMap;
 
 use daggerfall_app::audio::{
     self, AudioEngine, GameplayEvent, MusicBank, RenderedSong, SfxBank, SfxSink,
@@ -161,6 +175,14 @@ struct DemoWorld(DemoScene);
 #[derive(Resource)]
 struct DemoNpcs(Vec<(Entity, Vec3)>);
 
+/// The pool NPC a city watch replaced (`M28`): DFU turns the candidate into the
+/// guard (`PlayerEntity.cs:668-680`), so its billboard is hidden and the caption
+/// stops naming it. The entry stays in [`DemoNpcs`] on purpose — the caption
+/// sprites are indexed by NPC position, and dropping an entry would shift every
+/// caption one slot.
+#[derive(Component)]
+struct ReplacedByGuard;
+
 /// M28: the live law state (crime → guard request → spawn) plus the guard
 /// census the scene holds. `runtime` is the production composition layer
 /// (`daggerfall_app::law_runtime`); the streams are seeded so the scene is
@@ -227,14 +249,152 @@ struct DemoHud {
     sprite: Option<Entity>,
 }
 
+/// **B3-a (CS-14)** — guard billboards instantiated from the live law census.
+///
+/// `spawned` is the idempotency cursor: the system only instantiates the guards
+/// whose position appeared in `M28Law::guards` **after** the last frame, so a
+/// guard is never duplicated. `sprites` keeps `(billboard, actor label,
+/// position)` so [`m18_billboards`] rotates both quads toward the camera.
+#[derive(Resource, Default)]
+struct DemoGuardBillboards {
+    spawned: usize,
+    sprites: Vec<(Entity, Entity, Vec3)>,
+}
+
+/// **B3-b (CS-15/CS-16)** — retail overlays on the 2D camera.
+///
+/// `J` toggles the dialogue overlay and `I` the journal overlay (neither key
+/// has an owner in `crates/app/src` — `V` is *sell*, `m2_player.rs:137`).
+/// `None` means the retail file was unavailable: the toggle then reports the
+/// degradation and draws nothing (0 invented text).
+#[derive(Resource, Default)]
+struct DemoOverlays {
+    dialogue: Option<Entity>,
+    journal: Option<Entity>,
+    dialogue_on: bool,
+    journal_on: bool,
+    dialogue_size: (u16, u16),
+    journal_size: (u16, u16),
+    /// On-screen position of each overlay (restored when it is shown again).
+    dialogue_at: Vec3,
+    journal_at: Vec3,
+}
+
+/// **B3-d (CS-12)** — the window's precipitation bridge.
+///
+/// The model is [`crate::ui_weather`]: `CLIMATE.PAK` value → published row →
+/// `draw(row, roll)` → `drops`. This resource only paints what the model
+/// resolved: a deterministic half-resolution streak sheet scaled to the window.
+/// `O` advances to the next retail climate that actually precipitates, so the
+/// capture can show real rain/snow without inventing weather.
+#[derive(Resource, Default)]
+struct DemoWeather {
+    /// Resolved precipitation in force (model output, never a literal).
+    precip: Option<Precipitation>,
+    /// Sprite carrying the sheet (`None` when `CLIMATE.PAK` is unreadable).
+    sprite: Option<Entity>,
+    /// Sheet handle, rewritten in place when the climate changes.
+    handle: Option<Handle<Image>>,
+    /// `CLIMATE.PAK` values present in the map, ascending.
+    climates: Vec<u8>,
+    /// Every `(climate, roll)` of the map that actually precipitates, in
+    /// `CLIMATE.PAK` order and ascending roll — the `O` cycle walks this list.
+    states: Vec<(u8, f32)>,
+    /// Index into `states` of the value in force.
+    at: usize,
+    /// Half-resolution sheet size (`w`, `h`) in pixels.
+    size: (u16, u16),
+}
+
+/// Z of the precipitation sheet: above the world, below the B3-b overlays.
+const PRECIP_Z: f32 = 18.0;
+
+/// Sheet divisor over the window (half resolution keeps the upload small).
+const PRECIP_DIV: u16 = 2;
+
+/// Upper bound of streaks painted by one sheet (the model's `drops` can be
+/// large; the sheet is capped so the texture stay bounded, declared here).
+const PRECIP_MAX_STREAKS: usize = 1_400;
+
+/// **B1-a** — terrain group entities of the current composition: the `T` key
+/// replaces them when the sampling pixel changes.
+#[derive(Resource, Default)]
+struct TerrainMeshes(Vec<Entity>);
+
 /// M18 integrated demo window.
 pub fn run_windowed_m18(
     path_checker: &daggerfall_inventory::path_checker::PathChecker,
+    overrides: crate::m18_demo::M18Overrides,
 ) -> Result<(), String> {
     if path_checker.use_custom_universe() {
         return Err("M18 supports Mode A only (ModeState=B is out of scope)".into());
     }
-    let scene = crate::m18_demo::compose_demo().map_err(|err| err.to_string())?;
+    let scene = match crate::m18_demo::compose_demo_with_overrides(&overrides) {
+        Ok(scene) => scene,
+        Err(err) => {
+            // **CS-08/09/10** — a requested band spawn that cannot be honoured is
+            // NOT a recoverable window failure: falling back to the retail spawn
+            // (or to another band) would silently measure a different state than
+            // the one asked for. Refuse explicitly (exit 2), never degrade.
+            if overrides.spawn.is_some() {
+                println!("M18 VE: spawn-override refused — {err}");
+                eprintln!(
+                    "M18: --spawn {err} — refusing to open the world at any other point (exit 2)"
+                );
+                std::process::exit(2);
+            }
+            return Err(err.to_string());
+        }
+    };
+    // B1-a: the override is named in the evidence (never a silent change).
+    if let Some(origin) = overrides.origin {
+        println!(
+            "M18 VE: origin-override px=({},{}) — M13 terrain sampled at that map pixel \
+             (city hull, collision grid and spawn untouched)",
+            origin[0], origin[1]
+        );
+    }
+    if let Some(yaw) = overrides.yaw {
+        println!(
+            "M18 VE: yaw-override {yaw:.4} rad ({:.1}°) — initial yaw of the spawn",
+            yaw.to_degrees()
+        );
+    }
+    if let Some(band_spawn) = scene.spawn_band {
+        // **CS-08/09/10** — the viewpoint is evidence, not a silent change: where
+        // it stands, which band is under it, the surface it stands on (mesh
+        // height lifted to the declared sea plane over water), the yaw and what
+        // that yaw looks at, and that the collision grid is untouched.
+        println!(
+            "M18 VE: spawn-override band:{} · eye=({:.2},{:.2},{:.2}) · at ({:.1},{:.1}) m = \
+             {:.1} m outside the city hull · terrain band under the eye {} · surface {:.2} m \
+             (mesh {:.2} m · sea level {}) · yaw {:.4} rad ({:.1}°) toward ({:.1},{:.1}) \
+             {:.1} m away · open water {} samples / relief {:.1} m · open run {:.2} m · city hull, \
+             collision grid and walkability untouched",
+            band_spawn.band.id(),
+            band_spawn.eye[0],
+            band_spawn.eye[1],
+            band_spawn.eye[2],
+            band_spawn.at[0],
+            band_spawn.at[1],
+            band_spawn.outside_hull_m,
+            scene.terrain.band_at(band_spawn.eye[0], band_spawn.eye[2]).name(),
+            band_spawn.surface_m,
+            band_spawn.ground_m,
+            match band_spawn.sea_level_m {
+                Some(level) => format!("{level:.2} m"),
+                None => "none (no ocean in the ring)".to_string(),
+            },
+            band_spawn.yaw,
+            band_spawn.yaw.to_degrees(),
+            band_spawn.target[0],
+            band_spawn.target[1],
+            band_spawn.target_distance_m,
+            band_spawn.water_samples,
+            band_spawn.relief_m,
+            band_spawn.open_run_m,
+        );
+    }
     let city_m = scene.city_m();
     println!(
         "M18 VE: {} · map-pixel ({},{}) · {} buildings · {} retail triangles · {} textures · \
@@ -257,7 +417,7 @@ pub fn run_windowed_m18(
     );
     println!(
         "M18 VE: terrain world-span x/z {:.1}..{:.1} m · city {:.1} m · WASD+mouse-look · \
-         Esc releases the cursor · 1-4 1996 UI panels",
+         Esc releases the cursor · 1-6 UI panels · J dialogue overlay · I journal overlay",
         scene.terrain.inner_neg_m(),
         scene.terrain.outer_m(),
         city_m,
@@ -284,16 +444,53 @@ pub fn run_windowed_m18(
         .insert_resource(DemoWorld(scene))
         .insert_resource(m2_player::ActionState::default())
         .insert_resource(M28Law::new())
+        .insert_resource(DemoGuardBillboards::default())
+        // B1-d (CS-20): the original opens on the main menu; the world starts
+        // with `Enter`. Until then every world system is gated by
+        // [`crate::m18_phase::phase_playing`] and the game clock advances 0
+        // minutes (the startup composition is the menu backdrop).
+        .insert_resource(crate::m18_phase::AppPhase::Menu)
         .add_systems(
             Startup,
             (
                 m18_spawn_world,
+                m18_spawn_overlays,
+                // B3-d (CS-12): the precipitation sheet of the map pixel.
+                m18_spawn_weather,
                 m2_player::m2_setup_cursor,
                 m19_spawn_player,
                 m20_spawn_progression,
                 m14_audio_startup,
             ),
         )
+        // Phase / camera-shell keys that run in BOTH phases: `m18_phase_keys`
+        // is the only way out of the menu and the yaw step is a camera control.
+        // `m18_phase_ui` selects the visible surface of each phase (M-1).
+        //
+        // **Declared order (m-3):** `m18_phase_keys` runs BEFORE the world
+        // systems that observe the phase. That is the sequence `MENU-001` fixes
+        // with `.chain()` (Enter handler → gated world bundle), so the frame that
+        // enters the world is the first frame that ticks in both consumers and
+        // the probe can never measure an order the window does not declare.
+        .add_systems(
+            Update,
+            (
+                m18_phase_keys
+                    .before(m2_player::m2_gather_action)
+                    .before(m18_apply_player_action),
+                m18_yaw_keys,
+                m18_phase_ui,
+            ),
+        )
+        // World-only shell keys (m-7): `T` re-samples the terrain (a world
+        // mutation) and `1-4` reveal the world panels — neither belongs to the
+        // menu, which shows the retail `main-menu` composition only.
+        .add_systems(
+            Update,
+            (m18_origin_toggle, m18_switch_panel).run_if(crate::m18_phase::phase_playing),
+        )
+        // World systems: gated by the phase (B1-d). `m19_update_title` stays
+        // ungated so the bar shows `MENU` / `PLAYING` in both states.
         .add_systems(
             Update,
             (
@@ -303,20 +500,41 @@ pub fn run_windowed_m18(
                 // effect entity, so a Levitate cast takes effect the same
                 // frame it lands.
                 m23_cast_key.before(m18_apply_player_action),
+                // CS-14 scenario: the injected test door tracks the camera so
+                // the bash stays reachable after the campaign walked.
+                m28_cs14_scenario_door.before(m28_door_bash),
                 m28_door_bash.before(m18_apply_player_action),
                 m28_guard_arrival,
                 m28_sync_census,
+                // B3-a (CS-14): the visible guard follows the live census (the
+                // law state is written above); idempotent by `spawned`.
+                m18_guard_billboards.after(m28_sync_census),
+                // B3-a (CS-14 fidelity): the watch REPLACES the pool NPC it is
+                // drawn from — both billboards at one spot framed the priest
+                // instead of the knight (measured 2026-10-24).
+                m28_guards_replace_npcs.after(m18_guard_billboards),
+                // CS-14 scenario: once the watch is placed, the camera turns to
+                // the first guard so the capture shows the billboard.
+                m18_cs13_face_crowd.before(m18_cs14_face_guards),
+                m18_cs14_face_guards.after(m18_guard_billboards),
+                // B3-b (CS-15/CS-16): `J` / `I` toggle the retail overlays.
+                m18_overlay_keys,
+                // B3-d (CS-12): `O` cycles to the next precipitating climate.
+                m18_weather_key,
                 m18_apply_player_action,
                 // M20: the driver consumes the signals of the M19 frame and the
                 // game clock before the title/HUD consumers read the character.
                 m20_progression_tick.after(m18_apply_player_action),
-                m19_update_title,
                 m18_billboards,
                 m18_captions,
-                m18_switch_panel,
                 m20_key_use_skill,
-            ),
+                // m-7: the city context song starts with the world, not on
+                // `Startup` — the menu is silent.
+                m14_song_on_playing,
+            )
+                .run_if(crate::m18_phase::phase_playing),
         )
+        .add_systems(Update, m19_update_title)
         // M14: the two real game events (fall from the M19 frame, melee swing
         // resolved by the M22 engine) are enqueued after the systems that
         // produce them and drained once per frame.
@@ -327,7 +545,8 @@ pub fn run_windowed_m18(
                 m14_melee_sfx.after(m2_player::m2_gather_action),
                 m22_enemy_retaliation.after(m14_melee_sfx),
                 m14_drain_audio.after(m14_fall_sfx).after(m14_melee_sfx),
-            ),
+            )
+                .run_if(crate::m18_phase::phase_playing),
         )
         .run();
     Ok(())
@@ -355,9 +574,12 @@ fn m14_sink() -> Box<dyn SfxSink> {
     Box::new(audio::NullSink)
 }
 
-/// M14: opens the retail banks (Mode A), builds the engine over the sink and
-/// starts the context song. Every failure is reported and degrades — the demo
-/// keeps running.
+/// M14: opens the retail banks (Mode A) and builds the engine over the sink.
+/// Every failure is reported and degrades — the demo keeps running.
+///
+/// **m-7:** the context song is NOT started here. The demo opens on the menu
+/// (B1-d) and the menu is silent; [`m14_song_on_playing`] starts the song on
+/// the first `Playing` frame, with the same evidence lines (`M14 VE: music …`).
 fn m14_audio_startup(mut commands: Commands, world: Res<DemoWorld>) {
     let engine = match SfxBank::from_arena2() {
         Ok(bank) => {
@@ -366,9 +588,7 @@ fn m14_audio_startup(mut commands: Commands, world: Res<DemoWorld>) {
                 bank.path().display(),
                 bank.len()
             );
-            let mut engine = AudioEngine::new(bank, m14_sink());
-            m14_start_song(&mut engine);
-            Some(engine)
+            Some(AudioEngine::new(bank, m14_sink()))
         }
         Err(err) => {
             println!(
@@ -381,96 +601,13 @@ fn m14_audio_startup(mut commands: Commands, world: Res<DemoWorld>) {
 
     // M22 boundary: the demo character is the player, an enemy-class NPC the
     // enemy; the same seed family the probes use keeps the demo reproducible.
-    let character = &world.0.character;
-    let mut player_combatant = Combatant::new(1, EntityKind::Player);
-    player_combatant.luck = character.live(Attribute::Luck);
-    player_combatant.agility = character.live(Attribute::Agility);
-    player_combatant.critical_strike = i32::from(character.live_skill(Skill::CriticalStrike));
-    player_combatant.dodging = i32::from(character.live_skill(Skill::Dodging));
-    player_combatant.hand_to_hand_skill = i32::from(character.live_skill(Skill::HandToHand));
-    player_combatant.strength_modifier = character.damage_modifier();
-    player_combatant.health = character.health;
-    player_combatant.max_health = character.max_health;
-    let mut player = daggerfall_app::combat_runtime::Fighter::new(
-        player_combatant,
-        daggerfall_combat::engine::DeathSequence::for_player_height(1.7),
-    );
-    // Unarmed ⇒ `GetLiveSkillValue(HandToHand)` (`FormulaHelper.cs:589-592`),
-    // the same composition the demo and the probes use — and the same
-    // projection the progression driver re-applies on every skill change.
-    m20_sync_player_fighter(character, &mut player);
-    // M23 boundary: the player's effect entity is the character sheet
-    // (8 `DFCareer.Stats` attributes + live resources); the weapon's
-    // enchantment row is M24's (no item in this kit carries one), so the
-    // session hook stays armed and fires the moment a row exists.
-    player = player.with_effects(player_effect_target(character), None);
-    let mut enemy = daggerfall_app::combat_runtime::Fighter::new(
-        Combatant::new(9_001, EntityKind::EnemyClass),
-        daggerfall_combat::engine::DeathSequence::for_enemy(),
-    );
-    // NPC attributes are M25's (no sheet in this tree): the effect entity only
-    // carries live resources until then.
-    let enemy_health = enemy.combatant.health;
-    enemy = enemy.with_effects(
-        daggerfall_behavior::magic::EffectTarget::new(enemy_health, 0, [0; 8]),
-        None,
-    );
-    // Fixture 0: no M25 class-skill composition exists in this tree, and this
-    // swing only drives the audio policy (`m22_enemy_retaliation`).
-    enemy.chance_mod = 0;
-    // The kit is the retail table (steel cuirass + steel Longsword); an
-    // unavailable table degrades to an unarmoured fight with the reason
-    // printed — no item is ever invented.
-    match crate::m18_demo::retail_item_templates() {
-        Ok(templates) => {
-            let (player_cuirass, enemy_sword) = crate::m18_demo::m22_kit(&templates);
-            let (enemy_cuirass, _) = crate::m18_demo::m22_kit(&templates);
-            println!(
-                "M22 VE: kit from FALL.EXE — player cuirass (tpl {}, uid {}, condition {}) + \
-                 enemy steel Longsword (uid {}, condition {}) + enemy cuirass (uid {})",
-                player_cuirass.template_index,
-                player_cuirass.uid,
-                player_cuirass.current_condition,
-                enemy_sword.uid,
-                enemy_sword.current_condition,
-                enemy_cuirass.uid,
-            );
-            let player_equip = player.equip(player_cuirass);
-            let enemy_armor = enemy.equip(enemy_cuirass);
-            let enemy_weapon = enemy.equip(enemy_sword);
-            let equipped = matches!(
-                player_equip,
-                daggerfall_inventory::equipment::EquipResult::Equipped(_)
-            ) && matches!(
-                enemy_armor,
-                daggerfall_inventory::equipment::EquipResult::Equipped(_)
-            ) && matches!(
-                enemy_weapon,
-                daggerfall_inventory::equipment::EquipResult::Equipped(_)
-            );
-            println!(
-                "M22 VE: equipped={equipped} · player armor_values {:?} · enemy weapon {:?}",
-                player.equipment.armor_values(),
-                enemy.weapon.as_ref().map(|weapon| (
-                    weapon.min_damage,
-                    weapon.max_damage,
-                    weapon.to_hit_mod
-                )),
-            );
-        }
-        Err(reason) => println!(
-            "M22 VE: kit degraded — {reason}; both combatants fight unarmoured (0 invented items)"
-        ),
-    }
-    let player_level = player.level;
+    // The composition lives in `m18_demo::compose_demo_fight` so the window and
+    // `ATTACK-KEY-001` fight the SAME pair (0 duplicated logic, B1-c).
+    let fight = crate::m18_demo::compose_demo_fight(&world.0);
     commands.insert_resource(DemoCombat {
-        session: daggerfall_app::combat_runtime::CombatSession::new(
-            player,
-            vec![enemy],
-            actor_seed(crate::m18_demo::M19_SEED, 1),
-        ),
-        enemy_attack: daggerfall_combat::engine::EnemyAttack::new(),
-        player_level,
+        session: fight.session,
+        enemy_attack: fight.enemy_attack,
+        player_level: fight.player_level,
     });
     // M23: the window's magic layer rides the same reproducible seed family,
     // on its own dice stream (casts/rounds never shift an attack or wear
@@ -483,32 +620,6 @@ fn m14_audio_startup(mut commands: Commands, world: Res<DemoWorld>) {
         "M23 VE: magic layer active · L casts Levitate (Thaumaturgy, retail spell-point cost) · \
          one magic round per game minute · movement flags drive the M19 engine"
     );
-}
-
-/// M23 effect entity of the player, projected from the character sheet:
-/// `health`/`magicka`/attributes are the live values M20 keeps, never literals.
-fn player_effect_target(character: &daggerfall_skills::character::Character) -> daggerfall_behavior::magic::EffectTarget {
-    use daggerfall_behavior::magic::EffectTarget;
-    // `Character::live` takes the skills `Attribute`; both enums transcribe
-    // the same `DFCareer.Stats` order the neutral target indexes by.
-    const ATTRIBUTES: [Attribute; 8] = [
-        Attribute::Strength,
-        Attribute::Intelligence,
-        Attribute::Willpower,
-        Attribute::Agility,
-        Attribute::Endurance,
-        Attribute::Personality,
-        Attribute::Speed,
-        Attribute::Luck,
-    ];
-    let mut target = EffectTarget::new(
-        character.health,
-        character.magicka,
-        ATTRIBUTES.map(|attribute| character.live(attribute)),
-    );
-    target.max_health = character.max_health;
-    target.fatigue = character.fatigue;
-    target
 }
 
 /// Renders and starts the city day/night context song through the engine.
@@ -525,6 +636,7 @@ fn m14_start_song(engine: &mut AudioEngine) {
     match bank.render(song) {
         Ok(rendered) => {
             m14_song_evidence(&bank, song, &rendered);
+            m14_write_music_evidence(song, &rendered);
             if let Err(err) = engine.play_music(rendered) {
                 println!("M14 VE: music sink rejected the song ({err}) — effects continue");
             }
@@ -532,6 +644,97 @@ fn m14_start_song(engine: &mut AudioEngine) {
         Err(err) => println!(
             "M14 VE: song {} could not be rendered ({err}) — music silent",
             song.name()
+        ),
+    }
+}
+
+/// **m-7 (B1-d)** — starts the city context song on the first `Playing` frame.
+///
+/// The demo opens on the menu and the 1996 menu is scored by its own track; the
+/// demo has none, so the world song waits for the world (CS-20 judges the menu,
+/// not the world's music). Gated by [`crate::m18_phase::phase_playing`], once:
+/// the `Local` guard makes the start a single event, never a per-frame retry.
+/// The evidence lines of [`m14_start_song`] are untouched.
+fn m14_song_on_playing(mut audio_state: ResMut<GameAudio>, mut started: Local<bool>) {
+    if *started {
+        return;
+    }
+    let Some(engine) = audio_state.engine.as_mut() else {
+        return;
+    };
+    *started = true;
+    println!("M14 VE: phase PLAYING — starting the city context song (the menu was silent)");
+    m14_start_song(engine);
+}
+
+/// Evidence directory of the rendered music (**B1-b**: the WAV is the artefact
+/// CS-06/CS-07 keep, never a retail-derived asset committed to git beyond it).
+const MUSIC_EVIDENCE_DIR: &str = "docs/sintergic/l5-mission/m18-owner-gate/evidence/audio";
+/// Size above which the WAV is **not** written (a footprint JSON is).
+const MUSIC_EVIDENCE_MAX_BYTES: usize = 5 * 1024 * 1024;
+
+/// **B1-b** — writes the rendered context song to the evidence directory with a
+/// deterministic name (`m18-music-<song>-<pcm digest>.wav`) and prints
+/// `M14 VE: music <file> duration=<s>s`.
+///
+/// Above [`MUSIC_EVIDENCE_MAX_BYTES`] the WAV is replaced by a `.json` carrying
+/// `sha256` + duration (+ the reason), so the repository never takes a big
+/// binary: the line then says so explicitly.
+fn m14_write_music_evidence(song: daggerfall_parser_rs::midi::SongFiles, rendered: &RenderedSong) {
+    let dir = std::path::Path::new(MUSIC_EVIDENCE_DIR);
+    if let Err(err) = std::fs::create_dir_all(dir) {
+        println!(
+            "M14 VE: music evidence directory {MUSIC_EVIDENCE_DIR} unavailable ({err}) — \
+             duration {:.1} s only",
+            rendered.duration_secs
+        );
+        return;
+    }
+    let stem = format!(
+        "m18-music-{}-{:016x}",
+        song.name().to_lowercase(),
+        rendered.digest
+    );
+    let sha256 = crate::m18_demo::sha256_hex(&rendered.wav);
+    if rendered.wav.len() > MUSIC_EVIDENCE_MAX_BYTES {
+        let path = dir.join(format!("{stem}.json"));
+        let body = format!(
+            "{{\n  \"file\": \"{stem}.wav\",\n  \"bytes\": {},\n  \"sha256\": \"{sha256}\",\n  \
+             \"duration_secs\": {:.3},\n  \"sample_rate\": 11025,\n  \"pcm\": \"u8-mono\",\n  \
+             \"reason\": \"WAV exceeds 5 MB — footprint only, the file is reproducible with \
+             `cargo run --features window`\"\n}}\n",
+            rendered.wav.len(),
+            rendered.duration_secs,
+        );
+        match std::fs::write(&path, body) {
+            Ok(()) => println!(
+                "M14 VE: music {stem}.wav duration={:.1}s — {} bytes > 5 MB: WAV not written, \
+                 footprint in {} (sha256 {sha256})",
+                rendered.duration_secs,
+                rendered.wav.len(),
+                path.display(),
+            ),
+            Err(err) => println!(
+                "M14 VE: music footprint {} could not be written ({err}) — sha256 {sha256} · \
+                 duration {:.1}s",
+                path.display(),
+                rendered.duration_secs,
+            ),
+        }
+        return;
+    }
+    let path = dir.join(format!("{stem}.wav"));
+    match std::fs::write(&path, &rendered.wav) {
+        Ok(()) => println!(
+            "M14 VE: music {} duration={:.1}s ({} bytes · sha256 {sha256})",
+            path.display(),
+            rendered.duration_secs,
+            rendered.wav.len(),
+        ),
+        Err(err) => println!(
+            "M14 VE: music {} could not be written ({err}) — duration {:.1}s · sha256 {sha256}",
+            path.display(),
+            rendered.duration_secs,
         ),
     }
 }
@@ -569,8 +772,16 @@ fn m14_fall_sfx(mut audio_state: ResMut<GameAudio>, mut m19: ResMut<M19Player>) 
     }
 }
 
-/// M14 event 2: left-click melee — always the swing clip, plus `Hit*` when the
-/// M22 engine says the attack landed.
+/// M14 event 2: `MouseButton::Left` **or `KeyF`** (B1-c) melee — always the
+/// swing clip, plus `Hit*` when the M22 engine says the attack landed.
+///
+/// **B1-c (O9/CS-21):** the input route is the single action layer — the
+/// `m2_player` system sets `ActionState.attack` from the left click **or** the
+/// `F` key (`m2_kinematics::attack_triggered`), so both bindings reach this one
+/// system and the same production `CombatSession`. A landed strike projects the
+/// target's live HP into the HUD line ([`crate::m18_demo::demo_player_strike`])
+/// and re-uploads the sprite: the HUD digest changes **exactly** on a hit; a
+/// miss writes nothing.
 ///
 /// The demo fights **bare-handed**: the swing is resolved by the production
 /// `CombatSession` — the player carries no weapon, so `player_strike(0)` takes
@@ -584,6 +795,7 @@ fn m14_fall_sfx(mut audio_state: ResMut<GameAudio>, mut m19: ResMut<M19Player>) 
 /// - hit: `Hit1 + Random.Range(2, 4)` ⇒ `Hit3`/`Hit4`
 ///   (`DFU:EnemySounds.cs:123,127`); `Hit1..=Hit5` is the armed range
 ///   (`Random.Range(0, 5)`, same lines).
+#[allow(clippy::too_many_arguments)] // Bevy system: one parameter per resource/query the swing reads (action, audio, combat, wear, rng, probe)
 fn m14_melee_sfx(
     action: Res<m2_player::ActionState>,
     mut audio_state: ResMut<GameAudio>,
@@ -591,6 +803,7 @@ fn m14_melee_sfx(
     mut world: ResMut<DemoWorld>,
     mut progression: ResMut<Progression>,
     law: Res<M28Law>,
+    mut upload: M20HudUpload,
     mut audio_dice: Local<Option<daggerfall_combat::Dice100>>,
 ) {
     if !action.attack {
@@ -606,10 +819,10 @@ fn m14_melee_sfx(
         }
     }
     // The production runtime resolves the swing (the player carries no weapon,
-    // so the engine takes the hand-to-hand branch).
+    // so the engine takes the hand-to-hand branch). Shared with ATTACK-KEY-001.
     let session = &mut combat.session;
     let target = law.target;
-    let Some(strike) = session.player_strike(target) else {
+    let Some(report) = crate::m18_demo::demo_player_strike(&mut world.0, session, target) else {
         println!(
             "M14 VE: melee swing (unarmed) → {} · no strike: target {target} alive={} player alive={}",
             swing_clip.map_or("-", |clip| clip.name()),
@@ -618,27 +831,32 @@ fn m14_melee_sfx(
         );
         return;
     };
+    let strike = &report.strike;
     let attack = &strike.attack;
-    let enemy_before = strike.target_health
-        + if attack.damage > 0 {
-            attack.damage
-        } else {
-            0
-        };
     println!(
         "M14 VE: melee swing (unarmed) → {} · target={} hit={} chance={} damage={} part={} · enemy HP \
-         {enemy_before}→{} (died: {}) · target_wear={} · weapon_wear={}",
+         {}→{} (died: {}) · target_wear={} · weapon_wear={} · HUD {:016x}→{:016x}",
         swing_clip.map_or("-", |clip| clip.name()),
         target,
         attack.hit,
         attack.chance,
         attack.damage,
         attack.part,
+        report.target_health_before,
         strike.target_health,
         strike.target_died,
         strike_wear(&strike.target_wear),
         strike_wear(&strike.weapon_wear),
+        report.hud_before,
+        report.hud_after,
     );
+    if report.hud_after != report.hud_before {
+        upload.apply(&world.0);
+        println!(
+            "M20 VE: HUD reflects the target — \"{}\"",
+            world.0.m20_status_line()
+        );
+    }
     // M20: the resolved swing feeds the driver — the weapon skill (unarmed
     // route ⇒ `HandToHand`) plus `CriticalStrike`, **only on hit**
     // (`WeaponManager.cs:419-432`). A miss is a no-op inside the driver.
@@ -690,11 +908,21 @@ fn strike_enchantment(
 
 /// M22: the enemy retaliates on its melee timer through the same session, so
 /// the damage reaches `SetHealth` + the HUD and the wear reaches the items.
+///
+/// **B1-b (O4/CS-07):** the retaliation also reaches the M14 audio engine —
+/// the same `AudioEngine::play` + `gameplay_clip` route the player's swing
+/// uses, with the clip named in the `M14 VE:` evidence line. The policy is
+/// DFU's unarmed branch (`EnemySounds.cs:123,127` hit dice; `:153` swing pitch
+/// on a miss), drawn from the same actor PRNG the player's hit uses, so a
+/// retaliation never shifts the player's stream.
 fn m22_enemy_retaliation(
     time: Res<Time>,
+    mut audio_state: ResMut<GameAudio>,
     mut combat: ResMut<DemoCombat>,
     mut world: ResMut<DemoWorld>,
     mut progression: ResMut<Progression>,
+    mut upload: M20HudUpload,
+    mut audio_dice: Local<Option<daggerfall_combat::Dice100>>,
 ) {
     let DemoCombat {
         session,
@@ -726,6 +954,32 @@ fn m22_enemy_retaliation(
             continue;
         };
         println!("M22 VE: retaliation from enemy {index}");
+        let landed = match (&strike.multi, &strike.single) {
+            (Some(multi), _) => multi.hits > 0,
+            (None, Some(single)) => single.hit,
+            _ => false,
+        };
+        // B1-b: the retaliating swing reaches the production audio engine.
+        let event = if landed {
+            let dice = audio_dice
+                .get_or_insert_with(|| daggerfall_combat::Dice100::with_seed(actor_seed(M19_SEED, 1)));
+            GameplayEvent::MeleeHit {
+                die: unarmed_hit_die(dice),
+            }
+        } else {
+            unarmed_swing_event()
+        };
+        let clip = gameplay_clip_or_log(event);
+        if let Some(clip) = clip {
+            if let Some(engine) = audio_state.engine.as_mut() {
+                engine.play(clip);
+            }
+        }
+        println!(
+            "M14 VE: enemy retaliation {} → {} · enemy {index}",
+            if landed { "hit" } else { "swing (miss)" },
+            clip.map_or("-", |clip| clip.name()),
+        );
         let bands = match &strike.multi {
             Some(multi) => format!("multi hits={} gates={} per_hit={:?}", multi.hits, multi.gates, multi.per_hit),
             None => match &strike.single {
@@ -752,6 +1006,9 @@ fn m22_enemy_retaliation(
         let step = progression.0.enemy_strike(&mut world.0.character);
         m20_report_step("enemy strike", &step);
         world.0.m20_refresh_hud();
+        // CS-21: the damage the player just took is on screen, not only in the
+        // resource (the same upload path the progression uses).
+        upload.apply(&world.0);
         let roll = session.enemy_timer_roll(index).unwrap_or(1500);
         enemy_attack.reset_melee_timer(
             roll,
@@ -894,33 +1151,9 @@ fn m18_spawn_world(
     );
 
     // ── D2 · M13 terrain (one unlit mesh per band) ──────────────────────
-    for group in &scene.terrain.groups {
-        let (color, label) = match group.band {
-            daggerfall_parser_rs::woods::TerrainBand::Ocean => {
-                ([0.10, 0.22, 0.42, 1.0], "ocean")
-            }
-            daggerfall_parser_rs::woods::TerrainBand::Beach => {
-                ([0.72, 0.66, 0.45, 1.0], "beach")
-            }
-            daggerfall_parser_rs::woods::TerrainBand::Land => {
-                ([0.24, 0.40, 0.20, 1.0], "land")
-            }
-        };
-        let mesh = bridge::mesh_from_spec(&group.spec, &mut meshes);
-        let material = bridge::material_from_spec(
-            &bridge::MaterialSpec {
-                base_color: color,
-                unlit: true,
-                ..default()
-            },
-            &mut materials,
-        );
-        println!(
-            "M18 VE: terrain band {label} → {} triangles",
-            group.spec.triangle_count()
-        );
-        commands.spawn((Mesh3d(mesh), MeshMaterial3d(material)));
-    }
+    let terrain_entities =
+        spawn_terrain_meshes(&mut commands, &mut meshes, &mut materials, &scene.terrain);
+    commands.insert_resource(TerrainMeshes(terrain_entities));
 
     // ── D3 · M15 NPCs (8-dir billboard) ────────────────────────────────
     let quad = unit_billboard(&mut meshes);
@@ -1003,13 +1236,23 @@ fn m18_spawn_world(
     ));
     let mut panel_sprites = Vec::with_capacity(scene.panels.len());
     for (index, panel) in scene.panels.iter().enumerate() {
-        let Ok(image) = bridge::image_from_rgba(
+        let image = match bridge::image_from_rgba(
             &panel.rgba,
             u32::from(panel.width),
             u32::from(panel.height),
             &mut images,
-        ) else {
-            continue;
+        ) {
+            Ok(image) => image,
+            Err(err) => {
+                // CS-18/CS-19 live on panels 5/6: a silently skipped sprite
+                // makes the key a no-op in the window (measured 2026-10-23),
+                // so the failure is named instead of swallowed.
+                eprintln!(
+                    "M18 VE: panel {index} not drawn — {}×{}: {err}",
+                    panel.width, panel.height
+                );
+                continue;
+            }
         };
         let mut entity = commands.spawn((
             Sprite {
@@ -1020,19 +1263,23 @@ fn m18_spawn_world(
                 )),
                 ..default()
             },
-            Transform::from_xyz(0.0, 0.0, 0.0),
+            Transform::from_xyz(0.0, if index == 0 { 0.0 } else { PARKED_Y }, 0.0),
         ));
         if index != 0 {
             entity.insert(Visibility::Hidden);
         }
         panel_sprites.push(entity.id());
     }
+    // Default world view (panel 0 + HUD); `m18_phase_ui` applies the `Menu`
+    // surface (`main-menu` full screen, HUD hidden) on the first frame.
+    let drawn_panels = panel_sprites.len();
     commands.insert_resource(DemoUi {
         sprites: panel_sprites,
         current: 0,
     });
     println!(
-        "M18 VE: 1996 UI → {} overlaid panels (320×200 canvas ×2) · keys 1-4",
+        "M18 VE: 1996 UI → {}/{} overlaid panels drawn (320×200 canvas ×2) · keys 1-6",
+        drawn_panels,
         scene.panels.len()
     );
 
@@ -1111,6 +1358,271 @@ fn m18_spawn_world(
     commands.insert_resource(DemoNpcs(npcs));
 }
 
+/// Spawns one unlit mesh per terrain band (ocean/beach/land) and returns the
+/// entities so the `T` key can replace them (**B1-a**).
+///
+/// **CS-08:** the `Ocean` group **is** the sea surface — the retail sampler
+/// clamps oceanic samples to `OCEAN_ELEVATION` (`DefaultTerrainSampler.cs:115-118`),
+/// so the band lies on one plane at [`DemoTerrain::sea_level_m`]; it is drawn as
+/// water and the collision adapter refuses it.
+fn spawn_terrain_meshes(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    terrain: &crate::m18_demo::DemoTerrain,
+) -> Vec<Entity> {
+    let mut entities = Vec::with_capacity(terrain.groups.len());
+    for group in &terrain.groups {
+        let (color, label) = match group.band {
+            daggerfall_parser_rs::woods::TerrainBand::Ocean => {
+                ([0.13, 0.36, 0.62, 1.0], "water")
+            }
+            daggerfall_parser_rs::woods::TerrainBand::Beach => ([0.72, 0.66, 0.45, 1.0], "beach"),
+            daggerfall_parser_rs::woods::TerrainBand::Land => ([0.24, 0.40, 0.20, 1.0], "land"),
+        };
+        let mesh = bridge::mesh_from_spec(&group.spec, meshes);
+        let material = bridge::material_from_spec(
+            &bridge::MaterialSpec {
+                base_color: color,
+                unlit: true,
+                ..default()
+            },
+            materials,
+        );
+        println!(
+            "M18 VE: terrain band {label} → {} triangles",
+            group.spec.triangle_count()
+        );
+        entities.push(
+            commands
+                .spawn((Mesh3d(mesh), MeshMaterial3d(material)))
+                .id(),
+        );
+    }
+    match terrain.sea_level_m {
+        Some(sea_level) => println!(
+            "M18 VE: water surface y={sea_level:.2} m (OCEAN_ELEVATION − datum) · {} ocean quads \
+             at the band elevation · not walkable (CS-08)",
+            terrain.water_quads,
+        ),
+        None => println!(
+            "M18 VE: 0 ocean samples in the ring — no water surface (CS-08 does not apply to this \
+             composition)"
+        ),
+    }
+    entities
+}
+
+/// **B1-d (CS-20)** — `Enter` leaves the menu: `Menu` ⇒ `Playing`, one way.
+///
+/// The transition itself is the shared pure [`crate::m18_phase::phase_after_enter`];
+/// this system only reads the key (single input surface convention of the demo).
+/// Nothing of the composition changes: the spawn, the yaw and the HUD are the
+/// ones the menu already held.
+fn m18_phase_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut phase: ResMut<crate::m18_phase::AppPhase>,
+) {
+    if !keys.just_pressed(KeyCode::Enter) {
+        return;
+    }
+    let next = crate::m18_phase::phase_after_enter(*phase);
+    if next != *phase {
+        println!(
+            "M18 VE: phase {} → {} (Enter) — world systems live, the clock starts at the \
+             menu's 0 minutes",
+            phase.label(),
+            next.label()
+        );
+        *phase = next;
+    }
+}
+
+/// **M-1 (B1-d / CS-20)** — puts the phase's surface on screen.
+///
+/// `Menu` ⇒ the retail `main-menu` panel full screen (index 3 of
+/// `ui_spec::build_all_panels`: `TITL00I0` + `MENU.IMG` + buttons) with the
+/// HUD hidden; `Playing` ⇒ the `hud` panel plus the M20 HUD sprite, i.e. the
+/// default world view the pre-B1 build showed. The panel is selected by
+/// [`crate::m18_phase::visible_panel_index`] — the same pure function
+/// `MENU-001` reads over the composed panels — so the screen and the probe
+/// cannot drift. Only a surface change touches `Visibility`.
+fn m18_phase_ui(
+    phase: Res<crate::m18_phase::AppPhase>,
+    world: Res<DemoWorld>,
+    hud: Res<DemoHud>,
+    mut ui: ResMut<DemoUi>,
+    mut visibilities: Query<&mut Visibility>,
+    mut applied: Local<Option<(usize, bool)>>,
+) {
+    let ids: Vec<&str> = world
+        .0
+        .panels
+        .iter()
+        .map(|panel| panel.id.as_str())
+        .collect();
+    let Some(index) = crate::m18_phase::visible_panel_index(*phase, &ids) else {
+        return;
+    };
+    let hud_visible = crate::m18_phase::hud_visible(*phase);
+    if *applied == Some((index, hud_visible)) {
+        return;
+    }
+    *applied = Some((index, hud_visible));
+    if index >= ui.sprites.len() {
+        println!(
+            "M18 VE: UI surface {} — panel \"{}\" has no sprite (its image could not be \
+             uploaded)",
+            phase.label(),
+            ids[index],
+        );
+    }
+    for (at, entity) in ui.sprites.iter().enumerate() {
+        if let Ok(mut visibility) = visibilities.get_mut(*entity) {
+            *visibility = if at == index {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+    ui.current = index;
+    if let Some(entity) = hud.sprite {
+        if let Ok(mut visibility) = visibilities.get_mut(entity) {
+            *visibility = if hud_visible {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+    println!(
+        "M18 VE: UI surface {} → panel \"{}\" (index {index}, {} opaque px) · HUD {}",
+        phase.label(),
+        ids[index],
+        world.0.panels[index].opaque,
+        if hud_visible { "visible" } else { "hidden" },
+    );
+}
+
+/// **B1-a** — `,` / `.` rotate the view ±[`crate::m18_demo::YAW_KEY_STEP_RAD`]
+/// (5°). The camera is a shell, so the key works in both phases.
+fn m18_yaw_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut players: Query<(&mut Transform, &mut m2_player::M2Player)>,
+) {
+    let step = if keys.just_pressed(KeyCode::Comma) {
+        crate::m18_demo::YAW_KEY_STEP_RAD
+    } else if keys.just_pressed(KeyCode::Period) {
+        -crate::m18_demo::YAW_KEY_STEP_RAD
+    } else {
+        return;
+    };
+    for (mut transform, mut player) in &mut players {
+        player.yaw += step;
+        transform.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.0);
+        println!(
+            "M18 VE: yaw {:.1}° ({:.4} rad) · , / . step {:.0}°",
+            player.yaw.to_degrees(),
+            player.yaw,
+            crate::m18_demo::YAW_KEY_STEP_RAD.to_degrees(),
+        );
+    }
+}
+
+/// **B1-a (O2)** — `T` toggles the terrain sampling pixel between the capital
+/// and the nearest **coastal** pixel of the ring (`Ocean>0 ∧ Beach>0`), by the
+/// deterministic search of [`crate::m18_demo::find_coastal_pixel`] (Chebyshev
+/// distance, then `(x, y)` ascending). With no coastal pixel in the ring the
+/// line says so and the terrain stays untouched (0 invented coordinates).
+///
+/// Only the terrain is re-sampled ([`crate::m18_demo::DemoScene::recompose_terrain`]);
+/// the city hull, its collision grid and the player frame do not move.
+///
+/// **m-7:** the key is registered inside the `Playing` bundle — re-sampling is a
+/// world mutation and the frozen menu cannot trigger it.
+#[allow(clippy::too_many_arguments)] // Bevy system: one parameter per resource the origin/coastal toggle reads (commands, keys, world, city, coastal cache)
+fn m18_origin_toggle(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut world: ResMut<DemoWorld>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut terrain_meshes: ResMut<TerrainMeshes>,
+    mut woods: Local<Option<daggerfall_parser_rs::woods::WoodsMap>>,
+    mut coastal: Local<Option<Option<crate::m18_demo::CoastalPixel>>>,
+) {
+    if !keys.just_pressed(KeyCode::KeyT) {
+        return;
+    }
+    if woods.is_none() {
+        match crate::m18_demo::read_woods() {
+            Ok(parsed) => *woods = Some(parsed),
+            Err(err) => {
+                println!("M18 VE: T — WOODS.WLD unavailable ({err}); terrain origin unchanged");
+                return;
+            }
+        }
+    }
+    let Some(woods) = woods.as_ref() else {
+        return;
+    };
+    let capital = world.0.map_pixel;
+    let current = world.0.terrain.origin_pixel;
+    let target = if current == capital {
+        if coastal.is_none() {
+            *coastal = Some(crate::m18_demo::find_coastal_pixel(woods, capital));
+        }
+        match coastal.as_ref().copied().flatten() {
+            Some(found) => {
+                println!(
+                    "M18 VE: coastal pixel ({},{}) at Chebyshev {}/{} · ocean {} / beach {} / land {} samples",
+                    found.pixel[0],
+                    found.pixel[1],
+                    found.chebyshev_from(capital),
+                    crate::m18_demo::COASTAL_RING,
+                    found.ocean,
+                    found.beach,
+                    found.land,
+                );
+                found.pixel
+            }
+            None => {
+                println!(
+                    "M18 VE: no coastal pixel in ring (±{} px around ({},{})) — terrain origin unchanged",
+                    crate::m18_demo::COASTAL_RING,
+                    capital[0],
+                    capital[1]
+                );
+                return;
+            }
+        }
+    } else {
+        capital
+    };
+    if let Err(err) = world.0.recompose_terrain(woods, target) {
+        println!("M18 VE: T — terrain re-sample failed ({err}); origin unchanged");
+        return;
+    }
+    for entity in terrain_meshes.0.drain(..) {
+        commands.entity(entity).despawn();
+    }
+    terrain_meshes.0 = spawn_terrain_meshes(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &world.0.terrain,
+    );
+    let (ocean, beach, land) = world.0.terrain.band_counts();
+    println!(
+        "M18 VE: origin-override px=({},{}) — bands ocean {ocean} / beach {beach} / land {land} · \
+         {} terrain triangles",
+        target[0],
+        target[1],
+        world.0.terrain.triangles,
+    );
+}
+
 /// Unit quad in XY (base at y=0, facing +Z) for NPC billboards.
 fn unit_billboard(meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
     let spec = bridge::MeshSpec {
@@ -1169,28 +1681,12 @@ fn m20_spawn_progression(mut commands: Commands) {
     );
 }
 
-/// M20: single character → M22 player projection (level, live skills,
-/// attributes, health). Used at startup and on every progression change.
-fn m20_sync_player_fighter(
-    character: &daggerfall_skills::character::Character,
-    player: &mut daggerfall_app::combat_runtime::Fighter,
-) {
-    player.combatant.luck = character.live(Attribute::Luck);
-    player.combatant.agility = character.live(Attribute::Agility);
-    player.combatant.critical_strike = i32::from(character.live_skill(Skill::CriticalStrike));
-    player.combatant.dodging = i32::from(character.live_skill(Skill::Dodging));
-    player.combatant.hand_to_hand_skill = i32::from(character.live_skill(Skill::HandToHand));
-    player.combatant.strength_modifier = character.damage_modifier();
-    player.combatant.health = character.health;
-    player.combatant.max_health = character.max_health;
-    player.reflexes = character.reflex as i32;
-    player.level = character.level;
-    // Unarmed ⇒ `GetLiveSkillValue(HandToHand)` (`FormulaHelper.cs:589-592`).
-    player.chance_mod = i32::from(character.live_skill(Skill::HandToHand));
-}
-
 /// M20: re-projects the character into every live consumer of the window —
 /// HUD line, M19 `PlayerBody`, M22 player fighter and the enemy timer level.
+///
+/// The character → fighter projection is the shared
+/// [`crate::m18_demo::m20_sync_player_fighter`] (single copy: the headless
+/// `ATTACK-KEY-001` mounts the same fight).
 fn m20_sync_character(
     scene: &mut DemoScene,
     m19: &mut M19Player,
@@ -1198,7 +1694,7 @@ fn m20_sync_character(
 ) {
     scene.m20_refresh_hud();
     m19.body = scene.character.player_body();
-    m20_sync_player_fighter(&scene.character, &mut combat.session.player);
+    crate::m18_demo::m20_sync_player_fighter(&scene.character, &mut combat.session.player);
     combat.player_level = scene.character.level;
 }
 
@@ -1630,23 +2126,35 @@ fn fall_event(frame: &Frame) -> Option<GameplayEvent> {
     }
 }
 
-/// Live title bar: M19 engine mode, breath and M20 status line.
+/// Live title bar: phase (B1-d), M19 engine mode, breath and M20 status line.
 fn m19_update_title(
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     player: Res<M19Player>,
     world: Res<DemoWorld>,
     law: Res<M28Law>,
+    guards: Res<DemoGuardBillboards>,
+    phase: Res<crate::m18_phase::AppPhase>,
 ) {
     let mode = player.locomotion.mode;
     let mut title = format!(
-        "DAGGERFALL-LIKE — M20 demo · {} · {} · breath {}/{}",
+        "DAGGERFALL-LIKE — {} · M20 demo · {} · {} · breath {}/{} · POP {} · guards visible {}",
+        phase.label(),
         mode.label(),
         world.0.m20_status_line(),
         player.locomotion.breath,
         max_breath(player.body.live_endurance),
+        world.0.npcs.len(),
+        guards.sprites.len(),
     );
+    if !phase.allows_world() {
+        title.push_str(" · Enter enters the world");
+    }
     if mode != MotionMode::Swimming {
-        title.push_str(" (no water)");
+        // CS-08: water exists (the `Ocean` band is the sea surface and it is not
+        // walkable); the bar reports the level instead of the old "no water".
+        if let Some(sea_level) = world.0.terrain.sea_level_m {
+            title.push_str(&format!(" · sea {sea_level:.1} m (not walkable)"));
+        }
     }
     if law.runtime.active_guards > 0 {
         title.push_str(&format!(
@@ -1662,20 +2170,38 @@ fn m19_update_title(
     }
 }
 
-/// NPC billboards: always facing the camera (Y rotation).
+/// NPC and guard billboards: always facing the camera (Y rotation).
+///
+/// **B3-a (CS-14):** the guard billboards registered by
+/// [`m18_guard_billboards`] (flat + actor label) use this same rotation, so the
+/// city watch reads like every other character of the street.
 fn m18_billboards(
     npcs: Res<DemoNpcs>,
+    guards: Res<DemoGuardBillboards>,
     cameras: Query<&Transform, (With<Camera3d>, Without<Mesh3d>)>,
     mut transforms: Query<&mut Transform, (With<Mesh3d>, Without<Camera3d>)>,
 ) {
     let Ok(camera) = cameras.single() else {
         return;
     };
+    let face = |position: Vec3| {
+        let dx = camera.translation.x - position.x;
+        let dz = camera.translation.z - position.z;
+        Quat::from_rotation_y(dx.atan2(dz))
+    };
     for (entity, position) in &npcs.0 {
         if let Ok(mut transform) = transforms.get_mut(*entity) {
-            let dx = camera.translation.x - position.x;
-            let dz = camera.translation.z - position.z;
-            transform.rotation = Quat::from_rotation_y(dx.atan2(dz));
+            transform.rotation = face(*position);
+        }
+    }
+    for (flat, label, position) in &guards.sprites {
+        for entity in [flat, label] {
+            if *entity == Entity::PLACEHOLDER {
+                continue;
+            }
+            if let Ok(mut transform) = transforms.get_mut(*entity) {
+                transform.rotation = face(*position);
+            }
         }
     }
 }
@@ -1686,13 +2212,17 @@ fn m18_captions(
     mut captions: ResMut<DemoCaptions>,
     cameras: Query<&Transform, With<Camera3d>>,
     mut visibilities: Query<&mut Visibility>,
+    replaced: Query<(), With<ReplacedByGuard>>,
     world: Res<DemoWorld>,
 ) {
     let Ok(camera) = cameras.single() else {
         return;
     };
     let mut nearest: Option<(f32, usize)> = None;
-    for (index, (_, position)) in npcs.0.iter().enumerate() {
+    for (index, (entity, position)) in npcs.0.iter().enumerate() {
+        if replaced.contains(*entity) {
+            continue;
+        }
         let distance = ((camera.translation.x - position.x).powi(2)
             + (camera.translation.z - position.z).powi(2))
         .sqrt();
@@ -1727,11 +2257,16 @@ fn m18_captions(
     captions.visible = wanted;
 }
 
-/// Keys 1-4: toggle the overlaid M17 panel.
+/// Keys 1-6: toggle the overlaid M17 panel (1-4 the 1996 panels, 5/6 the
+/// B3-c map panels `map-local` / `map-world`, CS-18/CS-19).
+///
+/// **m-7:** registered inside the `Playing` bundle — the menu owns its surface
+/// (M-1: `main-menu` full screen) and a stray `1-4` cannot replace it.
 fn m18_switch_panel(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui: ResMut<DemoUi>,
     mut visibilities: Query<&mut Visibility>,
+    mut transforms: Query<&mut Transform>,
 ) {
     let requested = if keys.just_pressed(KeyCode::Digit1) {
         Some(0)
@@ -1741,6 +2276,12 @@ fn m18_switch_panel(
         Some(2)
     } else if keys.just_pressed(KeyCode::Digit4) {
         Some(3)
+    } else if keys.just_pressed(KeyCode::Digit5) {
+        // **B3-b / CS-18** — `map-local` (5th panel of `session_panels`).
+        Some(4)
+    } else if keys.just_pressed(KeyCode::Digit6) {
+        // **B3-b / CS-19** — `map-world` (6th panel of `session_panels`).
+        Some(5)
     } else {
         None
     };
@@ -1750,6 +2291,7 @@ fn m18_switch_panel(
     if index >= ui.sprites.len() || index == ui.current {
         return;
     }
+    let previous = ui.current;
     for (at, entity) in ui.sprites.iter().enumerate() {
         if let Ok(mut visibility) = visibilities.get_mut(*entity) {
             *visibility = if at == index {
@@ -1758,8 +2300,1161 @@ fn m18_switch_panel(
                 Visibility::Hidden
             };
         }
+        // Panels are centred at the origin: parking is the hide the client
+        // surface actually repaints (see [`PARKED_Y`]).
+        if let Ok(mut transform) = transforms.get_mut(*entity) {
+            transform.translation.y = if at == index { 0.0 } else { PARKED_Y };
+        }
     }
     ui.current = index;
+    println!(
+        "M18 VE: panel {} visible (was {}) · {} sprites · keys 1-6",
+        index,
+        previous,
+        ui.sprites.len()
+    );
+}
+
+/// Y that puts a 2D sprite outside the orthographic view — the *reliable* hide
+/// for this window.
+///
+/// Measured 2026-10-23 (CS-15/CS-16/CS-18/CS-19 campaign): the first
+/// `Visibility` write of a run repaints the sprite, later writes on the same
+/// sprite do not reach the client surface (journal stayed painted after its
+/// `OFF`, the dialogue never painted while the journal was on). A `Transform`
+/// move is read by the renderer every frame, so parking is what the capture can
+/// prove; `Visibility` is still written alongside it.
+const PARKED_Y: f32 = -20_000.0;
+
+/// Scale of the retail overlays on the 2D camera (same 2× as the panels).
+const OVERLAY_SCALE: f32 = 2.0;
+/// Margin of an overlay to the window border (pixels).
+const OVERLAY_MARGIN_PX: f32 = 8.0;
+
+/// Spawns the two retail overlays (dialogue + journal) hidden on the 2D camera.
+///
+/// **B3-b (CS-15/CS-16):** the textures come from
+/// [`crate::m18_b3b::compose_overlays`] — retail `TEXT.RSC` lines and the main
+/// quests of the retail `.QBN`/`.QRC` set, painted with the HUD `.FNT` and the
+/// HUD ink. A missing retail file degrades explicitly (no sprite, 0 invented
+/// text).
+fn m18_spawn_overlays(
+    mut commands: Commands,
+    world: Res<DemoWorld>,
+    mut images: ResMut<Assets<Image>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+) {
+    let window = windows.single().ok();
+    let screen_w = window.map_or(1280.0, |window| window.resolution.width());
+    let screen_h = window.map_or(720.0, |window| window.resolution.height());
+    let mut overlays = DemoOverlays::default();
+    match crate::m18_b3b::compose_overlays(&world.0.m20_font, world.0.m20_ink) {
+        Ok(composed) => {
+            let dialogue = &composed.dialogue;
+            let dialogue_size = (
+                f32::from(dialogue.width) * OVERLAY_SCALE,
+                f32::from(dialogue.height) * OVERLAY_SCALE,
+            );
+            let dialogue_at = Vec3::new(
+                -screen_w * 0.5 + OVERLAY_MARGIN_PX + dialogue_size.0 * 0.5,
+                screen_h * 0.5 - OVERLAY_MARGIN_PX - dialogue_size.1 * 0.5,
+                20.0,
+            );
+            overlays.dialogue =
+                m18_overlay_sprite(&mut commands, &mut images, dialogue, dialogue_at);
+            overlays.dialogue_size = (dialogue.width, dialogue.height);
+            overlays.dialogue_at = dialogue_at;
+
+            let journal = &composed.journal;
+            let journal_size = (
+                f32::from(journal.width) * OVERLAY_SCALE,
+                f32::from(journal.height) * OVERLAY_SCALE,
+            );
+            let journal_at = Vec3::new(
+                0.0,
+                -screen_h * 0.5 + OVERLAY_MARGIN_PX + journal_size.1 * 0.5,
+                20.0,
+            );
+            overlays.journal =
+                m18_overlay_sprite(&mut commands, &mut images, journal, journal_at);
+            overlays.journal_size = (journal.width, journal.height);
+            overlays.journal_at = journal_at;
+
+            println!(
+                "M18 VE: overlay dialogue ready — {} (J toggles)",
+                composed.dialogue_summary
+            );
+            println!(
+                "M18 VE: overlay journal ready — {} (I toggles)",
+                composed.journal_summary
+            );
+        }
+        Err(err) => {
+            eprintln!("M18 VE: overlays unavailable — {err} (0 invented text)");
+        }
+    }
+    commands.insert_resource(overlays);
+}
+
+/// Spawns one hidden overlay sprite (2D camera, 2× scale) and returns it.
+fn m18_overlay_sprite(
+    commands: &mut Commands,
+    images: &mut Assets<Image>,
+    texture: &DemoTexture,
+    position: Vec3,
+) -> Option<Entity> {
+    let image = bridge::image_from_rgba(
+        &texture.rgba,
+        u32::from(texture.width),
+        u32::from(texture.height),
+        images,
+    )
+    .ok()?;
+    Some(
+        commands
+            .spawn((
+                Sprite {
+                    image,
+                    custom_size: Some(Vec2::new(
+                        f32::from(texture.width) * OVERLAY_SCALE,
+                        f32::from(texture.height) * OVERLAY_SCALE,
+                    )),
+                    ..default()
+                },
+                // Spawned parked: only `set_overlay(.., true)` puts it on screen.
+                Transform::from_translation(Vec3::new(position.x, PARKED_Y, position.z)),
+                Visibility::Hidden,
+            ))
+            .id(),
+    )
+}
+
+/// **B3-b (CS-15/CS-16):** `J` toggles the dialogue overlay, `I` the journal.
+///
+/// Neither key has an owner in `crates/app/src` (`V` is *sell*,
+/// `m2_player.rs:137`). The toggle prints one `M18 VE: overlay …` line as
+/// evidence; a missing texture is reported instead of drawing invented text.
+/// Shows or parks one overlay sprite: `Visibility` plus the `Transform` move
+/// (see [`PARKED_Y`] — the surface only repaints the move).
+fn set_overlay(
+    visibilities: &mut Query<&mut Visibility>,
+    transforms: &mut Query<&mut Transform>,
+    entity: Entity,
+    at: Vec3,
+    on: bool,
+) {
+    if let Ok(mut visibility) = visibilities.get_mut(entity) {
+        *visibility = if on {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+    if let Ok(mut transform) = transforms.get_mut(entity) {
+        transform.translation = if on {
+            at
+        } else {
+            Vec3::new(at.x, PARKED_Y, at.z)
+        };
+    }
+}
+
+fn m18_overlay_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut overlays: ResMut<DemoOverlays>,
+    mut visibilities: Query<&mut Visibility>,
+    mut transforms: Query<&mut Transform>,
+) {
+    if keys.just_pressed(KeyCode::KeyJ) {
+        let state = !overlays.dialogue_on;
+        match overlays.dialogue {
+            Some(entity) => {
+                set_overlay(
+                    &mut visibilities,
+                    &mut transforms,
+                    entity,
+                    overlays.dialogue_at,
+                    state,
+                );
+                if state {
+                    // CS-15/CS-16: the two retail overlays never share the
+                    // screen — opening one closes the other (deterministic
+                    // evidence instead of two overlapping sprites).
+                    if let Some(journal) = overlays.journal {
+                        let journal_at = overlays.journal_at;
+                        set_overlay(
+                            &mut visibilities,
+                            &mut transforms,
+                            journal,
+                            journal_at,
+                            false,
+                        );
+                    }
+                    overlays.journal_on = false;
+                }
+                overlays.dialogue_on = state;
+                println!(
+                    "M18 VE: overlay dialogue {} · retail TEXT.RSC lines · {}×{} px",
+                    if state { "ON" } else { "OFF" },
+                    overlays.dialogue_size.0,
+                    overlays.dialogue_size.1
+                );
+            }
+            None => println!(
+                "M18 VE: overlay dialogue toggle ignored — TEXT.RSC unavailable (0 invented text)"
+            ),
+        }
+    }
+    if keys.just_pressed(KeyCode::KeyI) {
+        let state = !overlays.journal_on;
+        match overlays.journal {
+            Some(entity) => {
+                set_overlay(
+                    &mut visibilities,
+                    &mut transforms,
+                    entity,
+                    overlays.journal_at,
+                    state,
+                );
+                if state {
+                    // CS-16: same rule as the dialogue — one overlay at a time.
+                    if let Some(dialogue) = overlays.dialogue {
+                        let dialogue_at = overlays.dialogue_at;
+                        set_overlay(
+                            &mut visibilities,
+                            &mut transforms,
+                            dialogue,
+                            dialogue_at,
+                            false,
+                        );
+                    }
+                    overlays.dialogue_on = false;
+                }
+                overlays.journal_on = state;
+                println!(
+                    "M18 VE: overlay journal {} · retail QBN/QRC main quests · {}×{} px",
+                    if state { "ON" } else { "OFF" },
+                    overlays.journal_size.0,
+                    overlays.journal_size.1
+                );
+            }
+            None => println!(
+                "M18 VE: overlay journal toggle ignored — retail quests unavailable (0 invented text)"
+            ),
+        }
+    }
+}
+
+/// Roll handed to [`crate::ui_weather::draw`] for a map pixel: deterministic
+/// (`[0,100)`), so the same pixel replays the same precipitation.
+fn weather_roll(pixel: [i32; 2]) -> f32 {
+    let x = (pixel[0].rem_euclid(97) * 37) as u32;
+    let y = (pixel[1].rem_euclid(89) * 61) as u32;
+    ((x + y) % 100) as f32
+}
+
+/// Paints the precipitation sheet of one resolved climate (RGBA, transparent
+/// except the streaks). Deterministic: the RNG is seeded by the climate and the
+/// streak count, so the same weather always draws the same pixels.
+fn precipitation_sheet(precip: &Precipitation, size: (u16, u16)) -> Vec<u8> {
+    let (width, height) = (usize::from(size.0), usize::from(size.1));
+    let mut sheet = vec![0u8; width * height * 4];
+    let streaks = precip.drops.min(PRECIP_MAX_STREAKS);
+    if streaks == 0 || width < 4 || height < 16 {
+        return sheet;
+    }
+    let mut state = u32::from(precip.climate) << 16 | (streaks as u32 & 0xffff);
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        state
+    };
+    let snow = precip.kind == WeatherKind::Snow;
+    for _ in 0..streaks {
+        let x = (next() as usize) % width;
+        let y = (next() as usize) % height;
+        let (pixel, length) = if snow {
+            ([236u8, 242u8, 252u8], 2usize)
+        } else {
+            ([188u8, 203u8, 228u8], 5 + (next() as usize) % 9)
+        };
+        for step in 0..length {
+            let at = (y + step) % height;
+            let offset = (at * width + x) * 4;
+            sheet[offset..offset + 4].copy_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+            if snow && x + 1 < width {
+                let wide = offset + 4;
+                sheet[wide..wide + 4].copy_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+            }
+        }
+    }
+    sheet
+}
+
+/// **B3-d (CS-12):** resolves the precipitation of the demo's map pixel from the
+/// retail `CLIMATE.PAK` and spawns the streak sheet.
+///
+/// The bridge does not invent weather: the climate index comes from the map, the
+/// state and the streak count come from [`crate::ui_weather`]. When the retail
+/// file is unreadable the system reports it and draws nothing.
+fn m18_spawn_weather(
+    mut commands: Commands,
+    world: Res<DemoWorld>,
+    mut images: ResMut<Assets<Image>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+) {
+    let window = windows.single().ok();
+    let screen_w = window.map_or(1280.0, |window| window.resolution.width());
+    let screen_h = window.map_or(720.0, |window| window.resolution.height());
+    let size = (
+        (screen_w as u16 / PRECIP_DIV).max(8),
+        (screen_h as u16 / PRECIP_DIV).max(8),
+    );
+    let mut weather = DemoWeather {
+        size,
+        ..DemoWeather::default()
+    };
+    let path = match crate::mode_a_arena2_path("CLIMATE.PAK") {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("M18 VE: weather unavailable — {err} (no invented climate)");
+            commands.insert_resource(weather);
+            return;
+        }
+    };
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            eprintln!("M18 VE: weather unavailable — reading {path:?}: {err}");
+            commands.insert_resource(weather);
+            return;
+        }
+    };
+    let map = match ClimateMap::parse(&bytes) {
+        Ok(map) => map,
+        Err(err) => {
+            eprintln!("M18 VE: weather unavailable — CLIMATE.PAK: {err:?}");
+            commands.insert_resource(weather);
+            return;
+        }
+    };
+    weather.climates = map.distinct_climates().into_iter().collect();
+    // The demo pixel lands on one *specific* state (Woodlands summer, roll 16 →
+    // Sunny, 0 drops). `O` must be able to reach a state that precipitates, so
+    // the cycle walks every `(climate, roll)` pair of the map that draws drops -
+    // still retail data: no climate or roll is invented, only sampled.
+    for value in weather.climates.clone() {
+        let mut sample = 0.0f32;
+        while sample < 100.0 {
+            if let Ok(precip) = Precipitation::resolve(value, sample) {
+                if precip.drops > 0 {
+                    weather.states.push((value, sample));
+                }
+            }
+            sample += 2.0;
+        }
+    }
+    println!(
+        "M18 VE: weather cycle ready — {} precipitating states over {} distinct climates (O cycles)",
+        weather.states.len(),
+        weather.climates.len()
+    );
+    let pixel = world.0.map_pixel;
+    let Ok(climate) = map.climate(pixel[0], pixel[1]) else {
+        eprintln!(
+            "M18 VE: weather unavailable — map pixel ({},{}) outside CLIMATE.PAK",
+            pixel[0], pixel[1]
+        );
+        commands.insert_resource(weather);
+        return;
+    };
+    let index = climate.index();
+    weather.at = weather
+        .climates
+        .iter()
+        .position(|value| *value == index)
+        .unwrap_or(0);
+    let roll = weather_roll(pixel);
+    let precip = match Precipitation::resolve(index, roll) {
+        Ok(precip) => precip,
+        Err(err) => {
+            eprintln!("M18 VE: weather unavailable — climate {index}: {err:?}");
+            commands.insert_resource(weather);
+            return;
+        }
+    };
+    let sheet = precipitation_sheet(&precip, size);
+    match bridge::image_from_rgba(&sheet, u32::from(size.0), u32::from(size.1), &mut images) {
+        Ok(handle) => {
+            let entity = commands
+                .spawn((
+                    Sprite {
+                        image: handle.clone(),
+                        custom_size: Some(Vec2::new(screen_w, screen_h)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(
+                        0.0,
+                        if precip.drops > 0 { 0.0 } else { PARKED_Y },
+                        PRECIP_Z,
+                    )),
+                    if precip.drops > 0 {
+                        Visibility::Visible
+                    } else {
+                        Visibility::Hidden
+                    },
+                ))
+                .id();
+            weather.sprite = Some(entity);
+            weather.handle = Some(handle);
+        }
+        Err(err) => eprintln!("M18 VE: weather sheet unavailable — {err}"),
+    }
+    println!(
+        "M18 VE: weather {} · map pixel ({},{}) · sheet {}×{} · O cycles the retail climates",
+        precip.evidence(),
+        pixel[0],
+        pixel[1],
+        size.0,
+        size.1
+    );
+    weather.precip = Some(precip);
+    commands.insert_resource(weather);
+}
+
+/// **B3-d (CS-12):** `O` advances to the next retail climate of `CLIMATE.PAK`
+/// that actually precipitates, rewriting the sheet in place.
+fn m18_weather_key(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut weather: ResMut<DemoWeather>,
+    mut images: ResMut<Assets<Image>>,
+    mut visibilities: Query<&mut Visibility>,
+    mut transforms: Query<&mut Transform>,
+) {
+    if !keys.just_pressed(KeyCode::KeyO) {
+        return;
+    }
+    if weather.states.is_empty() {
+        println!(
+            "M18 VE: weather cycle ignored — no retail climate precipitates (no invented weather)"
+        );
+        return;
+    }
+    weather.at = (weather.at + 1) % weather.states.len();
+    let (climate, roll) = weather.states[weather.at];
+    let precip = match Precipitation::resolve(climate, roll) {
+        Ok(precip) => precip,
+        Err(err) => {
+            println!("M18 VE: weather cycle — climate {climate}: {err:?}");
+            return;
+        }
+    };
+    let sheet = precipitation_sheet(&precip, weather.size);
+    if let Some(handle) = weather.handle.clone() {
+        if let Some(mut image) = images.get_mut(&handle) {
+            // Bevy 0.20 keeps the RGBA bytes behind `Option<Vec<u8>>`.
+            match image.data.as_mut() {
+                Some(data) if data.len() == sheet.len() => data.copy_from_slice(&sheet),
+                _ => eprintln!("M18 VE: weather sheet rewrite skipped — unexpected buffer"),
+            }
+        }
+    }
+    if let Some(entity) = weather.sprite {
+        if let Ok(mut visibility) = visibilities.get_mut(entity) {
+            *visibility = Visibility::Visible;
+        }
+        // Same measured rule as the overlays: the move is what repaints.
+        if let Ok(mut transform) = transforms.get_mut(entity) {
+            transform.translation = Vec3::new(0.0, 0.0, PRECIP_Z);
+        }
+    }
+    println!(
+        "M18 VE: weather {} · climate {climate} roll {roll:.0} · sheet {}×{} · O cycles the retail climates",
+        precip.evidence(),
+        weather.size.0,
+        weather.size.1
+    );
+    weather.precip = Some(precip);
+}
+
+/// **B3-a (CS-14):** instantiates one billboard per arrived guard.
+///
+/// The law writes `M28Law::guards` when a city-watch order is executed
+/// (`m28_execute_order`). This system walks the entries **after**
+/// `DemoGuardBillboards::spawned`, so it is idempotent (a guard appears once),
+/// and takes the flat from `DemoScene::guard_flats` with the retail rotation
+/// (`at % guard_flats.len()`) plus the actor label of the session enemy
+/// (`m18_demo::actor_label`, the same tag the HUD prints). The material path is
+/// the NPC billboard path (`AlphaMode::Mask`).
+#[allow(clippy::too_many_arguments)]
+fn m18_guard_billboards(
+    mut commands: Commands,
+    world: Res<DemoWorld>,
+    law: Res<M28Law>,
+    combat: Res<DemoCombat>,
+    mut state: ResMut<DemoGuardBillboards>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if law.guards.len() <= state.spawned {
+        return;
+    }
+    let scene = &world.0;
+    if scene.guard_flats.is_empty() {
+        println!(
+            "M18 VE: guard billboards — 0 guard flats composed ({} guards without billboard, 0 invented flat)",
+            law.guards.len()
+        );
+        state.spawned = law.guards.len();
+        return;
+    }
+    let quad = unit_billboard(&mut meshes);
+    for at in state.spawned..law.guards.len() {
+        let (session_index, position) = law.guards[at];
+        let flat = &scene.guard_flats[at % scene.guard_flats.len()];
+        let position = Vec3::from_array(position);
+        let Ok(image) = bridge::image_from_rgba(
+            &flat.rgba,
+            u32::from(flat.width),
+            u32::from(flat.height),
+            &mut images,
+        ) else {
+            println!(
+                "M18 VE: guard billboard {at} — flat {} does not decode (not drawn)",
+                flat.key
+            );
+            continue;
+        };
+        let material = bridge::material_from_texture(
+            &bridge::MaterialSpec {
+                base_color: [1.0, 1.0, 1.0, 1.0],
+                ..default()
+            },
+            image,
+            &mut materials,
+        );
+        if let Some(mut mat) = materials.get_mut(&material) {
+            mat.alpha_mode = AlphaMode::Mask(0.5);
+        }
+        let height = 2.2f32;
+        let width = height * (f32::from(flat.width) / f32::from(flat.height.max(1)));
+        let billboard = commands
+            .spawn((
+                Mesh3d(quad.clone()),
+                MeshMaterial3d(material),
+                Transform::from_translation(position).with_scale(Vec3::new(width, height, 1.0)),
+            ))
+            .id();
+
+        let label = crate::m18_demo::actor_label(&combat.session, session_index)
+            .unwrap_or_else(|| format!("guard #{session_index}"));
+        let caption = crate::m18_demo::caption_texture(&scene.m20_font, scene.m20_ink, &label);
+        let label_entity = match bridge::image_from_rgba(
+            &caption.rgba,
+            u32::from(caption.width),
+            u32::from(caption.height),
+            &mut images,
+        ) {
+            Ok(image) => {
+                let label_material = bridge::material_from_texture(
+                    &bridge::MaterialSpec {
+                        base_color: [1.0, 1.0, 1.0, 1.0],
+                        ..default()
+                    },
+                    image,
+                    &mut materials,
+                );
+                if let Some(mut mat) = materials.get_mut(&label_material) {
+                    mat.alpha_mode = AlphaMode::Mask(0.5);
+                }
+                let label_height = f32::from(caption.height) * 0.02;
+                let label_width =
+                    label_height * (f32::from(caption.width) / f32::from(caption.height.max(1)));
+                let label_at = position + Vec3::new(0.0, height * 0.5 + label_height, 0.0);
+                commands
+                    .spawn((
+                        Mesh3d(quad.clone()),
+                        MeshMaterial3d(label_material),
+                        Transform::from_translation(label_at)
+                            .with_scale(Vec3::new(label_width, label_height, 1.0)),
+                    ))
+                    .id()
+            }
+            Err(_) => Entity::PLACEHOLDER,
+        };
+        state.sprites.push((billboard, label_entity, position));
+        println!(
+            "M18 VE: guard billboard #{at} (session enemy {session_index}) flat {} {}×{} ({} opaque px) → \"{label}\" at ({:.1},{:.1})",
+            flat.key,
+            flat.width,
+            flat.height,
+            flat.rgba.chunks_exact(4).filter(|px| px[3] != 0).count(),
+            position.x,
+            position.z
+        );
+    }
+    state.spawned = law.guards.len();
+}
+
+/// Distance in the XZ plane from `p` to the segment `a→b` (0 when the point
+/// falls inside the segment). Used by the CS-14 scenario to keep the camera
+/// clear of the retail crowd: an NPC one metre from the eye covers the whole
+/// frame (measured 2026-10-24: the capture framed a priest and the guard behind
+/// it was not visible).
+fn point_segment_distance_xz(p: [f32; 3], a: Vec3, b: Vec3) -> f32 {
+    let (px, pz) = (p[0] - a.x, p[2] - a.z);
+    let (bx, bz) = (b.x - a.x, b.z - a.z);
+    let len2 = bx * bx + bz * bz;
+    let t = if len2 <= f32::EPSILON {
+        0.0
+    } else {
+        ((px * bx + pz * bz) / len2).clamp(0.0, 1.0)
+    };
+    let (cx, cz) = (px - bx * t, pz - bz * t);
+    cx.hypot(cz)
+}
+
+/// **CS-14 scenario** — aims the camera at an arriving guard, moving the
+/// scenario camera the least distance that leaves a clear line of sight
+/// (`M18_CS14=1` only).
+///
+/// DFU replaces the NPCs **behind** the player (`PlayerEntity.cs:668-681`: the
+/// angle to the candidate must be >= 105.469 deg from the view), so the guards
+/// of the crime always arrive out of frame and a capture of the empty street
+/// would prove nothing about the billboards. The window has no keyboard look
+/// (mouse only), so the scenario:
+///
+/// 1. takes the **nearest** live guard;
+/// 2. tests the line of sight at eye height against the retail collision grid
+///    (`is_free`, the authority the player's own movement obeys) and, when a
+///    wall or a block is in between, probes camera positions along the
+///    guard→camera ray with two lateral offsets, keeping the smallest move —
+///    measured 2026-10-24: aiming from the spawn left the two billboards behind
+///    a building, the frame carried the wall and the title alone was not proof;
+/// 3. aims the camera at the guard and prints the **projected screen
+///    rectangle** of every guard, so the capture can be checked in pixels.
+///
+/// Without the variable this system returns immediately: gameplay unchanged.
+// Eight Bevy parameters (camera, law, world, locomotion, NPCs, replaced pool,
+// commands, one-shot latch): each is a distinct resource/query, not a bag.
+#[allow(clippy::too_many_arguments)]
+fn m18_cs14_face_guards(
+    mut cameras: Query<(&mut Transform, &mut m2_player::M2Player), With<Camera3d>>,
+    law: Res<M28Law>,
+    world: Res<DemoWorld>,
+    // The camera translation is written every frame from the locomotion state
+    // (`m19_tick`: `transform.translation = locomotion.position`), so the move
+    // only sticks if this state moves too (measured 2026-10-24: the yaw took
+    // and the position did not — the capture kept the door facade).
+    mut m19: ResMut<M19Player>,
+    npcs: Res<DemoNpcs>,
+    replaced: Query<(), With<ReplacedByGuard>>,
+    mut commands: Commands,
+    mut aimed: Local<bool>,
+) {
+    if std::env::var("M18_CS14").is_err() || *aimed || law.guards.is_empty() {
+        return;
+    }
+    let Ok((mut transform, mut player)) = cameras.single_mut() else {
+        return;
+    };
+    let grid = &world.0.grid;
+    let eye_y = transform.translation.y;
+    let cur = Vec3::new(transform.translation.x, eye_y, transform.translation.z);
+    const WIDTH: f32 = 1280.0;
+    const HEIGHT: f32 = 720.0;
+    const SPRITE_HEIGHT_M: f32 = 2.2;
+    let focal = (HEIGHT * 0.5) / (0.5 * 45f32.to_radians()).tan();
+    let aspect = |at: usize| -> f32 {
+        let flat = &world.0.guard_flats[at % world.0.guard_flats.len()];
+        f32::from(flat.width) / f32::from(flat.height.max(1))
+    };
+    // Projected rectangle of `guard` seen from `eye`: (center x, center y, w, h, depth).
+    let project = |eye: Vec3, guard: [f32; 3], aspect: f32| -> Option<(f32, f32, f32, f32, f32)> {
+        let dx = guard[0] - eye.x;
+        let dz = guard[2] - eye.z;
+        if dx.hypot(dz) < 0.01 {
+            return None;
+        }
+        let yaw = (-dx).atan2(-dz);
+        let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let forward = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
+        let center = Vec3::new(guard[0], guard[1] + SPRITE_HEIGHT_M * 0.5, guard[2]) - eye;
+        let depth = center.dot(forward);
+        if depth <= 0.5 {
+            return None;
+        }
+        Some((
+            WIDTH * 0.5 + (center.dot(right) / depth) * focal,
+            HEIGHT * 0.5 - (center.y / depth) * focal,
+            (SPRITE_HEIGHT_M * aspect / depth) * focal,
+            (SPRITE_HEIGHT_M / depth) * focal,
+            depth,
+        ))
+    };
+    let walkable = |p: Vec3| grid.is_free([p.x, p.y, p.z], bridge::PLAYER_RADIUS_M);
+    // Best camera spot for one guard: clear grid line of sight, whole sprite in
+    // the frame, no retail NPC on the eye or on the sight line, and the
+    // smallest move from where the campaign left the player.
+    // Returns `(tier, moved, eye)`: tier 0 also keeps the crowd out of the
+    // frame, 1 is framed but possibly crowded, 2 is any clear spot. The caller
+    // takes the lowest tier and the smallest move, so the scenario always aims
+    // at a guard and prefers the clean shot.
+    let select = |guard: [f32; 3], aspect: f32| -> Option<(u8, f32, Vec3)> {
+        let target = Vec3::new(guard[0], eye_y, guard[2]);
+        let clear = |from: Vec3| -> bool {
+            let steps = (((target - from).length()) / 0.4).ceil().max(1.0) as usize;
+            (1..steps).all(|i| {
+                let t = i as f32 / steps as f32;
+                let p = from.lerp(target, t);
+                grid.is_free([p.x, p.y, p.z], 0.05)
+            })
+        };
+        let framed = |eye: Vec3| -> bool {
+            project(eye, guard, aspect).is_some_and(|(sx, sy, w, h, _)| {
+                w >= 40.0
+                    && h >= 60.0
+                    && sx - w * 0.5 > 24.0
+                    && sx + w * 0.5 < WIDTH - 24.0
+                    && sy - h * 0.5 > 24.0
+                    && sy + h * 0.5 < HEIGHT - 24.0
+            })
+        };
+        // Rings around the guard: the scenario camera bashes a door 1.4 m ahead
+        // on the far side of the block, so the spot that sees the guard has to
+        // be found around it, not between it and the camera.
+        let mut best: Option<(u8, f32, Vec3)> = None;
+        let mut candidates = vec![cur];
+        for radius in [3.0f32, 4.0, 5.0, 6.5, 8.0, 10.0, 12.0] {
+            for step in 0..16 {
+                let angle = std::f32::consts::TAU * step as f32 / 16.0;
+                candidates.push(target + Vec3::new(radius * angle.cos(), 0.0, radius * angle.sin()));
+            }
+        }
+        for candidate in candidates {
+            if !walkable(candidate) || !clear(candidate) {
+                continue;
+            }
+            let tier = if framed(candidate) { 0 } else { 1 };
+            let moved = (candidate - cur).length();
+            if best.is_none_or(|(best_tier, best_moved, _)| (tier, moved) < (best_tier, best_moved)) {
+                best = Some((tier, moved, candidate));
+            }
+        }
+        best
+    };
+    // Every arriving guard is a candidate: the crowd around one of them can
+    // leave no clean spot while the other one has a clear view.
+    let Some((tier, moved, eye, at, guard)) = law
+        .guards
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, position))| {
+            select(*position, aspect(index))
+                .map(|(tier, moved, eye)| (tier, moved, eye, index, *position))
+        })
+        .min_by(|a, b| (a.0, a.1).partial_cmp(&(b.0, b.1)).unwrap_or(std::cmp::Ordering::Equal))
+    else {
+        println!(
+            "M18 VE: CS14 scenario — no camera spot sees a guard with a clear grid line, a framed \
+             sprite and no NPC in the way ({} guards, crowd of {} NPCs) — capture keeps the current pose",
+            law.guards.len(),
+            npcs.0.len()
+        );
+        return;
+    };
+    let dx = guard[0] - eye.x;
+    let dz = guard[2] - eye.z;
+    if dx.hypot(dz) < 0.01 {
+        return;
+    }
+    let yaw = (-dx).atan2(-dz);
+    // Keep the crowd, clear the shot: an NPC billboard ~1 m from the eye or on
+    // the sight line covers the guard's rectangle (measured 2026-10-24: the
+    // capture framed a priest and the guard was behind it). Only those
+    // billboards are hidden — the rest of the street stays as the campaign
+    // composed it, and every hidden NPC is named.
+    let target = Vec3::new(guard[0], eye_y, guard[2]);
+    let mut occluders = 0usize;
+    for (entity, npc) in &npcs.0 {
+        if replaced.contains(*entity) {
+            continue;
+        }
+        let near_eye = (npc.x - eye.x).hypot(npc.z - eye.z) < 1.5;
+        let on_line = point_segment_distance_xz([npc.x, npc.y, npc.z], eye, target) < 1.0;
+        if near_eye || on_line {
+            commands.entity(*entity).insert(Visibility::Hidden);
+            occluders += 1;
+        }
+    }
+    transform.translation = Vec3::new(eye.x, eye_y, eye.z);
+    m19.locomotion.position = [eye.x, eye_y, eye.z];
+    player.yaw = yaw;
+    player.pitch = 0.0;
+    transform.rotation = Quat::from_rotation_y(yaw);
+    *aimed = true;
+    println!(
+        "M18 VE: CS14 scenario — camera aimed at guard #{at} at ({:.1},{:.1}) · from ({:.1},{:.1}) \
+         to ({:.1},{:.1}) moved {moved:.1} m · yaw {yaw:.2} rad · los=clear · framed={} · \
+         crowd={} of {} NPCs · {occluders} occluder(s) hidden",
+        guard[0],
+        guard[2],
+        cur.x,
+        cur.z,
+        eye.x,
+        eye.z,
+        if tier == 0 { "true" } else { "false" },
+        npcs.0.len() - occluders,
+        npcs.0.len()
+    );
+    // Screen rectangle of every guard, so the capture is checked on pixels and
+    // not on the window title.
+    for (index, (session, position)) in law.guards.iter().enumerate() {
+        match project(eye, *position, aspect(index)) {
+            Some((sx, sy, w, h, depth)) => println!(
+                "M18 VE: CS14 guard #{index} (session enemy {session}) screen=({sx:.0},{sy:.0}) \
+                 size=({w:.0}x{h:.0}) depth={depth:.1} m in_frame={}",
+                sx - w * 0.5 > 0.0
+                    && sx + w * 0.5 < WIDTH
+                    && sy - h * 0.5 > 0.0
+                    && sy + h * 0.5 < HEIGHT
+            ),
+            None => println!(
+                "M18 VE: CS14 guard #{index} (session enemy {session}) behind the camera or on it"
+            ),
+        }
+    }
+}
+
+/// **CS-13 scenario** — turns the camera to the busiest direction of the street
+/// so the population capture shows the 24 NPCs instead of the facade the walk
+/// left in front of the lens (measured 2026-10-24: the CS-13 frame was an empty
+/// room while the title said `POP 24`).
+///
+/// Only the yaw changes: the player stays where the campaign left it, no NPC is
+/// moved or hidden, and the direction is the one that puts the most retail
+/// billboards inside the frame with a clear grid line of sight.
+fn m18_cs13_face_crowd(
+    world: Res<DemoWorld>,
+    mut cameras: Query<(&mut Transform, &mut m2_player::M2Player), With<Camera3d>>,
+    mut m19: ResMut<M19Player>,
+    npcs: Res<DemoNpcs>,
+    replaced: Query<(), With<ReplacedByGuard>>,
+    mut aimed: Local<bool>,
+    mut last_eye: Local<Option<Vec3>>,
+) {
+    if std::env::var("M18_CS13").is_err() || npcs.0.is_empty() {
+        return;
+    }
+    // The spawn point is inside a building: the first `Playing` frames have no
+    // billboard with a clear line of sight, so the aim retries every frame and
+    // latches on the first one that does (never on an empty list).
+    let Ok((mut transform, mut player)) = cameras.single_mut() else {
+        return;
+    };
+    let grid = &world.0.grid;
+    let eye = Vec3::new(
+        transform.translation.x,
+        transform.translation.y,
+        transform.translation.z,
+    );
+    const WIDTH: f32 = 1280.0;
+    const HEIGHT: f32 = 720.0;
+    const SPRITE_HEIGHT_M: f32 = 2.2;
+    let focal = (HEIGHT * 0.5) / (0.5 * 45f32.to_radians()).tan();
+    // Rectangle of one billboard seen from `eye` with the camera looking at `yaw`.
+    let project = |eye: Vec3, yaw: f32, npc: Vec3| -> Option<(f32, f32, f32, f32, f32)> {
+        let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let forward = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
+        let center = npc + Vec3::new(0.0, SPRITE_HEIGHT_M * 0.5, 0.0) - eye;
+        let depth = center.dot(forward);
+        if depth <= 1.0 {
+            return None;
+        }
+        let w = (SPRITE_HEIGHT_M * 0.55 / depth) * focal;
+        let h = (SPRITE_HEIGHT_M / depth) * focal;
+        Some((
+            WIDTH * 0.5 + (center.dot(right) / depth) * focal,
+            HEIGHT * 0.5 - (center.y / depth) * focal,
+            w,
+            h,
+            depth,
+        ))
+    };
+    let all: Vec<Vec3> = npcs
+        .0
+        .iter()
+        .filter(|(entity, _)| !replaced.contains(*entity))
+        .map(|(_, position)| *position)
+        .collect();
+    // Straight grid line of sight at eye height: the ray keeps `eye.y` (the
+    // billboard positions carry their own height, and a ray that dips to the
+    // ground reads as blocked by the floor).
+    let sees = |eye: Vec3, at: Vec3| -> bool {
+        // 5 m: closer billboards are legitimately drawn (and the CS-14 guard
+        // stands at 7.6-8.7 m), but one of them in front of the lens covers the
+        // street instead of showing it (measured 2026-10-24: a mage sprite
+        // filled half the CS-13 frame).
+        if (at.x - eye.x).hypot(at.z - eye.z) < 5.0 {
+            return false;
+        }
+        let target = Vec3::new(at.x, eye.y, at.z);
+        let steps = ((target - eye).length() / 0.4).ceil().max(1.0) as usize;
+        (1..steps).all(|i| {
+            let t = i as f32 / steps as f32;
+            let p = eye.lerp(target, t);
+            grid.is_free([p.x, p.y, p.z], 0.05)
+        })
+    };
+    // The capture can land anywhere the campaign walks after the aim, so the
+    // rectangles are re-printed whenever the eye moves: the yaw is not touched
+    // here (the walk follows the camera and must not bend), only the numbers
+    // the capture is measured with.
+    let report = |eye: Vec3, yaw: f32| {
+        let mut candidates: Vec<(f32, Vec3)> = all
+            .iter()
+            .filter_map(|at| project(eye, yaw, *at).map(|(_, _, _, _, depth)| (depth, *at)))
+            .collect();
+        candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let mut printed = 0usize;
+        for (_, npc) in candidates {
+            if printed == 3 {
+                break;
+            }
+            if let Some((sx, sy, w, h, depth)) = project(eye, yaw, npc) {
+                if sx - w * 0.5 > 16.0
+                    && sx + w * 0.5 < WIDTH - 16.0
+                    && sy - h * 0.5 > 16.0
+                    && sy + h * 0.5 < HEIGHT - 16.0
+                {
+                    println!(
+                        "M18 VE: CS13 npc #{printed} screen=({sx:.0},{sy:.0}) size=({w:.0}x{h:.0}) \
+                         depth={depth:.1} m at ({:.1},{:.1})",
+                        npc.x, npc.z
+                    );
+                    printed += 1;
+                }
+            }
+        }
+    };
+    if *aimed {
+        let now = Vec3::new(
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+        );
+        if last_eye.is_none_or(|last| (now - last).length() > 0.5) {
+            *last_eye = Some(now);
+            report(now, player.yaw);
+        }
+        return;
+    }
+    // The campaign spawns **inside** a building, so from the walk's end no
+    // billboard has a clear line of sight (measured 2026-10-24: the CS-13 frame
+    // was an empty room). When that happens the scenario looks for a street
+    // vantage: a walkable spot 4…12 m from the densest cluster of the crowd
+    // that sees at least three billboards, and moves the camera there — the
+    // same kind of scenario move the CS-14 item already makes. Nothing else is
+    // touched: no NPC is moved, hidden or invented.
+    // "Outdoors" test: a street spot has most of its horizon free, while a room
+    // exists only one or two rays wide (measured 2026-10-24: the aim kept the
+    // camera in the spawn room and the CS-13 frame showed a wall, not the
+    // street). Only an open spot can host the population shot.
+    let open = |at: Vec3| -> usize {
+        let mut free = 0usize;
+        for step in 0..8 {
+            let angle = std::f32::consts::TAU * step as f32 / 8.0;
+            let far = Vec3::new(at.x + 14.0 * angle.cos(), at.y, at.z + 14.0 * angle.sin());
+            let steps = 35usize;
+            if (1..steps).all(|i| {
+                let t = i as f32 / steps as f32;
+                let p = at.lerp(far, t);
+                grid.is_free([p.x, p.y, p.z], 0.05)
+            }) {
+                free += 1;
+            }
+        }
+        free
+    };
+    let mut vantage = eye;
+    let mut visible: Vec<Vec3> = if open(eye) >= 5 {
+        all.iter().copied().filter(|at| sees(eye, *at)).collect()
+    } else {
+        Vec::new()
+    };
+    if visible.len() < 3 {
+        let mut best: Option<(usize, Vec3)> = None;
+        for anchor in &all {
+            for radius in [4.0f32, 5.0, 6.5, 8.0, 10.0, 12.0] {
+                for step in 0..24 {
+                    let angle = std::f32::consts::TAU * step as f32 / 24.0;
+                    let spot = Vec3::new(
+                        anchor.x + radius * angle.cos(),
+                        eye.y,
+                        anchor.z + radius * angle.sin(),
+                    );
+                    if (spot - eye).length() > 60.0
+                        || !grid.is_free([spot.x, spot.y, spot.z], bridge::PLAYER_RADIUS_M)
+                        || open(spot) < 5
+                    {
+                        continue;
+                    }
+                    let count = all.iter().filter(|at| sees(spot, **at)).count();
+                    if count >= 1 && best.is_none_or(|(best, _)| count > best) {
+                        best = Some((count, spot));
+                    }
+                }
+            }
+            if best.is_some_and(|(count, _)| count >= 6) {
+                break;
+            }
+        }
+        if let Some((_, spot)) = best {
+            vantage = spot;
+            visible = all.iter().copied().filter(|at| sees(spot, *at)).collect();
+        }
+    }
+    if visible.is_empty() {
+        return;
+    }
+    let eye = vantage;
+    // Busiest direction: most billboards inside the frame, ties broken by the
+    // closest one (a big sprite is measurable on pixels).
+    let mut best: Option<(usize, f32, f32)> = None;
+    for step in 0..48 {
+        let yaw = std::f32::consts::TAU * step as f32 / 48.0;
+        let mut inside = 0usize;
+        let mut nearest = f32::INFINITY;
+        for npc in &visible {
+            if let Some((sx, sy, w, h, depth)) = project(eye, yaw, *npc) {
+                if sx - w * 0.5 > 16.0
+                    && sx + w * 0.5 < WIDTH - 16.0
+                    && sy - h * 0.5 > 16.0
+                    && sy + h * 0.5 < HEIGHT - 16.0
+                {
+                    inside += 1;
+                    nearest = nearest.min(depth);
+                }
+            }
+        }
+        if inside == 0 {
+            continue;
+        }
+        let better = match best {
+            None => true,
+            Some((count, distance, _)) => inside > count || (inside == count && nearest < distance),
+        };
+        if better {
+            best = Some((inside, nearest, yaw));
+        }
+    }
+    let Some((count, nearest, yaw)) = best else {
+        println!("M18 VE: CS13 scenario — no direction frames an NPC billboard");
+        *aimed = true;
+        return;
+    };
+    let moved = (vantage - Vec3::new(
+        transform.translation.x,
+        transform.translation.y,
+        transform.translation.z,
+    ))
+    .length();
+    transform.translation = Vec3::new(vantage.x, vantage.y, vantage.z);
+    transform.rotation = Quat::from_rotation_y(yaw);
+    player.yaw = yaw;
+    player.pitch = 0.0;
+    m19.locomotion.position = [vantage.x, vantage.y, vantage.z];
+    *aimed = true;
+    println!(
+        "M18 VE: CS13 scenario — camera at ({:.1},{:.1}) moved {moved:.1} m · {count} billboards \
+         in frame · nearest at {nearest:.1} m · yaw {yaw:.2} rad · {} NPCs with a clear line of sight",
+        vantage.x,
+        vantage.z,
+        visible.len()
+    );
+    *last_eye = Some(vantage);
+    report(vantage, yaw);
+}
+
+/// **Retail replacement (B3-a)** — the city watch turns the pool NPC it is
+/// drawn from into a guard (`PlayerEntity.cs:668-680`), so the NPC billboard
+/// goes away.
+///
+/// The demo spawned the guard **next to** the NPC: at CS-14 the two billboards
+/// shared one spot and the capture framed the priest behind the knight
+/// (measured 2026-10-24). The NPC stays in [`DemoNpcs`] (caption indices) but is
+/// hidden and marked [`ReplacedByGuard`], which also takes it out of the
+/// caption's nearest-NPC search.
+fn m28_guards_replace_npcs(
+    law: Res<M28Law>,
+    npcs: ResMut<DemoNpcs>,
+    mut commands: Commands,
+    mut visibilities: Query<&mut Visibility>,
+    mut replaced: Local<usize>,
+) {
+    if law.guards.len() <= *replaced {
+        return;
+    }
+    let pool: Vec<[f32; 3]> = law.guards[*replaced..].iter().map(|(_, at)| *at).collect();
+    *replaced = law.guards.len();
+    for position in pool {
+        let Some((entity, at)) = npcs.0.iter().find(|(_, npc)| {
+            (npc.x - position[0]).hypot(npc.z - position[2]) < 0.6
+                && (npc.y - position[1]).abs() < 1.0
+        }) else {
+            continue;
+        };
+        let (entity, at) = (*entity, *at);
+        if let Ok(mut visibility) = visibilities.get_mut(entity) {
+            *visibility = Visibility::Hidden;
+        }
+        commands.entity(entity).insert(ReplacedByGuard);
+        println!(
+            "M28 VE: city watch replaces the pool NPC at ({:.1},{:.1}) — its billboard is hidden \
+             (retail: the candidate becomes the guard)",
+            at.x, at.z
+        );
+    }
+}
+
+/// **CS-14 scenario** — keeps the scenario door of
+/// [`crate::m18_demo::apply_cs14_scenario`] (`M18_CS14=1`) 1.4 m ahead of the
+/// camera until a crime is stored.
+///
+/// The campaign walks before it bashes (CS-13/15/16 need the street), so a door
+/// frozen at the spawn would already be out of reach when `G` is pressed. Only
+/// the panel entry recorded by the scenario (`DemoScene::cs14_door`) moves: the
+/// normal composition has `None` there and this system returns before touching
+/// the world, so gameplay is unchanged without the variable.
+fn m28_cs14_scenario_door(
+    cameras: Query<&Transform, With<Camera3d>>,
+    mut world: ResMut<DemoWorld>,
+    law: Res<M28Law>,
+) {
+    if std::env::var("M18_CS14").is_err() || !matches!(law.runtime.law.crime, Crimes::None) {
+        return;
+    }
+    let Ok(camera) = cameras.single() else {
+        return;
+    };
+    let Some((building, index)) = world.0.cs14_door else {
+        return;
+    };
+    let forward = camera.rotation * Vec3::NEG_Z;
+    let ahead = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero()
+        * crate::m18_demo::CS14_DOOR_AHEAD_M;
+    let door = [camera.translation.x + ahead.x, 0.0, camera.translation.z + ahead.z];
+    if let Some(slot) = world
+        .0
+        .city
+        .buildings
+        .get_mut(building)
+        .and_then(|b| b.doors.get_mut(index))
+    {
+        *slot = door;
+    }
 }
 
 /// M28 (REQ-L99-061, G6): **G** bashes the nearest building door — the crime
@@ -1803,14 +3498,19 @@ fn m28_door_bash(
                 .sqrt();
             (distance, quality, door)
         })
-        .filter(|(distance, _, _)| *distance <= DOOR_REACH_M)
         .min_by(|a, b| a.0.total_cmp(&b.0));
     let Some((distance, quality, door)) = nearest else {
-        println!(
-            "M28 VE: bash — no retail door within {DOOR_REACH_M:.1} m (nearest building doors are farther away)"
-        );
+        println!("M28 VE: bash — the city composition has 0 retail doors");
         return;
     };
+    if distance > DOOR_REACH_M {
+        // The distance is reported (not just "farther away"): the CS-14 capture
+        // walks to the nearest facade with this number as its only guide.
+        println!(
+            "M28 VE: bash — no retail door within {DOOR_REACH_M:.1} m (nearest at {distance:.1} m)"
+        );
+        return;
+    }
     // `GetBuildingLockValue(buildingSummary) = quality / 2`
     // (`PlayerActivate.cs:668-680`).
     let lock_value = i32::from(quality) / 2;
@@ -2135,3 +3835,51 @@ mod melee_sfx_tests {
     }
 }
 
+
+/// **CS-14 (B3-a)** — the scenario door of [`crate::m18_demo::apply_cs14_scenario`]
+/// must sit inside the reach of the bash binding and in front of the camera:
+/// the interaction reads the XZ distance to the nearest door, so these tests
+/// measure exactly that quantity (no Bevy app, no retail bytes).
+#[cfg(test)]
+mod cs14_tests {
+    use super::*;
+    use crate::m18_demo::{cs14_door_position, CS14_DOOR_AHEAD_M};
+
+    fn xz_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+        ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+    }
+
+    #[test]
+    fn scenario_door_is_in_reach_and_in_front_for_every_heading() {
+        let eye = [411.0, 1.6, 411.0];
+        for yaw in [0.0_f32, 0.79, 1.57, 3.93, -2.4] {
+            let door = cs14_door_position(eye, yaw, CS14_DOOR_AHEAD_M);
+            let distance = xz_distance(door, eye);
+            assert!(
+                distance <= DOOR_REACH_M,
+                "yaw {yaw}: door at {distance:.2} m exceeds the bash reach {DOOR_REACH_M} m"
+            );
+            let forward = [-yaw.sin(), 0.0, -yaw.cos()];
+            let dot = ((door[0] - eye[0]) * forward[0] + (door[2] - eye[2]) * forward[2]) / distance;
+            assert!(dot > 0.99, "yaw {yaw}: door is not ahead of the camera (dot {dot:.3})");
+            assert_eq!(door[1], 0.0, "the door point sits on the ground plane");
+        }
+    }
+
+    #[test]
+    fn scenario_door_position_is_deterministic() {
+        let eye = [411.0, 1.6, 411.0];
+        let first = cs14_door_position(eye, 3.93, CS14_DOOR_AHEAD_M);
+        let second = cs14_door_position(eye, 3.93, CS14_DOOR_AHEAD_M);
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn a_door_beyond_the_reach_is_refused_by_the_binding_rule() {
+        // Control: the same geometry placed past `DOOR_REACH_M` is out of reach,
+        // so the test above is not vacuous.
+        let eye = [0.0, 1.6, 0.0];
+        let door = cs14_door_position(eye, 0.0, DOOR_REACH_M + 0.6);
+        assert!(xz_distance(door, eye) > DOOR_REACH_M);
+    }
+}
