@@ -340,11 +340,11 @@ pub(crate) fn fit_to_lot_scale(spec: &MeshSpec) -> Option<f32> {
 /// WORLD fit-to-lot, from the 4 cardinal faces? — city landmark selection
 /// criterion (§5a).
 ///
-/// It is evaluated **in the placed world** (scale [`fit_to_lot_scale`], seated
+/// It is evaluated **in the placed world** (scale `fit_to_lot_scale`, seated
 /// at y=0): eye `EYE_HEIGHT_M` and sphere `PLAYER_RADIUS_M` converted to
 /// local meters (`/scale`), mesh cell `DEFAULT_CELL_M/scale` = 1 m of
 /// world (same granularity as the probe mesh over the combined
-/// city) and face sampling every [`LANDMARK_FACE_STEP_M`] world m.
+/// city) and face sampling every `LANDMARK_FACE_STEP_M` world m.
 /// In raw local meters y=1.6 does not mean the same (a 3.15 m model
 /// scaled ×8.89 has the local eye at 0.18 — R-M10-FIN warning).
 ///

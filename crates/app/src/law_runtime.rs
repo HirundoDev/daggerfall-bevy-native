@@ -61,7 +61,8 @@ use daggerfall_combat::{Combatant, DeathSequence, EntityKind};
 /// `CLASS{careerIndex:00}.CFG` (`DaggerfallEntity.GetClassCareerTemplate`,
 /// `DaggerfallEntity.cs:907-915`) with `careerIndex = 18` ⇒ `CLASS18.CFG`, the
 /// retail file that is **not** a playable class (it stores `major3 = 35`), so it
-/// is read with [`parse_enemy_class_template`], never [`Career::parse`].
+/// is read with [`daggerfall_skills::career::parse_enemy_class_template`], never
+/// [`daggerfall_skills::career::Career::parse`].
 pub const CITY_WATCH_CLASS_FILE: &str = "CLASS18.CFG";
 
 /// How the scene places the guards a [`GuardOrder`] asks for.
@@ -70,7 +71,7 @@ pub enum GuardPlacement {
     /// Inside a shop/tavern/residence: at the lowest outer door, offset along
     /// its normal (`:630-641`). DFU's offset is `PlayerController.radius + 0.1f`
     /// (`:633-634`); the law carries only the `0.1` term
-    /// ([`INTERIOR_DOOR_OFFSET_METERS`]), so the scene adds its own controller
+    /// ([`daggerfall_behavior::law::INTERIOR_DOOR_OFFSET_METERS`]), so the scene adds its own controller
     /// radius to place the guard.
     Door {
         /// The `+ 0.1f` term of `radius + 0.1f` (`:633-634`).

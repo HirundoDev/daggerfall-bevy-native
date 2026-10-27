@@ -30,7 +30,8 @@
 //! holds exactly (7,658,094). Each record is 8-bit unsigned mono PCM.
 //!
 //! Honest degradation: if the file is missing from the user's ARENA2 (Mode A /
-//! PathChecker), no audio is fabricated — [`SndError::Missing`] is reported.
+//! PathChecker), no audio is fabricated — the caller gets
+//! `AudioError::MissingFile` (`daggerfall-app` `audio`) instead of a clip.
 
 use crate::bsa;
 

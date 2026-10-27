@@ -574,7 +574,7 @@ impl CombatSession {
     /// (`FormulaHelper.cs:636-672`); every other attacker resolves one
     /// [`resolve_attack`]. `None` on the same guards as [`Self::player_strike`],
     /// consuming 0 rolls. The M23 item callbacks run with the same composition
-    /// as [`Self::player_strike`] (see [`run_strike_enchantment`]): DFU emits
+    /// as [`Self::player_strike`] (see `run_strike_enchantment`): DFU emits
     /// the enemy-side `Strikes` from `EnemyAttack.cs:262-268` (player target)
     /// and `:377-383` (non-player target), and the defender's worn artifact
     /// runs out of band from the damage formula (`FormulaHelper.cs:703-717`).

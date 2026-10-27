@@ -1,0 +1,13 @@
+[package]
+name = "daggerfall-content-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.97.1"
+description = "I1 F3 content bundle contract: immutable, offline-verifiable, namespaced, zero executable payload (plan 3.4)."
+publish = false
+
+[dependencies]
+sha2 = "0.10"
+serde_json = "1"
+daggerfall-content-api = { path = "../content-api" }

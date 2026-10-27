@@ -72,7 +72,10 @@ SCAN_SKIP = ("tools/public-export/",)
 RETAIL_ALLOW = ("reference/dfu-spec/",)
 # Third-party emails kept as MIT attribution (owner DECISION 2026-10-21):
 # the DFU corpus and the NOTICE credits are NOT redacted.
-EMAIL_ALLOW = ("reference/dfu-spec/", "NOTICE")
+EMAIL_ALLOW = ("reference/dfu-spec/", "NOTICE",
+               # Synthetic fixture identity for the gate's own git invocation
+               # (`-c user.email=...`, reserved TLD, not a person).
+               "crates/promotion-gate/src/baseline.rs")
 SECRET_PATTERNS = [
     (re.compile(rb"AKIA[0-9A-Z]{16}"), "aws-access-key"),
     (re.compile(rb"ghp_[A-Za-z0-9]{36}"), "github-token"),

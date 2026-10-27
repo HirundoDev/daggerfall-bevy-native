@@ -49,7 +49,7 @@
 pub const RDB_HEADER_LEN: usize = 20;
 /// Elements of `ModelReferenceList` (UESP: always 750).
 pub const MODEL_REFERENCE_COUNT: usize = 750;
-/// Length of a `ModelReference` (ModelId[5] + Description[3]).
+/// Length of a `ModelReference` (`ModelId[5] + Description[3]`).
 pub const MODEL_REFERENCE_LEN: usize = 8;
 /// Length of a `ModelData` (unknown UInt32).
 pub const MODEL_DATA_LEN: usize = 4;

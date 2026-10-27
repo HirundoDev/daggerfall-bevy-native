@@ -8,7 +8,7 @@
 //!
 //! Sources of the placement math (DoD §a declaration):
 //! - `DFU:Assets/Scripts/Utility/RMBLayout.cs` (`GetBuildingData` — the
-//!   sub-record[i] is building[i]: `Position = (XPos, 0, RMBDimension −
+//!   `sub-record[i]` is `building[i]`: `Position = (XPos, 0, RMBDimension −
 //!   ZPos) × GlobalScale`, `Rotation = −YRotation / RotationDivisor` degrees;
 //!   `AddModels` — local model `(XPos, −YPos, ZPos) × GlobalScale`; misc
 //!   props `(XPos, −YPos + (−4), ZPos + RMBDimension) × GlobalScale`;
@@ -34,9 +34,19 @@
 //! in order, models in order); [`RetailCity::canonical_bytes`] serializes
 //! everything with exact f32 bits — same input ⇒ same bytes ⇒ same
 //! [`RetailCity::digest`] (FNV-1a 64, no dependencies).
+//!
+//! M37 (additive, streaming): [`build_retail_cell`] composes **one** block
+//! by calling the same [`build_retail_city`] loop with the global
+//! `width/height` (the f32 placement math stays bit-identical to the global
+//! composition — P-1 parity), and [`cell_canonical_bytes`] serializes a
+//! block's identity + geometry for the global-vs-cell parity check.
+//! [`RetailCity::block_ranges`] records each block's half-open vertex/index
+//! ranges; it is **not** serialized by [`RetailCity::canonical_bytes`], whose
+//! bytes stay frozen (P-2, golden `2b8d8fa5a18c0602`).
 
 use crate::convert::UNITS_PER_METER;
 use crate::mesh_spec::MeshSpec;
+use crate::stream_policy::CellKey;
 use daggerfall_parser_rs::rmb::MapBlockRecord;
 
 /// Side of a city block in meters (4096 raw ÷ 40 =
@@ -48,7 +58,7 @@ pub const ROTATION_DIVISOR: f32 = 5.688_889;
 /// Native Y offset of misc props (`DFU:RMBLayout.cs` `propsOffsetY = -4f`).
 const PROPS_OFFSET_Y: f32 = -4.0;
 
-/// Resolved retail building (one BuildingDataList[i] + its sub-record[i]).
+/// Resolved retail building (one `BuildingDataList[i]` + its `sub-record[i]`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RetailBuilding {
     /// Block X cell in the location grid.
@@ -79,6 +89,32 @@ pub struct RetailBuilding {
     pub doors: Vec<[f32; 3]>,
 }
 
+/// Half-open vertex/index ranges of one block's contribution to a composed
+/// [`RetailCity`] (M37 streaming parity, design §2.7 P-1).
+///
+/// Ground ranges index into [`RetailCity::ground`], building ranges into
+/// [`RetailCity::buildings_mesh`] (the two are concatenated into
+/// [`RetailCity::combined`], so per-spec coordinates keep extraction trivial
+/// and independent of the concatenation offset).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockMeshRange {
+    /// Block X cell in the location grid.
+    pub block_x: usize,
+    /// Block Y cell in the grid.
+    pub block_y: usize,
+    /// Half-open vertex range of this block's ground quad.
+    pub ground_vertices: (usize, usize),
+    /// Half-open index range of this block's ground quad.
+    pub ground_indices: (usize, usize),
+    /// Half-open vertex range of this block's placed building models.
+    pub building_vertices: (usize, usize),
+    /// Half-open index range of this block's placed building models.
+    pub building_indices: (usize, usize),
+    /// Models of this block that resolved to no ARCH3D spec (per-block
+    /// attribution of [`RetailCity::unresolved_models`]).
+    pub unresolved: usize,
+}
+
 /// Retail city composed from real `.RMB` records.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RetailCity {
@@ -97,6 +133,9 @@ pub struct RetailCity {
     /// Model placements omitted for lacking a resolvable ARCH3D
     /// (honest degradation: the building is still composed with its data).
     pub unresolved_models: usize,
+    /// Per-block mesh ranges (M37 streaming parity). Additive bookkeeping:
+    /// **not** serialized by [`RetailCity::canonical_bytes`] — P-2 frozen.
+    pub block_ranges: Vec<BlockMeshRange>,
 }
 
 impl RetailCity {
@@ -293,6 +332,7 @@ pub fn build_retail_city(
     let mut gutex = Vec::new();
     let mut gttex = Vec::new();
     let mut unresolved = 0usize;
+    let mut block_ranges: Vec<BlockMeshRange> = Vec::new();
 
     for (bx, by, record) in blocks {
         // Block origin in the Bevy frame: x = bx·102.4 (east); z maps block
@@ -300,6 +340,13 @@ pub fn build_retail_city(
         // z-negation over the DFU Unity frame).
         let origin_x = *bx as f32 * RETAIL_BLOCK_M;
         let origin_z = (h - by) as f32 * RETAIL_BLOCK_M;
+
+        // M37: half-open ranges of this block's contribution (parity P-1).
+        let ground_vertices_start = gp.len();
+        let ground_indices_start = gi.len();
+        let building_vertices_start = bp.len();
+        let building_indices_start = bi.len();
+        let unresolved_start = unresolved;
 
         // Block ground (quad y=0) — synthetic, untextured (defaults).
         push_ground_quad(
@@ -414,6 +461,16 @@ pub fn build_retail_city(
                 doors,
             });
         }
+
+        block_ranges.push(BlockMeshRange {
+            block_x: *bx,
+            block_y: *by,
+            ground_vertices: (ground_vertices_start, gp.len()),
+            ground_indices: (ground_indices_start, gi.len()),
+            building_vertices: (building_vertices_start, bp.len()),
+            building_indices: (building_indices_start, bi.len()),
+            unresolved: unresolved - unresolved_start,
+        });
     }
 
     let buildings_mesh = MeshSpec {
@@ -439,6 +496,129 @@ pub fn build_retail_city(
         ground,
         combined,
         unresolved_models: unresolved,
+        block_ranges,
+    }
+}
+
+/// Composes **one** retail cell (M37 streaming, design §2.3) by calling the
+/// same [`build_retail_city`] loop with a single block.
+///
+/// `width_blocks`/`height_blocks` must be the **global** dimensions of the
+/// location the cell belongs to: the placement math (`origin_z` depends on
+/// `height_blocks`) then produces bit-identical geometry to the global
+/// composition, which is what makes [`cell_canonical_bytes`] parity (P-1)
+/// exact instead of approximately equal. `cell.x`/`cell.z` are the grid
+/// coordinates `(bx, by)` of the block (negative values are a caller bug:
+/// grids start at 0).
+pub fn build_retail_cell(
+    width_blocks: usize,
+    height_blocks: usize,
+    cell: CellKey,
+    record: MapBlockRecord,
+    resolve_model: &mut dyn FnMut(u32) -> Option<MeshSpec>,
+) -> RetailCity {
+    let bx =
+        usize::try_from(cell.x).expect("build_retail_cell: cell.x is a grid coordinate (>= 0)");
+    let by =
+        usize::try_from(cell.z).expect("build_retail_cell: cell.z is a grid coordinate (>= 0)");
+    build_retail_city(
+        width_blocks,
+        height_blocks,
+        &[(bx, by, record)],
+        resolve_model,
+    )
+}
+
+/// Canonical serialization of the block `cell` inside `city` (M37 parity
+/// P-1): cell identity + the block's building records + the block's ground
+/// and building geometry extracted via [`RetailCity::block_ranges`] with
+/// rebased indices. Comparing this against the same call over
+/// [`build_retail_cell`]'s output is the byte-level falsifier — any
+/// difference is a parity break.
+///
+/// Absence is explicit: an empty `Vec` means "this city has no such cell"
+/// (wrong coordinates or `level != 0` — a composed retail city is a
+/// single-level world; dungeon cells serialize through
+/// `DungeonGrid::canonical_bytes`, not through this function).
+pub fn cell_canonical_bytes(city: &RetailCity, cell: CellKey) -> Vec<u8> {
+    let (Ok(bx), Ok(by)) = (usize::try_from(cell.x), usize::try_from(cell.z)) else {
+        return Vec::new();
+    };
+    if cell.level != 0 {
+        return Vec::new();
+    }
+    let Some(range) = city
+        .block_ranges
+        .iter()
+        .find(|r| r.block_x == bx && r.block_y == by)
+    else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    out.extend_from_slice(b"M37CELL1");
+    out.extend_from_slice(&cell.x.to_le_bytes());
+    out.extend_from_slice(&cell.z.to_le_bytes());
+    out.extend_from_slice(&cell.level.to_le_bytes());
+    out.extend_from_slice(&(range.unresolved as u32).to_le_bytes());
+
+    let buildings: Vec<&RetailBuilding> = city
+        .buildings
+        .iter()
+        .filter(|b| b.block_x == bx && b.block_y == by)
+        .collect();
+    out.extend_from_slice(&(buildings.len() as u32).to_le_bytes());
+    for b in buildings {
+        out.extend_from_slice(&(b.record_index as u32).to_le_bytes());
+        out.push(b.building_type);
+        out.push(b.quality);
+        out.extend_from_slice(&b.name_seed.to_le_bytes());
+        out.extend_from_slice(&b.faction_id.to_le_bytes());
+        out.extend_from_slice(&b.sector.to_le_bytes());
+        out.extend_from_slice(&b.location_id.to_le_bytes());
+        out.extend_from_slice(&b.model_id.to_le_bytes());
+        for v in b.position {
+            out.extend_from_slice(&v.to_bits().to_le_bytes());
+        }
+        out.extend_from_slice(&b.yaw_rad.to_bits().to_le_bytes());
+        out.extend_from_slice(&(b.doors.len() as u32).to_le_bytes());
+        for d in &b.doors {
+            for v in *d {
+                out.extend_from_slice(&v.to_bits().to_le_bytes());
+            }
+        }
+    }
+
+    push_mesh(
+        &mut out,
+        &sub_spec(&city.ground, range.ground_vertices, range.ground_indices),
+    );
+    push_mesh(
+        &mut out,
+        &sub_spec(
+            &city.buildings_mesh,
+            range.building_vertices,
+            range.building_indices,
+        ),
+    );
+    out
+}
+
+/// The block's slice of a mesh spec: vertices by vertex range, indices by
+/// index range rebased to the slice (so the result is a self-contained mesh
+/// of the cell). UVs/textures stay out — [`push_mesh`] (the same serializer
+/// as [`RetailCity::canonical_bytes`]) consumes positions/normals/indices.
+fn sub_spec(spec: &MeshSpec, vertices: (usize, usize), indices: (usize, usize)) -> MeshSpec {
+    let base = vertices.0 as u32;
+    MeshSpec {
+        positions: spec.positions[vertices.0..vertices.1].to_vec(),
+        normals: spec.normals[vertices.0..vertices.1].to_vec(),
+        indices: spec.indices[indices.0..indices.1]
+            .iter()
+            .map(|i| i - base)
+            .collect(),
+        uvs: Vec::new(),
+        face_textures: Vec::new(),
     }
 }
 
@@ -600,6 +780,136 @@ mod tests {
         assert_eq!(city.unresolved_models, 1);
         assert_eq!(city.buildings.len(), 1);
         assert_eq!(city.buildings_mesh.triangle_count(), 0);
+    }
+
+    /// P-2 (M37 §2.7): `canonical_bytes`/`digest` of the 1×1 fixture are a
+    /// frozen golden. The constant was computed on the pristine tree before
+    /// the M37 streaming additions (`block_ranges`), so any byte change in
+    /// this serialization fails here first (R6 falsifier).
+    #[test]
+    fn golden_canonical_bytes_p2_frozen() {
+        let rec = one_building_record();
+        let city = build_retail_city(1, 1, &[(0, 0, rec)], &mut resolve);
+        assert_eq!(city.digest(), "2b8d8fa5a18c0602");
+    }
+
+    /// M37 §2.7 P-1, synthetic falsifier: for every block of a 2×2 city,
+    /// `cell_canonical_bytes(global, key)` is byte-identical to
+    /// `cell_canonical_bytes(build_retail_cell(...), key)`.
+    #[test]
+    fn cell_parity_matches_global_composition() {
+        let records: Vec<MapBlockRecord> = (0..4u32)
+            .map(|i| {
+                let mut rec = one_building_record();
+                rec.sub_records[0].x_pos = 1024 + 256 * i as i32;
+                rec.buildings[0].building_type = 10 + i as u8;
+                rec
+            })
+            .collect();
+        let blocks: Vec<(usize, usize, MapBlockRecord)> = records
+            .iter()
+            .enumerate()
+            .map(|(i, rec)| (i % 2, i / 2, rec.clone()))
+            .collect();
+        let global = build_retail_city(2, 2, &blocks, &mut resolve);
+        assert_eq!(global.block_ranges.len(), 4);
+
+        for (i, (bx, by, rec)) in blocks.iter().enumerate() {
+            let key = CellKey {
+                x: *bx as i32,
+                z: *by as i32,
+                level: 0,
+            };
+            let cell_city = build_retail_cell(2, 2, key, rec.clone(), &mut resolve);
+            let from_global = cell_canonical_bytes(&global, key);
+            let from_cell = cell_canonical_bytes(&cell_city, key);
+            assert!(!from_global.is_empty(), "block {i} present in the global city");
+            assert_eq!(
+                from_global, from_cell,
+                "P-1 parity of block ({bx},{by}): global vs per-cell composition"
+            );
+            assert_eq!(
+                from_global,
+                cell_canonical_bytes(&global, key),
+                "cell canonical bytes are deterministic ×2"
+            );
+        }
+    }
+
+    #[test]
+    fn cell_canonical_bytes_absence_is_explicit() {
+        let rec = one_building_record();
+        let city = build_retail_city(1, 1, &[(0, 0, rec)], &mut resolve);
+        assert!(
+            cell_canonical_bytes(&city, CellKey { x: 9, z: 9, level: 0 }).is_empty(),
+            "wrong coordinates ⇒ empty, never fabricated bytes"
+        );
+        assert!(cell_canonical_bytes(&city, CellKey { x: -1, z: 0, level: 0 }).is_empty());
+        assert!(
+            cell_canonical_bytes(&city, CellKey { x: 0, z: 0, level: 1 }).is_empty(),
+            "a retail city is single-level: level != 0 has no cell here"
+        );
+    }
+
+    #[test]
+    fn cell_canonical_bytes_distinguishes_cells() {
+        let rec_a = one_building_record();
+        let mut rec_b = one_building_record();
+        rec_b.sub_records[0].x_pos = 1024;
+        let blocks = vec![(0usize, 0usize, rec_a), (1, 0, rec_b)];
+        let city = build_retail_city(2, 1, &blocks, &mut resolve);
+        let a = cell_canonical_bytes(&city, CellKey { x: 0, z: 0, level: 0 });
+        let b = cell_canonical_bytes(&city, CellKey { x: 1, z: 0, level: 0 });
+        assert!(!a.is_empty() && !b.is_empty());
+        assert_ne!(a, b, "different blocks serialize differently");
+    }
+
+    #[test]
+    fn block_ranges_track_the_mesh_slices() {
+        let rec_a = one_building_record();
+        let mut rec_b = one_building_record();
+        rec_b.sub_records[0].x_pos = 1024;
+        let city = build_retail_city(
+            2,
+            1,
+            &[(0, 0, rec_a), (1, 0, rec_b)],
+            &mut resolve,
+        );
+        assert_eq!(city.block_ranges.len(), 2);
+        let r0 = city.block_ranges[0];
+        let r1 = city.block_ranges[1];
+        // Ground: one quad (4 verts, 6 indices) per block, in grid order.
+        assert_eq!(r0.ground_vertices, (0, 4));
+        assert_eq!(r0.ground_indices, (0, 6));
+        assert_eq!(r1.ground_vertices, (4, 8));
+        assert_eq!(r1.ground_indices, (6, 12));
+        // Buildings: one placed quad spec (4 verts, 6 indices) per building.
+        assert_eq!(r0.building_vertices, (0, 4));
+        assert_eq!(r0.building_indices, (0, 6));
+        assert_eq!(r1.building_vertices, (4, 8));
+        assert_eq!(r1.building_indices, (6, 12));
+        assert_eq!(r1.building_vertices.1, city.buildings_mesh.positions.len());
+        assert_eq!(r0.unresolved, 0);
+    }
+
+    #[test]
+    fn block_ranges_count_unresolved_per_block() {
+        let rec_a = one_building_record();
+        let rec_b = one_building_record();
+        let mut none = |_id: u32| None;
+        let city = build_retail_city(
+            2,
+            1,
+            &[(0, 0, rec_a), (1, 0, rec_b)],
+            &mut none,
+        );
+        assert_eq!(city.unresolved_models, 2);
+        assert_eq!(city.block_ranges[0].unresolved, 1, "per-block attribution");
+        assert_eq!(city.block_ranges[1].unresolved, 1);
+        // The empty geometry still serializes (honest degradation is part
+        // of the cell's canonical form).
+        let cell = cell_canonical_bytes(&city, CellKey { x: 0, z: 0, level: 0 });
+        assert!(!cell.is_empty());
     }
 
     #[test]

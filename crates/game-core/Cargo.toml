@@ -1,0 +1,66 @@
+# daggerfall-game-core — the I1 F1 public contract (rust, in-process).
+#
+# Owner: main. Medium: `path` dependency (a registry comes later, OD-5 (a)).
+# No network. Trust model: OD-1 (a) — native, in-process plugin (plan §8.2).
+#
+# Contract surface (plan §3.1): `GameCorePlugin`, the law-type prelude, the
+# schedule contract, the `core`/`render`/`audio` features and the MSRV.
+# Bevy comes from the single workspace declaration (plan §7.3): this crate
+# never pins its own bevy, so a consumer of the contract sees exactly one
+# version and one feature-unification graph.
+
+[package]
+name = "daggerfall-game-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Public in-process contract for main + side projects: GameCorePlugin, law prelude, schedule contract"
+# MSRV policy (plan §3.1): the floor is bevy 0.20.0's own MSRV (1.97.1).
+# Raising it is a BREAKING change in `0.x` (see src/lib.rs §Semver).
+rust-version = "1.97.1"
+
+[features]
+# `core` is the contract surface itself and is on by default: a consumer that
+# disables it gets an empty crate, which is never what a side wants. The other
+# two are additive and OPT-IN (the convention already in force in
+# `crates/app/Cargo.toml`: default stays headless, 0 deletes).
+default = ["core"]
+core = []
+# Window + render, mirroring the main's `window` feature list. A side never
+# declares these itself: it composes the main's unified bevy graph (§7.3).
+render = [
+    "bevy/bevy_window",
+    "bevy/bevy_winit",
+    "bevy/bevy_log",
+    "bevy/multi_threaded",
+    "bevy/x11",
+    "bevy/zstd_rust",
+    "bevy/tonemapping_luts",
+    "bevy/smaa_luts",
+    "bevy/bevy_text",
+    "bevy/bevy_sprite",
+    "bevy/bevy_sprite_render",
+]
+# `audio` reserves the same vocabulary the main already uses
+# (`crates/app/Cargo.toml` `audio` = real device, rodio). game-core owns NO
+# device and NO decoder, so v0.1 has nothing to switch on: enabling
+# `bevy/bevy_audio` here would put a SECOND rodio in the unified graph and lock
+# ~10 unused packages for a feature nobody enables. The marker is additive and
+# stable, and it becomes real the day the core owns a sink.
+audio = []
+
+[dependencies]
+# Single workspace declaration (plan §7.3): 0 per-crate pins of bevy.
+# `std` is the only feature the contract itself needs (App/schedules/plugins);
+# window/render/audio stay in the additive features above, and the version is
+# the workspace's — never re-pinned here.
+bevy = { workspace = true, features = ["std"] }
+# The law types the prelude re-exports. Each crate keeps its ownership; the
+# contract only fixes the reading surface (plan §3.1.1).
+daggerfall-nervous = { path = "../nervous" }
+daggerfall-heart = { path = "../heart" }
+daggerfall-memory = { path = "../memory" }
+daggerfall-perception = { path = "../perception" }
+daggerfall-skills = { path = "../skills" }
+daggerfall-inventory = { path = "../inventory" }
+daggerfall-parser-bevy-bridge = { path = "../parser-bevy-bridge" }

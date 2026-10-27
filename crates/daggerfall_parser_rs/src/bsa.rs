@@ -16,7 +16,7 @@
 /// Known directory types (dfbsa.txt: "two known types").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirectoryType {
-    /// Directory with names: 18-byte records (char FileName[14] + long DataSize).
+    /// Directory with names: 18-byte records (`char FileName[14] + long DataSize`).
     Name18,
     /// Numeric directory: 8-byte records (long RecordID + long DataSize).
     Number8,

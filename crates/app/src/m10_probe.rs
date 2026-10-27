@@ -108,6 +108,28 @@ pub(crate) struct RetailBlocks {
     pub(crate) cells_fallback: usize,
 }
 
+// M37: the streaming consumers exist only in the `window` build
+/// (`world_stream`/STREAM-001 ECS blocks are cfg(window), design §2.8), so
+/// the accessors are gated the same way — the headless default keeps 0
+/// dead code under `clippy -D warnings`.
+#[cfg(feature = "window")]
+impl RetailBlocks {
+    /// Blocks along X (M37: the streaming grid width).
+    pub(crate) fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Blocks along Y (M37: the streaming grid height).
+    pub(crate) fn height(&self) -> usize {
+        self.height
+    }
+
+    /// The `.RMB` records in grid order (M37: per-cell composition inputs).
+    pub(crate) fn blocks(&self) -> &[(usize, usize, rmb::MapBlockRecord)] {
+        &self.blocks
+    }
+}
+
 /// Index RMB name → BLOCKS.BSA entry (uppercase).
 pub(crate) fn rmb_name_index(archive: &bsa::BsaArchive) -> HashMap<String, usize> {
     let mut out = HashMap::new();
@@ -353,6 +375,29 @@ pub(crate) fn compose_capital_with_pixel() -> Result<CapitalCity, String> {
 /// Retail capital composed from ARENA2 (used by both probes + the window).
 pub(crate) fn compose_capital() -> Result<bridge::RetailCity, String> {
     compose_capital_with_pixel().map(|capital| capital.city)
+}
+
+/// M37 (STREAM-001): the capital's parsed blocks + ARCH3D.BSA bytes, **no
+/// global composition** — the streaming probe composes cell by cell.
+/// Window-only: the STREAM-001 ECS blocks are cfg(window) (design §2.8).
+#[cfg(feature = "window")]
+pub(crate) fn capital_blocks() -> Result<(RetailBlocks, Vec<u8>), String> {
+    let sources = load_sources()?;
+    let idx = sources
+        .locations
+        .iter()
+        .position(|l| l.name == CAPITAL_CITY)
+        .ok_or("Daggerfall capital not found in MAPS.BSA")?;
+    let blocks = parse_city(
+        &sources.locations[idx],
+        &sources.blocks_archive,
+        &sources.blocks_data,
+        &sources.name_index,
+        &sources.all_rmb_names,
+    )?;
+    let arch_bytes = std::fs::read(crate::mode_a_arena2_path("ARCH3D.BSA")?)
+        .map_err(|e| format!("ARCH3D.BSA read: {e}"))?;
+    Ok((blocks, arch_bytes))
 }
 
 /// Evidenceeable dump: type histogram + first buildings with their type.

@@ -1,0 +1,11 @@
+[package]
+name = "daggerfall-content-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.97.1"
+description = "I1 F2 content contract: in-process query + namespaced overlay, versioned schema (plan 3.2)."
+publish = false
+
+[dependencies]
+sha2 = "0.10"

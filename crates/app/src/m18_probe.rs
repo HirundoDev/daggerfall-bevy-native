@@ -107,7 +107,7 @@ pub(crate) fn map_pixel(table: &maps::MapTableEntry) -> (i32, i32) {
 
 /// Region suffixes present in `MAPS.BSA` (`MAPNAMES.<nnn>`), ascending and
 /// deduplicated — index order, no RNG/clock/hash.
-fn region_suffixes(archive: &bsa::BsaArchive) -> Vec<(u16, String)> {
+pub(crate) fn region_suffixes(archive: &bsa::BsaArchive) -> Vec<(u16, String)> {
     let mut out: Vec<(u16, String)> = Vec::new();
     for entry in &archive.entries {
         if let bsa::Entry::Named { name, .. } = entry {

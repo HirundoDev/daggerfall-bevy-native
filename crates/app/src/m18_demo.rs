@@ -107,13 +107,14 @@ use daggerfall_inventory::loot::{
 };
 use daggerfall_parser_bevy_bridge as bridge;
 use daggerfall_parser_bevy_bridge::npc_spec::{
-    NpcWorld, PopulationRequest, PERSON_FLAT_ARCHIVE,
+    region, subclimate_race, NpcSpec, NpcWorld, PopulationRequest, FACE_COUNT,
+    OCCUPATIONS, PERSON_FLAT_ARCHIVE,
 };
 use daggerfall_parser_bevy_bridge::ui_spec::{
     compose, UiAssets, UiPanel, CANVAS_HEIGHT, CANVAS_WIDTH, DEFAULT_FONT, FONT_FILES,
 };
 use daggerfall_parser_rs::image::FntFile;
-use daggerfall_parser_rs::namegen::NameGen;
+use daggerfall_parser_rs::namegen::{Gender, NameGen};
 use daggerfall_parser_rs::text_rsc::TextRsc;
 use daggerfall_parser_rs::texture::{self, Palette, TextureArchive};
 use daggerfall_parser_rs::woods::{TerrainBand, WoodsMap, HEIGHTMAP_DIM};
@@ -172,6 +173,23 @@ pub const NPC_SUBCLIMATE: u8 = 231;
 /// `m18_b3a::assert_pinned` so the composition, the probe and the window can
 /// never diverge.
 pub const NPC_COUNT: usize = crate::m18_b3a::STREET_POPULATION;
+
+/// Retail record of the **dressed woman** appended as the 25th billboard of
+/// the street (CR-f1b5045b).
+///
+/// Measured on `TEXTURE.182` (2026-10-26): record `50` is an `Image` of
+/// 65×125 with 4 frames — a green tunic, the dressed female billboard the
+/// reclassification leaves reachable in the population. She is **added**, not
+/// substituted: the 24 draws of the population and their seed stay untouched.
+pub const FEATURED_FLAT_RECORD: u16 = 50;
+/// Name seed of the featured woman — her own `srand(nameSeed)`, exactly like
+/// every `Person` (`Person.cs:591-628`), so the population stream is not
+/// consumed.
+pub const FEATURED_NAME_SEED: u32 = 20_261_025;
+/// Billboards the street places: the population plus the featured woman
+/// (the 25th cell of the ring).
+pub const DEMO_NPC_TOTAL: usize = NPC_COUNT + 1;
+
 /// Maximum distance (m) at which an NPC caption is shown.
 #[cfg_attr(not(feature = "window"), allow(dead_code))]
 pub const CAPTION_RANGE_M: f32 = 9.0;
@@ -853,7 +871,7 @@ pub(crate) fn m22_kit(templates: &[ItemTemplate]) -> (Item, Item) {
 }
 
 /// Decodes the retail city textures (M12) by texture key.
-fn decode_city_textures(
+pub(crate) fn decode_city_textures(
     city: &bridge::RetailCity,
     dir: &Path,
     palette: &Palette,
@@ -1907,32 +1925,35 @@ pub fn find_band_spawn(
 }
 
 /// Placement reaches (m) tried in order: the expansion is **fixed** (no
-/// unseeded randomness), so the placement of the [`NPC_COUNT`] NPCs is a pure
-/// function of `(grid, spawn, city_m)`.
+/// unseeded randomness), so the placement of the [`DEMO_NPC_TOTAL`] billboards
+/// is a pure function of `(grid, spawn, city_m)`.
 ///
 /// **B3-a (CS-13):** the population rose from 3 to 24; a narrow retail street
 /// may hold fewer free candidates at 24 m than the population needs, so the
 /// ring grows deterministically until the population fits (or every fixed
 /// reach is exhausted and the composition fails with the measured count).
+/// **CR-f1b5045b:** the ring now places one more cell (`NPC_COUNT + 1`), the
+/// featured dressed woman; the first 24 cells keep their order and coordinates.
 const NPC_PLACEMENT_REACHES_M: [f32; 6] = [24.0, 32.0, 40.0, 48.0, 56.0, 64.0];
 /// Minimum separation between two placed NPCs (m).
 const NPC_MIN_SEPARATION_M: f32 = 3.0;
 
-/// Places `NPC_COUNT` NPCs at free points near the spawn (deterministic).
+/// Places [`DEMO_NPC_TOTAL`] billboards at free points near the spawn.
 ///
 /// Candidates are the free cells of the retail collision grid on a 1 m lattice
 /// around the spawn, ordered by distance (ties broken by `(x, z)` so the order
 /// never depends on the sort implementation). The ring grows through
-/// [`NPC_PLACEMENT_REACHES_M`] until the population is placed; the first reach
-/// that fits wins. Returns fewer than `NPC_COUNT` only when the retail city
-/// has no room — the caller turns that into an explicit composition error.
+/// [`NPC_PLACEMENT_REACHES_M`] until every billboard is placed; the first
+/// reach that fits wins. Returns fewer than `DEMO_NPC_TOTAL` only when the
+/// retail city has no room — the caller turns that into an explicit
+/// composition error.
 fn place_npcs(
     grid: &bridge::CollisionGrid,
     spawn: DemoEye,
     city_m: f32,
 ) -> Vec<[f32; 3]> {
     let step = 1.0f32;
-    let mut placed: Vec<[f32; 3]> = Vec::with_capacity(NPC_COUNT);
+    let mut placed: Vec<[f32; 3]> = Vec::with_capacity(DEMO_NPC_TOTAL);
     for reach in NPC_PLACEMENT_REACHES_M {
         let steps = (reach * 2.0 / step) as i32;
         let mut candidates: Vec<(f32, f32, f32)> = Vec::new();
@@ -1961,7 +1982,7 @@ fn place_npcs(
                 .then(a.2.total_cmp(&b.2))
         });
         for (_, x, z) in candidates {
-            if placed.len() >= NPC_COUNT {
+            if placed.len() >= DEMO_NPC_TOTAL {
                 break;
             }
             // Already placed by a smaller reach: the point is a candidate of
@@ -1976,7 +1997,7 @@ fn place_npcs(
                 placed.push([x, 0.0, z]);
             }
         }
-        if placed.len() >= NPC_COUNT {
+        if placed.len() >= DEMO_NPC_TOTAL {
             break;
         }
     }
@@ -2216,14 +2237,14 @@ pub fn compose_demo_with_overrides(overrides: &M18Overrides) -> Result<DemoScene
         })
         .map_err(|err| DemoError::Invalid(format!("NPC population: {err}")))?;
     let positions = place_npcs(&grid, spawn, city_m);
-    if positions.len() < NPC_COUNT {
+    if positions.len() < DEMO_NPC_TOTAL {
         return Err(DemoError::Invalid(format!(
-            "only {} of {NPC_COUNT} free positions for NPCs",
+            "only {} of {DEMO_NPC_TOTAL} free positions for NPCs",
             positions.len()
         )));
     }
-    let mut npcs = Vec::with_capacity(NPC_COUNT);
-    for (npc, position) in population.npcs.iter().zip(positions) {
+    let mut npcs = Vec::with_capacity(DEMO_NPC_TOTAL);
+    for (npc, position) in population.npcs.iter().zip(positions.iter().copied()) {
         // H2 (M15): TEXTURE.256 models directions 0..7 but the measured
         // records are 1 frame — the render uses the available frame
         // (direction only as metadata), without inventing 8-dir geometry.
@@ -2254,6 +2275,70 @@ pub fn compose_demo_with_overrides(overrides: &M18Overrides) -> Result<DemoScene
             },
         });
     }
+
+    // ── CR-f1b5045b · 25th billboard: the dressed woman (record 50) ─────
+    // She is **appended**, not drawn: the population keeps its 24 draws over
+    // the same seed (the remap of the topless records happens after the draw
+    // inside `resolve_flat`), and only the ring gains one cell. Name, caption
+    // and face follow the same chains as every other NPC.
+    let featured_position = positions[NPC_COUNT];
+    let featured_flat = world
+        .resolve_flat(FEATURED_FLAT_RECORD, 0)
+        .map_err(|err| {
+            DemoError::Invalid(format!("featured flat {FEATURED_FLAT_RECORD}: {err}"))
+        })?;
+    let featured_race = subclimate_race(NPC_SUBCLIMATE);
+    let featured_bank = region(NPC_REGION as usize)
+        .map(|entry| entry.bank)
+        .ok_or_else(|| {
+            DemoError::Invalid(format!("region {NPC_REGION} outside the closed table"))
+        })?;
+    let featured_occupation = OCCUPATIONS[(FEATURED_NAME_SEED as usize) % OCCUPATIONS.len()];
+    let featured_name = namegen
+        .full_name(featured_bank, Gender::Female, FEATURED_NAME_SEED)
+        .map_err(|err| DemoError::Invalid(format!("featured name: {err}")))?;
+    let featured_frame =
+        u16::from(featured_flat.direction).min(featured_flat.frames.saturating_sub(1));
+    let featured_image = texture::decode_frame(
+        &flats_bytes,
+        &flats_archive,
+        usize::from(featured_flat.record),
+        featured_frame,
+    )
+    .map_err(|err| DemoError::Invalid(format!("featured flat {FEATURED_FLAT_RECORD}: {err:?}")))?;
+    npcs.push(DemoNpc {
+        spec: NpcSpec {
+            index: NPC_COUNT,
+            region: NPC_REGION,
+            subclimate: NPC_SUBCLIMATE,
+            race: featured_race,
+            name_bank: featured_bank,
+            gender: Gender::Female,
+            name_seed: FEATURED_NAME_SEED,
+            name: featured_name,
+            face_index: (FEATURED_NAME_SEED % u32::from(FACE_COUNT)) as u8,
+            flat: featured_flat,
+            occupation: featured_occupation,
+            caption: world.caption(
+                featured_flat.flat_id(),
+                featured_occupation,
+                featured_race,
+            ),
+        },
+        position: featured_position,
+        flat: DemoTexture {
+            key: featured_flat.flat_id(),
+            width: featured_image.width,
+            height: featured_image.height,
+            rgba: palette.to_rgba(&featured_image.pixels),
+        },
+        caption: DemoTexture {
+            key: bridge::mesh_spec::NO_TEXTURE,
+            width: 0,
+            height: 0,
+            rgba: Vec::new(),
+        },
+    });
 
     // ── B3-a (CS-14) · city-watch flats with the retail rule ────────────
     // Same rule as `npc_spec::spawn_city_guards` (`record = (i * 3) %
@@ -2792,7 +2877,44 @@ pub fn run_demo_001() -> i32 {
             .collect::<Vec<_>>()
             .join(" · "),
     );
-    let npcs_ok = first.npcs.len() == NPC_COUNT
+    // CR-f1b5045b: the 25th billboard is the featured dressed woman. "Dressed"
+    // is the measured classification of record 50 (outside `TOPLESS_RECORDS`);
+    // here the composition proves she exists, is female, carries the retail
+    // caption chain and decodes to real pixels.
+    let featured_ok = first.npcs.last().is_some_and(|npc| {
+        npc.spec.index == NPC_COUNT
+            && npc.spec.flat.record == FEATURED_FLAT_RECORD
+            && npc.spec.gender == Gender::Female
+            && npc.spec.occupation.key == OCCUPATIONS[(FEATURED_NAME_SEED as usize) % OCCUPATIONS.len()].key
+            && npc.spec.caption.source == bridge::npc_spec::CaptionSource::TextRscOccupation
+            && npc.flat.width > 0
+            && npc.flat.height > 0
+            && npc.flat.rgba.len() == usize::from(npc.flat.width) * usize::from(npc.flat.height) * 4
+            && first.grid.is_free(
+                [npc.position[0], bridge::EYE_HEIGHT_M, npc.position[2]],
+                bridge::PLAYER_RADIUS_M,
+            )
+    });
+    println!(
+        "[{}] npcs_featured - 25th billboard record {} · {} · {}×{} px · caption «{}»",
+        if featured_ok { "OK" } else { "FAIL" },
+        FEATURED_FLAT_RECORD,
+        first
+            .npcs
+            .last()
+            .map(|npc| format!("{:?} «{}»", npc.spec.gender, npc.spec.name))
+            .unwrap_or_else(|| "missing".into()),
+        first.npcs.last().map_or(0, |npc| npc.flat.width),
+        first.npcs.last().map_or(0, |npc| npc.flat.height),
+        first
+            .npcs
+            .last()
+            .map_or_else(String::new, |npc| npc.spec.caption.text.clone()),
+    );
+    all_ok &= featured_ok;
+
+    let npcs_ok = featured_ok
+        && first.npcs.len() == DEMO_NPC_TOTAL
         && first.npcs.iter().all(|npc| {
             !npc.spec.name.is_empty()
                 && !npc.spec.caption.text.is_empty()
@@ -4633,6 +4755,30 @@ pub fn run_demo_001() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **CR-f1b5045b** — the featured woman is **appended**: the street places
+    /// `STREET_POPULATION + 1` billboards, she is not one of the corrected
+    /// topless indices, and the reclassification leaves her record untouched.
+    #[test]
+    fn featured_woman_is_appended_not_substituted() {
+        assert_eq!(DEMO_NPC_TOTAL, NPC_COUNT + 1);
+        assert_eq!(
+            DEMO_NPC_TOTAL,
+            crate::m18_b3a::STREET_POPULATION + 1,
+            "one billboard more than the retail population"
+        );
+        assert!(
+            !bridge::npc_spec::TOPLESS_RECORDS.contains(&FEATURED_FLAT_RECORD),
+            "the featured record must be a clothed one"
+        );
+        assert_eq!(
+            bridge::npc_spec::clothed_flat_record(FEATURED_FLAT_RECORD),
+            FEATURED_FLAT_RECORD,
+            "the featured record is never remapped"
+        );
+        // Her own `srand(nameSeed)` — the population seed is not consumed.
+        assert_ne!(FEATURED_NAME_SEED, NPC_SEED);
+    }
 
     #[test]
     fn digest_changes_with_bytes() {

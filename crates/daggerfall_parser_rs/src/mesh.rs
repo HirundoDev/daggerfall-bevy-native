@@ -66,7 +66,7 @@ pub struct MeshHeader {
 pub enum MeshError {
     /// Record shorter than the 64-byte header.
     TooShort { len: usize },
-    /// Version[4] outside {v2.5, v2.6, v2.7}.
+    /// `Version[4]` outside {v2.5, v2.6, v2.7}.
     BadVersion { raw: [u8; 4] },
     /// Header bytes 16-23 must be 8×0x00 (NullValue1, "confirmed" in dfbsa.txt).
     NullValue1NotZero { bytes: [u8; 8] },

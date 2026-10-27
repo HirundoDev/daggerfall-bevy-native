@@ -13,16 +13,25 @@
 //! climbing, dodging, strikes) → skill uses → `RaiseSkills` → level-up
 //! (closes audit P1-3); [`humanoid`] — career/level contract of
 //! a hostile humanoid for M25 HP/attributes (closes residual R1 #4).
+//! M32: [`conditions`] (classic diseases, monster contagion, poisons and the
+//! cure service), [`rest`] (hourly recovery, interruption, rent expiry),
+//! [`vampirism`] (vampire/werebeast stages, hunger, sun damage) and
+//! [`death`] (the player death state, with no revival path — declared
+//! NEGATIVE) — REQ-L99-065, spec `m32-conditions-death-rest-spec.md`.
 //! The remaining capabilities arrive with their own lanes.
 
 pub mod bio;
 pub mod career;
 pub mod character;
+pub mod conditions;
+pub mod death;
 pub mod formula;
 pub mod humanoid;
 pub mod progression;
+pub mod rest;
 pub mod rng;
 pub mod stats;
+pub mod vampirism;
 
 /// Canonical organ id (Sintergic organ map, ADR-FW-104).
 pub const ORGAN: &str = "skills";

@@ -983,9 +983,11 @@ def parity_checks(report, drv, d, win, scenario=False):
         out.update(extra)
         return out
 
-    # ── CS-13 · street population (24 NPCs) ─────────────────────────────
+    # ── CS-13 · street population (24 + featured woman = 25 billboards) ──
+    # CR-f1b5045b: `POP` counts every billboard the street places, so the
+    # title reads 25 since the featured dressed woman joined the ring.
     street = drv.step("70-street-population-cs13",
-                      "calle del demo: 24 NPCs con caption (CS-13)",
+                      "calle del demo: 24 NPCs + mujer vestida (CS-13)",
                       forbid=drv.seen_shas(), tries=8, wait=0.7)
     title = street.get("window_name") or ""
     # The aim runs on the first `Playing` frames and then re-prints its
@@ -1000,7 +1002,7 @@ def parity_checks(report, drv, d, win, scenario=False):
     npc_contrasts = [c for c in (sprite_contrast(street.get("png"), r) for r in npc_rects) if c]
     npc_contrast = max((c["mean_abs_diff"] for c in npc_contrasts), default=0.0)
     checks["cs13_population"] = rec_of(
-        street, "POP 24" in title and street.get("sha256") not in
+        street, "POP 25" in title and street.get("sha256") not in
         {s.get("sha256") for s in drv.steps[:-1]}
         and bool(npc_rects) and npc_contrast >= 6.0,
         title=title, capture_attempts=street.get("capture_attempts"),

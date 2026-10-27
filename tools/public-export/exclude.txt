@@ -27,5 +27,24 @@ __pycache__/
 *.pyc
 .idea/
 .vscode/
+# --- Internal knowledge corpus: read-only mirror of the Mother's contract, Spanish throughout ---
+docs/daggerfall-corpus/
+# --- Milestone evidence (M35 demo): retail-derived renders + probe JSON captured in-process ---
+evidence/
+# --- Sintergic harness scripts (process, ledger, telemetry): not product, Spanish docstrings ---
+scripts/mission-log.py
+scripts/handoff-lint.py
+scripts/cost-ledger.py
+scripts/principal-decision-audit.py
+scripts/plan-gate-check.py
+scripts/ledger-append.py
+# --- Internal governance docs at the repo root (Spanish, harness-facing) ---
+AGENTS.md
+CAPITAN.md
+FLOWS-SUMMARY.md
+prompt-injection.md
+# --- Promotion gate matrix: integration tests over the Mother's contract fixtures (Spanish corpus) ---
+crates/promotion-gate/fixtures/
+crates/promotion-gate/tests/
 # --- Retired retail capture (H1): must never ship ---
 docs/sintergic/game/validation/m18-demo-20261021/m17-ui-fixed.png

@@ -4,3 +4,22 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Nervous organ — lattice events and inter-organ messaging (F0 scaffold)"
+
+[features]
+# Default stays dependency-free: `cargo build`/`cargo test` of the workspace
+# need no audio system libraries (CI F0 intact).
+default = []
+# M34/W34-3 (`PROBE-AUDIO-RT-001` block C): real device output. Additive
+# OPT-IN; without it `audio::RodioDevice` does not exist and the probe declares
+# `[SKIP-DEVICE]` with the compile-time reason.
+#
+# `rodio` is NOT a new package for the graph: the workspace already resolves
+# `rodio 0.20.1` through `crates/app` (feature `audio`, M14 `RodioSink`), and
+# this declaration repeats the SAME version and the SAME feature set
+# (`default-features = false, features = ["wav"]`), so cargo unifies it and the
+# package count does not move. `cpal` is not declared because `rodio` re-exports
+# it (`rodio::cpal`), which is where the device name is read from.
+audio = ["dep:rodio"]
+
+[dependencies]
+rodio = { version = "0.20", default-features = false, features = ["wav"], optional = true }

@@ -32,7 +32,10 @@ RETAIL_MARKERS = [b"Temple Treasurers", b"Castle Daggerfall", b"throughout your 
 RETAIL_ALLOW = ("reference/dfu-spec/",)
 # Declared exemption: the scanner itself carries the markers as pattern literals.
 RETAIL_SCAN_SKIP = ("tools/public-export/",)
-EMAIL_ALLOW = ("reference/dfu-spec/", "NOTICE")
+EMAIL_ALLOW = ("reference/dfu-spec/", "NOTICE",
+               # Synthetic fixture identity for the gate's own git invocation
+               # (`-c user.email=...`, reserved TLD, not a person).
+               "crates/promotion-gate/src/baseline.rs")
 INTERNAL_NAME = b"daggerfall-" + b"like-engine"
 PUBLIC_NAME = b"daggerfall-bevy-native"
 OWNER_MARKERS = [b"allan" + b"valdezdev", b"mail" + "to:".encode()]

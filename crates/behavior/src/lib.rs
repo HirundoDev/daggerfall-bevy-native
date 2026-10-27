@@ -80,11 +80,31 @@
 //! opaque. Pure: 0 Bevy, 0 I/O, 0 global RNG, 0 parser dependency; effects
 //! crossing the organ leave as [`quests::QuestRequest`].
 
+//! M30: [`economy`] — shops, inns, banking and transport (REQ-L99-063,
+//! SPEC-M30): the nine `storeBuysItemType` buildings with their 36
+//! `(building, group)` pairs and five trade modes, `CalculateCost` +
+//! `ApplyRegionalPriceAdjustment` with the 250..4000 drift, the 53 retail
+//! holidays, repair/identify quotes, `CalculateRoomCost`, the per-region
+//! bank ledger (deposit/withdraw/LOC/loans `+10 %`/houses/ships) with the
+//! five loan events and the overdue default as a typed [`economy::LoanCrime`],
+//! and the four transport modes with their DFU speeds. The haggling stage
+//! stays in the Skills organ (`calculate_trade_price`, M5); the `app`
+//! composes both. Pure: 0 Bevy, 0 I/O, 0 global RNG (rolls enter as
+//! parameters).
+
+//! M38: [`nav_graph`] — dungeon navigation graph + A* pathfinding (F-AUD-02):
+//! per-block nodes on the 1.6 m lattice (`CELL_METERS`), quantized levels,
+//! integer edge costs, `PathResult::{Found,Partial,Unreachable,NoGraph}` and a
+//! deterministic `path_digest` (design `f-aud-01-02-streaming-navmesh` §3, D-M38-1).
+//! Pure: 0 Bevy, 0 I/O, 0 RNG, **0 dependencies** (I-2); the bridge's
+//! `nav_build` extracts the graph from `RdbBlock` + `CollisionGrid`.
+
 pub mod combat;
 pub mod crafting;
 pub mod dialogue;
 mod determinism;
 pub mod durability;
+pub mod economy;
 pub mod encounters;
 pub mod enemy_ai;
 pub mod factions;
@@ -93,6 +113,7 @@ pub mod law;
 pub mod locomotion;
 pub mod magic;
 pub mod mobile_enemies;
+pub mod nav_graph;
 pub mod npc_ai;
 pub mod quest;
 pub mod quests;

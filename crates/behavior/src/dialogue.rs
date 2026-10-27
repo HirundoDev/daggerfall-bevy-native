@@ -1,4 +1,4 @@
-//! M26: [`dialogue`] — NPC dialogue: greeting, topics by
+//! M26: `dialogue` — NPC dialogue: greeting, topics by
 //! faction/locality, knowledge and answer (SPEC-M26-NPC-AI §3,
 //! REQ-L99-059).
 //!

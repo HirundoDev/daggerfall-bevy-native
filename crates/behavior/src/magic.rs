@@ -6,7 +6,7 @@
 //! PRNG lives in `daggerfall-combat`).
 //!
 //! Spec: `docs/sintergic/game/programming/m23-magic-spec.md`
-//! (§1 SPELLS.STD → [`daggerfall_parser_rs::spells_std`]; §2 model; §3 the
+//! (§1 SPELLS.STD → `daggerfall_parser_rs::spells_std`; §2 model; §3 the
 //! two cost routes; §4 casting; §5 spellbook/spellmaker; §6 NEGATIVE).
 //! Every constant cites `file:line@0038a1e6` (DFU MIT, executable spec).
 //!

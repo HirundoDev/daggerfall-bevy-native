@@ -493,7 +493,7 @@ pub fn parse_hmi(song: &[u8]) -> Result<HmiSong, HmiError> {
 /// Additive decode of an HMI song that **retains** every note-on
 /// ([`NoteEvent`]) plus the song's last tick — the read the production
 /// renderer consumes. [`parse_hmi`] keeps its statistics-only contract; both
-/// share [`parse_header`] and the same event rules, so a song that parses in
+/// share `parse_header` and the same event rules, so a song that parses in
 /// one parses in the other.
 pub fn parse_hmi_events(song: &[u8]) -> Result<HmiSongEvents, HmiError> {
     let header = parse_header(song)?;

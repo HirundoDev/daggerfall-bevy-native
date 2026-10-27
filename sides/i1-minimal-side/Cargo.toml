@@ -1,0 +1,23 @@
+# I1 F1 — the MINIMAL side (plan §9, criterion (e)).
+#
+# A side is NOT a member of the MAIN workspace (plan §8.0: Cargo inscribes every
+# `path` dependency of the tree as a member and `[patch]` is only honoured in the
+# root manifest — a side must not be able to rewrite the MAIN build graph). This
+# directory is listed in the root `exclude` and declares its own `[workspace]`.
+#
+# It declares NO `bevy`: the graph comes from `game-core` (plan §7.3). Adding a
+# `bevy` here would re-open the feature-unification risk the contract closes.
+[workspace]
+
+[package]
+name = "i1-minimal-side"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "I1 F1 minimal side: composes GameCorePlugin in preview and reads a law type"
+rust-version = "1.97.1"
+
+[dependencies]
+# `compat.core = "^0.1"` (plan §3.1): accepts 0.1.x, NOT 0.2 — Cargo's
+# pre-1.0 rule, so a minor bump is a deliberate side revalidation.
+daggerfall-game-core = { path = "../../crates/game-core" }

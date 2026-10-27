@@ -5,7 +5,10 @@
 //!   demo is [`STREET_POPULATION`] NPCs (`24`), the same figure the bridge
 //!   declares for a city (`npc_spec::CITY_POPULATION`);
 //!   `m18_demo::NPC_COUNT` **is** this constant (one source, [`assert_pinned`]),
-//!   so the composition, the probe and the window can never diverge;
+//!   so the composition, the probe and the window can never diverge. The
+//!   street carries **one billboard more** than the population
+//!   (`m18_demo::DEMO_NPC_TOTAL` = 25): the featured dressed woman appended by
+//!   CR-f1b5045b in the 25th cell of the ring;
 //! - **visible guard (CS-14):** the 4 flats of the city watch are decoded from
 //!   `TEXTURE.399` (header `    Guard`, 20 records) with the **retail rule** of
 //!   `spawn_city_guards`
@@ -16,8 +19,9 @@
 //! Probe blocks:
 //! - **A** composition ×2 (determinism): census of the scene (total, with flat,
 //!   with caption, distinct flat heights, digest) identical in both passes;
-//! - **B** count == [`STREET_POPULATION`], every NPC on a free cell and the
-//!   guard flats decoded over the 8 modeled directions;
+//! - **B** count == `m18_demo::DEMO_NPC_TOTAL` (population + featured woman),
+//!   every NPC on a free cell and the guard flats decoded over the 8 modeled
+//!   directions;
 //! - **C** headless guard contract through [`spawn_city_guards`]: under the
 //!   retail threshold ⇒ 0 guards, at/over ⇒ [`GUARDS_PER_SPAWN`] with distinct
 //!   records;
@@ -138,6 +142,11 @@ pub fn assert_pinned() {
         crate::m18_demo::NPC_COUNT,
         STREET_POPULATION,
         "the demo population must be the street population (one source)"
+    );
+    assert_eq!(
+        crate::m18_demo::DEMO_NPC_TOTAL,
+        STREET_POPULATION + 1,
+        "the street places the population plus the featured dressed woman"
     );
     assert_eq!(
         GUARD_FLATS, GUARDS_PER_SPAWN,
@@ -270,11 +279,12 @@ pub fn run_population_001() -> i32 {
     // ── B · population count + guard flats over 8 directions ────────────
     check(
         &mut passed,
-        first.npcs.len() == STREET_POPULATION,
+        first.npcs.len() == crate::m18_demo::DEMO_NPC_TOTAL,
         "B population_count",
         format!(
-            "{} NPCs in the city (STREET_POPULATION = {STREET_POPULATION})",
-            first.npcs.len()
+            "{} billboards in the city (STREET_POPULATION = {STREET_POPULATION} + featured woman = {})",
+            first.npcs.len(),
+            crate::m18_demo::DEMO_NPC_TOTAL
         ),
     );
     let free_positions = first

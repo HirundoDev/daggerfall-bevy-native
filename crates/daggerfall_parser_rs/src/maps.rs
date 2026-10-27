@@ -22,6 +22,11 @@
 //!   `DoorHeader u32` + `Door`×6 B + `ObjectHeader` 71 B +
 //!   `LocationRecordElementHeader` 48 B + `BuildingData`×26 B +
 //!   `ExteriorData` 416 B.
+//! - `MAPDITEM.nnn` (M34-D, G-N1): `UInt32 DungeonCount`, then a table of
+//!   `DungeonCount` × (`Offset u32`, `IsDungeon u16`, `ExteriorLocationId
+//!   u16`), then one `LocationDungeon` per offset: `LocationRecordElement`,
+//!   `DungeonHeader` and `DungeonBlock`×BlockCount — [`parse_ditem`], layout
+//!   replicated from the pinned `DFU:API/MapsFile.cs:1275-1343`.
 //!
 //! `BuildingData` (26 B, identical in MAPS.BSA and in the `.RMB` header —
 //! `DFU:.../API/DFLocation.cs:511-546`, `DFLocation.BuildingData`):
@@ -31,7 +36,7 @@
 //!
 //! `ExteriorData` (416 B, offsets used): MapId i32@32 · Width u8@40 ·
 //! Height u8@41 · RegionIndex u8@45 · Letter1ForRMBName u8@46 · LocationType
-//! u8@48 · BlockIndex[64]@49 · BlockNumber[64]@113 · BlockCharacter[64]@177.
+//! `u8@48 · BlockIndex[64]@49 · BlockNumber[64]@113 · BlockCharacter[64]@177`.
 
 /// Location name size (32 bytes, 7-bit ASCII).
 pub const LOCATION_NAME_LEN: usize = 32;
@@ -61,6 +66,10 @@ pub enum MapsError {
     Truncated { what: &'static str, index: usize, offset: usize },
     /// LocationExterior offset outside the record.
     OffsetOutOfBounds { index: usize, offset: u32, len: usize },
+    /// `DungeonBlock.BlockIndex` outside the 6 RDB letters
+    /// (`DFU:API/MapsFile.cs:110`, `rdbBlockLetters`); the reference
+    /// implementation would index out of range.
+    InvalidBlockIndex { index: usize, block_index: u8 },
 }
 
 impl std::fmt::Display for MapsError {
@@ -75,6 +84,9 @@ impl std::fmt::Display for MapsError {
             }
             Self::OffsetOutOfBounds { index, offset, len } => {
                 write!(f, "LocationExterior[{index}] offset = {offset} > {len}")
+            }
+            Self::InvalidBlockIndex { index, block_index } => {
+                write!(f, "DungeonBlock[{index}] BlockIndex = {block_index} > 5")
             }
         }
     }
@@ -272,6 +284,10 @@ pub struct ExteriorData {
 /// `LocationExterior` (one MapPItem element).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocationExterior {
+    /// `LocationRecordElementHeader.LocationId` (`DFU:API/DFLocation.cs:560-600`):
+    /// the value MAPDITEM matches against its offset table
+    /// (`DFU:API/MapsFile.cs:1287-1296`).
+    pub location_id: u16,
     /// Display name of the location.
     pub name: String,
     /// Location type (LocationRecordElementHeader).
@@ -335,6 +351,15 @@ fn parse_location_exterior(
     if p + 71 + 48 > record.len() {
         return Err(trunc("location_header", p));
     }
+    // The 112-byte `LocationRecordElementHeader` starts at `p`: the "71-byte
+    // ObjectHeader" of the UESP layout is its first half, so `LocationId` is
+    // `p+33` and the 48-byte slice below is `Name`..`ExteriorData`
+    // (`DFU:API/DFLocation.cs:560-600` — UInt16 LocationId, UInt32
+    // ExteriorLocationId, Byte[32] LocationName).
+    if p + 71 > record.len() {
+        return Err(trunc("record_header", p));
+    }
+    let location_id = u16_le(record, p + 33);
     let header = &record[p + 71..p + 71 + 48];
     let name = c_string_32(&header[0..LOCATION_NAME_LEN]);
     let location_type = header[34];
@@ -372,6 +397,7 @@ fn parse_location_exterior(
         block_character: ext[177..241].try_into().expect("64-byte slice"),
     };
     Ok(LocationExterior {
+        location_id,
         name,
         location_type,
         building_count,
@@ -448,6 +474,211 @@ pub fn rmb_block_name_fallback<'a>(
 pub fn rmb_block_names(ext: &ExteriorData) -> Vec<String> {
     let cells = ext.width as usize * ext.height as usize;
     (0..cells.min(BLOCK_GRID_CELLS)).map(|c| rmb_block_name(ext, c)).collect()
+}
+
+// ---------------------------------------------------------------------------
+// MAPDITEM — dungeon layout (M34-D / G-N1), replicated from the pinned
+// `DFU:API/MapsFile.cs:1275-1343` (`ReadMapDItem`).
+// ---------------------------------------------------------------------------
+
+/// First letter of a dungeon `.RDB` name by `BlockIndex`
+/// (`DFU:API/MapsFile.cs:110`, `rdbBlockLetters`).
+const RDB_BLOCK_LETTERS: [u8; 6] = *b"NWLSBM";
+
+/// `LocationId` that triggers the Orsinium block fix
+/// (`DFU:API/MapsFile.cs:1339-1341`).
+const ORSINIUM_LOCATION_ID: u16 = 50015;
+
+/// `LocationRecordElementHeader`: `UInt16 LocationId` @33 ·
+/// `UInt32 ExteriorLocationId` @41 · `Byte[32] LocationName` @71
+/// (`DFU:API/DFLocation.cs:560-600`).
+const RECORD_HEADER_LEN: usize = 112;
+/// `DungeonHeader`: `UInt16 NullValue1` + `UInt32 Unknown1` +
+/// `UInt32 Unknown2` + `UInt16 BlockCount` + `Byte[5] Unknown3`
+/// (`DFU:API/DFLocation.cs:637-654`).
+const DUNGEON_HEADER_LEN: usize = 17;
+/// Max `DungeonCount` accepted (anti-allocation defence, same bound as
+/// `LocationCount`).
+const MAX_DUNGEON_COUNT: u32 = 4096;
+
+/// `LocationRecordElement` of a `LocationDungeon` (subset used by the grid).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocationRecordElement {
+    /// `Header.LocationId` (the value the Orsinium fix compares).
+    pub location_id: u16,
+    /// `Header.ExteriorLocationId`.
+    pub exterior_location_id: u32,
+    /// `Header.LocationName` (32 B, 7-bit ASCII, NUL padded).
+    pub location_name: String,
+}
+
+/// `DungeonHeader` (`DFU:API/DFLocation.cs:637-654`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DungeonHeader {
+    /// `NullValue1` (always 0).
+    pub null_value1: u16,
+    /// `Unknown1` (preserved, not interpreted).
+    pub unknown1: u32,
+    /// `Unknown2` (preserved, not interpreted).
+    pub unknown2: u32,
+    /// Count of `DungeonBlock` elements.
+    pub block_count: u16,
+}
+
+/// One `DungeonBlock` (`DFU:API/DFLocation.cs:659-681`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DungeonBlock {
+    /// X position of the block (grid cells, may be negative).
+    pub x: i8,
+    /// Z position of the block (grid cells, may be negative).
+    pub z: i8,
+    /// `BlockNumber` (`bitfield & 0x3ff`).
+    pub number: u16,
+    /// `IsStartingBlock` (`(bitfield & 0x400) != 0`).
+    pub is_starting_block: bool,
+    /// `BlockIndex` (`bitfield >> 11`, 0..=5).
+    pub block_index: u8,
+    /// `BlockName`: `{letter}{number:07}.RDB` (`MapsFile.cs:1331-1334`).
+    pub name: String,
+}
+
+/// `LocationDungeon` (`DFU:API/DFLocation.cs:617-630`).
+///
+/// `DungeonBlock.WaterLevel`/`CastleBlock` are NOT parsed: DFU fills them at
+/// load time from the starting block's flat billboard
+/// (`DaggerfallDungeon.cs:412-434`), not from MAPDITEM.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocationDungeon {
+    /// Record header (the Orsinium key lives here).
+    pub record: LocationRecordElement,
+    /// Dungeon layout header.
+    pub header: DungeonHeader,
+    /// Blocks in file order (index = the DFU `Blocks[i]` order).
+    pub blocks: Vec<DungeonBlock>,
+}
+
+/// Parses a complete MAPDITEM record and returns the dungeon whose offset
+/// table entry has `ExteriorLocationId == location_id`
+/// (`DFU:API/MapsFile.cs:1275-1343`, `ReadMapDItem`).
+///
+/// `Ok(None)` = the record has no dungeon for that location (`HasDungeon =
+/// false` in DFU: empty record, `DungeonCount == 0` or no matching entry).
+/// `DungeonCount` comes from the record itself, so `location_count` is not a
+/// parameter (DFU reads it the same way; `MAPNAMES` count is only used for
+/// MAPPITEM offsets).
+pub fn parse_ditem(record: &[u8], location_id: u16) -> Result<Option<LocationDungeon>, MapsError> {
+    if record.len() < 4 {
+        return Err(MapsError::TooShort { len: record.len(), min: 4 });
+    }
+    let dungeon_count = u32_le(record, 0);
+    if dungeon_count > MAX_DUNGEON_COUNT {
+        return Err(MapsError::LocationCountTooLarge { count: dungeon_count });
+    }
+    let dungeon_count = dungeon_count as usize;
+    let table_end = 4 + dungeon_count * 8;
+    if record.len() < table_end {
+        return Err(MapsError::Truncated {
+            what: "dungeon_offsets",
+            index: 0,
+            offset: 4,
+        });
+    }
+    // The u16 at `at+4` is `IsDungeon`: preserved in the file but not
+    // consulted by DFU's lookup (`MapsFile.cs:1287-1296`).
+    let mut found: Option<(usize, usize)> = None;
+    for i in 0..dungeon_count {
+        let at = 4 + i * 8;
+        if u16_le(record, at + 6) == location_id {
+            found = Some((i, u32_le(record, at) as usize));
+            break;
+        }
+    }
+    let Some((index, offset)) = found else {
+        return Ok(None);
+    };
+
+    // Body position: `4 + DungeonCount·8 + Offset`.
+    let base = table_end
+        .checked_add(offset)
+        .ok_or(MapsError::OffsetOutOfBounds {
+            index,
+            offset: offset as u32,
+            len: record.len(),
+        })?;
+    let trunc = |what, offset| MapsError::Truncated { what, index, offset };
+    if base + 4 > record.len() {
+        return Err(trunc("dungeon_record", base));
+    }
+    let door_count = u32_le(record, base) as usize;
+    let header_at = base
+        + 4
+        + door_count
+            .checked_mul(6)
+            .ok_or(MapsError::LocationCountTooLarge {
+                count: door_count as u32,
+            })?;
+    if header_at + RECORD_HEADER_LEN > record.len() {
+        return Err(trunc("dungeon_record_header", header_at));
+    }
+    let record_element = LocationRecordElement {
+        location_id: u16_le(record, header_at + 33),
+        exterior_location_id: u32_le(record, header_at + 41),
+        location_name: c_string_32(
+            &record[header_at + 71..header_at + 71 + LOCATION_NAME_LEN],
+        ),
+    };
+
+    let h = header_at + RECORD_HEADER_LEN;
+    if h + DUNGEON_HEADER_LEN > record.len() {
+        return Err(trunc("dungeon_header", h));
+    }
+    let header = DungeonHeader {
+        null_value1: u16_le(record, h),
+        unknown1: u32_le(record, h + 2),
+        unknown2: u32_le(record, h + 6),
+        block_count: u16_le(record, h + 10),
+    };
+
+    let blocks_at = h + DUNGEON_HEADER_LEN;
+    let blocks_end = blocks_at + 4 * header.block_count as usize;
+    if blocks_end > record.len() {
+        return Err(trunc("dungeon_blocks", blocks_at));
+    }
+    let mut blocks = Vec::with_capacity(header.block_count as usize);
+    for b in 0..header.block_count as usize {
+        let at = blocks_at + 4 * b;
+        let bitfield = u16_le(record, at + 2);
+        let block_index = (bitfield >> 11) as u8;
+        let letter = RDB_BLOCK_LETTERS
+            .get(block_index as usize)
+            .copied()
+            .ok_or(MapsError::InvalidBlockIndex { index: b, block_index })?;
+        let number = bitfield & 0x03ff;
+        blocks.push(DungeonBlock {
+            x: record[at] as i8,
+            z: record[at + 1] as i8,
+            number,
+            is_starting_block: (bitfield & 0x400) != 0,
+            block_index,
+            name: format!("{}{:07}.RDB", letter as char, number),
+        });
+    }
+
+    // Orsinium hack, reversed from classic (`MapsFile.cs:1339-1341`):
+    // the border block overlaps another one. DFU writes `Blocks[13]`
+    // unconditionally; the `get_mut` guard only avoids a panic on a
+    // malformed record (retail has 16 blocks).
+    if record_element.location_id == ORSINIUM_LOCATION_ID {
+        if let Some(block) = blocks.get_mut(13) {
+            block.z = -2;
+        }
+    }
+
+    Ok(Some(LocationDungeon {
+        record: record_element,
+        header,
+        blocks,
+    }))
 }
 
 #[cfg(test)]
@@ -528,7 +759,10 @@ mod tests {
         }
         let mut le = Vec::new();
         le.extend_from_slice(&0u32.to_le_bytes()); // DoorCount
-        le.extend_from_slice(&[0u8; 71]); // ObjectHeader
+        // First half of the 112-byte `LocationRecordElementHeader`.
+        let mut oh = [0u8; 71];
+        oh[33..35].copy_from_slice(&26219u16.to_le_bytes()); // LocationId
+        le.extend_from_slice(&oh);
         let mut lh = vec![0u8; 48];
         lh[..5].copy_from_slice(b"Alpha");
         lh[32] = 1; // Width
@@ -550,6 +784,7 @@ mod tests {
         assert_eq!(locs.len(), 1);
         let loc = &locs[0];
         assert_eq!(loc.name, "Alpha");
+        assert_eq!(loc.location_id, 26219);
         assert_eq!(loc.building_count, 2);
         assert_eq!(loc.buildings[0].name_seed, 42);
         assert_eq!(loc.buildings[0].faction_id, 3);
@@ -608,5 +843,123 @@ mod tests {
         assert_eq!(building_type_name(0), "Alchemist");
         assert_eq!(building_type_name(0x74), "Special1");
         assert_eq!(building_type_name(200), "Unknown");
+    }
+
+    /// Synthetic MAPDITEM fixture: one dungeon entry pointing at the body
+    /// (`MapsFile.cs:1275-1343`). `blocks` = `(X, Z, BlockNumberStartIndexBitfield)`.
+    fn ditem_record(
+        location_id: u16,
+        exterior_location_id: u16,
+        blocks: &[(i8, i8, u16)],
+    ) -> Vec<u8> {
+        let table_end = 4 + 8;
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u32.to_le_bytes()); // LocationRecordElement.DoorCount
+        let mut rh = vec![0u8; 112];
+        rh[33..35].copy_from_slice(&location_id.to_le_bytes());
+        rh[41..45].copy_from_slice(&u32::from(exterior_location_id).to_le_bytes());
+        rh[71..76].copy_from_slice(b"Dunge");
+        body.extend_from_slice(&rh);
+        let mut dh = vec![0u8; 17];
+        dh[10..12].copy_from_slice(&(blocks.len() as u16).to_le_bytes());
+        body.extend_from_slice(&dh);
+        for &(x, z, bitfield) in blocks {
+            body.push(x as u8);
+            body.push(z as u8);
+            body.extend_from_slice(&bitfield.to_le_bytes());
+        }
+        let mut rec = Vec::new();
+        rec.extend_from_slice(&1u32.to_le_bytes()); // DungeonCount
+        rec.extend_from_slice(&0u32.to_le_bytes()); // Offset
+        rec.extend_from_slice(&1u16.to_le_bytes()); // IsDungeon
+        rec.extend_from_slice(&exterior_location_id.to_le_bytes());
+        assert_eq!(rec.len(), table_end);
+        rec.extend_from_slice(&body);
+        rec
+    }
+
+    #[test]
+    fn ditem_bitfield_decomposition_and_name() {
+        // N0000001 (index 0 + start bit 0x400) · W0000010 (index 1) ·
+        // M0000003 (index 5, Z = −3).
+        let rec = ditem_record(
+            26219,
+            26219,
+            &[(0, 0, 0x0401), (-1, 2, 0x080a), (1, -3, 0x2803)],
+        );
+        let dungeon = parse_ditem(&rec, 26219).unwrap().expect("dungeon");
+        assert_eq!(dungeon.record.location_id, 26219);
+        assert_eq!(dungeon.record.exterior_location_id, 26219);
+        assert_eq!(dungeon.record.location_name, "Dunge");
+        assert_eq!(dungeon.header.block_count, 3);
+        assert_eq!(dungeon.blocks[0].name, "N0000001.RDB");
+        assert!(dungeon.blocks[0].is_starting_block);
+        assert_eq!((dungeon.blocks[1].x, dungeon.blocks[1].z), (-1, 2));
+        assert_eq!(dungeon.blocks[1].name, "W0000010.RDB");
+        assert_eq!(dungeon.blocks[2].name, "M0000003.RDB");
+        assert_eq!(dungeon.blocks[2].z, -3);
+        assert_eq!(dungeon.blocks[2].block_index, 5);
+    }
+
+    #[test]
+    fn ditem_no_matching_location_is_none() {
+        let rec = ditem_record(26219, 26219, &[(0, 0, 0)]);
+        assert_eq!(parse_ditem(&rec, 9999).unwrap(), None);
+        // Empty MAPDITEM record → DFU `HasDungeon = false`.
+        assert_eq!(parse_ditem(&0u32.to_le_bytes(), 1).unwrap(), None);
+        assert!(matches!(
+            parse_ditem(&[], 1),
+            Err(MapsError::TooShort { len: 0, min: 4 })
+        ));
+    }
+
+    #[test]
+    fn ditem_truncated_body_is_error() {
+        let mut rec = ditem_record(26219, 26219, &[(0, 0, 0)]);
+        rec.truncate(rec.len() - 2);
+        assert!(matches!(
+            parse_ditem(&rec, 26219),
+            Err(MapsError::Truncated {
+                what: "dungeon_blocks",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn ditem_offset_past_end_is_error() {
+        let mut rec = ditem_record(26219, 26219, &[(0, 0, 0)]);
+        rec[4..8].copy_from_slice(&0xffff_ffffu32.to_le_bytes());
+        assert!(matches!(
+            parse_ditem(&rec, 26219),
+            Err(MapsError::Truncated { .. })
+        ));
+    }
+
+    #[test]
+    fn ditem_invalid_block_index_is_error() {
+        let rec = ditem_record(26219, 26219, &[(0, 0, 6 << 11)]);
+        assert!(matches!(
+            parse_ditem(&rec, 26219),
+            Err(MapsError::InvalidBlockIndex { block_index: 6, .. })
+        ));
+    }
+
+    #[test]
+    fn ditem_orsinium_block_13_moves_to_z_minus_2() {
+        let mut blocks = vec![(0i8, 0i8, 0u16); 16];
+        blocks[13] = (-1, -1, 8195);
+        // Header LocationId 50015 triggers the fix; the table entry matches
+        // the *exterior* LocationId (retail: 50014 → 50015).
+        let rec = ditem_record(50015, 50014, &blocks);
+        let dungeon = parse_ditem(&rec, 50014).unwrap().expect("dungeon");
+        assert_eq!(dungeon.blocks[13].z, -2);
+        assert_eq!(dungeon.blocks[13].name, "B0000003.RDB");
+        // The same layout without the Orsinium key keeps the raw Z (−1).
+        let rec = ditem_record(50014, 50014, &blocks);
+        assert_eq!(
+            parse_ditem(&rec, 50014).unwrap().unwrap().blocks[13].z,
+            -1
+        );
     }
 }

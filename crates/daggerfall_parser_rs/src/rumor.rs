@@ -1,4 +1,4 @@
-//! M26: [`rumor`] — rumor mill over `RUMOR.DAT`
+//! M26: `rumor` — rumor mill over `RUMOR.DAT`
 //! (SPEC-M26-NPC-AI §4, REQ-L99-059).
 //!
 //! **R-A (spec §7): do not duplicate the parser.** The file layout lives in
@@ -19,7 +19,7 @@
 //!
 //! **Header equivalence (spec §4.1).** DFU reads `NPCID` as u32 @22, which
 //! overlaps bytes 22..26 of `QuestName` (10..26); measured empty in 31/31, so
-//! `NPCID = 0` across all retail. [`Rumor::npc_id`] performs that read.
+//! `NPCID = 0` across all retail. [`crate::quest::Rumor::npc_id`] performs that read.
 //!
 //! The module is pure: 0 I/O, 0 Bevy; the file arrives already parsed.
 

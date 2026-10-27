@@ -632,6 +632,33 @@ pub fn decode_rci(
     })
 }
 
+/// Materializes a pure RCI container as **one vertical atlas**
+/// (`width × height·frames`), the form the surface axis selects records from.
+/// The bytes are the container's own, in file order (no interpolation, no
+/// re-layout): `FACES.CIF` is 61 records of 64×64 = 249 856 B.
+/// `None` when the layout does not tile exactly or the atlas does not fit a
+/// `DecodedImage` (`height · frames > u16::MAX`).
+pub fn rci_atlas(bytes: &[u8], width: u16, height: u16, frames: usize) -> Option<DecodedImage> {
+    if width == 0 || height == 0 || frames == 0 {
+        return None;
+    }
+    let cell = width as usize * height as usize;
+    if bytes.len() != cell * frames {
+        return None;
+    }
+    let total = height.checked_mul(u16::try_from(frames).ok()?)?;
+    Some(DecodedImage {
+        x_offset: 0,
+        y_offset: 0,
+        width,
+        height: total,
+        compression: 0,
+        pixels: bytes.to_vec(),
+        embedded_palette: None,
+        kind: ImageKind::Rci,
+    })
+}
+
 /// Decodes any `.IMG` (valid header · empty · RCI).
 pub fn decode_img_file(bytes: &[u8]) -> Result<DecodedImage, ImageError> {
     match classify_img(bytes)? {
@@ -1466,6 +1493,65 @@ mod tests {
             decode_cif(&[0xAAu8; 1234]),
             Err(ImageError::UnresolvedCif { .. })
         ));
+    }
+
+    /// OWN fixture: the `FACES.CIF` layout (61 × 64×64 = 249 856 B) with a
+    /// per-record pattern, so a record boundary is visible in the bytes.
+    fn synthetic_faces() -> Vec<u8> {
+        let cell = FACES_FRAME_SIDE * FACES_FRAME_SIDE;
+        let mut bytes = vec![0u8; 61 * cell];
+        for (at, byte) in bytes.iter_mut().enumerate() {
+            *byte = (1 + (at / cell) % 254) as u8;
+        }
+        bytes
+    }
+
+    /// The atlas is one vertical stack of the container's own records: the
+    /// bytes are not interpolated, re-laid-out or re-encoded.
+    #[test]
+    fn rci_atlas_is_the_file_verbatim_vertically() {
+        let bytes = synthetic_faces();
+        let atlas = rci_atlas(&bytes, 64, 64, 61).expect("FACES.CIF atlas");
+        assert_eq!(atlas.width, 64);
+        assert_eq!(atlas.height, 3904);
+        assert_eq!(atlas.pixels, bytes);
+        assert_eq!(atlas.kind, ImageKind::Rci);
+        // Record `r` is the cell `(0, r·64, 64, 64)` of the atlas.
+        assert_eq!(atlas.pixel(0, 64), Some(bytes[4096]));
+        assert_eq!(atlas.pixel(63, 64 + 63), Some(bytes[2 * 4096 - 1]));
+        assert_eq!(atlas.pixel(0, 3903), Some(bytes[bytes.len() - 1]));
+        assert_eq!(atlas.pixel(0, 3904), None, "beyond the last record");
+    }
+
+    /// A layout that does not tile exactly is refused, never padded or cut.
+    #[test]
+    fn rci_atlas_rejects_a_partial_tile() {
+        let mut bytes = synthetic_faces();
+        bytes.push(0);
+        assert!(rci_atlas(&bytes, 64, 64, 61).is_none());
+        bytes.pop();
+        assert!(rci_atlas(&bytes, 64, 64, 62).is_none());
+        assert!(rci_atlas(&bytes, 63, 64, 61).is_none());
+    }
+
+    /// A container without records has no atlas.
+    #[test]
+    fn rci_atlas_rejects_zero_frames_and_zero_sides() {
+        assert!(rci_atlas(&[], 64, 64, 0).is_none());
+        assert!(rci_atlas(&[], 0, 64, 1).is_none());
+        assert!(rci_atlas(&[], 64, 0, 1).is_none());
+    }
+
+    /// The atlas must fit a `DecodedImage` height (`u16`): 64 records of a
+    /// 1024-high cell are 65 536 rows and cannot be expressed.
+    #[test]
+    fn rci_atlas_rejects_an_overflowing_height() {
+        let bytes = vec![1u8; 1024 * 64];
+        assert!(rci_atlas(&bytes, 1, 1024, 64).is_none());
+        // 1023 rows × 64 records = 65 472 fits, so the boundary is measured,
+        // not guessed: 1024 · 64 = 65 536 > u16::MAX is the only rejection.
+        let bytes = vec![1u8; 1023 * 64];
+        assert_eq!(rci_atlas(&bytes, 1, 1023, 64).expect("fits").height, 65_472);
     }
 
     /// OWN fixture: a minimal `.FNT` but with the exact retail structure.

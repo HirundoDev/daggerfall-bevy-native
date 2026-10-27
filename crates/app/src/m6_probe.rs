@@ -17,7 +17,9 @@
 //! MAP-001, DEMO-001, LOCOMOTION-001, STATS-001, ITEM-001, COMBAT-001,
 //! COMBAT-LOOP-001, DEATH-001, MAGIC-001, EFFECT-001, MONSTER-001,
 //! ENCOUNTER-001) up to the M29 quest probes (EXEC-001, LIFECYCLE-001,
-//! JOURNAL-001) — the suite spans **M2-M29**, **37 entries**.
+//! JOURNAL-001) plus the three M34 demo probes the spec §11 requires inside
+//! `ALL-001` (PLAYSESSION-001, UI-FULL-001, AUDIO-RT-001) — the suite spans
+//! **M2-M34**, **40 entries**.
 //!
 //! R1 moved `COMBAT-LOOP-001`, `DEATH-001`, `EFFECT-001` and
 //! `ENCOUNTER-001` from standalone-only into this suite: a green `ALL-001`
@@ -395,13 +397,15 @@ type SuiteEntry = (&'static str, &'static str, fn() -> i32);
 /// documented in the M6 note + VSIM §4.
 pub fn run_probe_all() -> i32 {
     println!(
-        "UNIFIED ANTI-SCREEN SUITE - M2-M29 probes (CR-bbd5db82 + M19 CR-b109bfe3 + M20 CR-79173139 + M21 CR-776ad8a5 + M22 CR-be05b6d8 + M23 CR-a0b60b1c + M24 CR-f26e353c + M25 CR-23c1381c + M26 CR-94dcfe15 + M27 CR-989281d9 + M28 CR-5243af63 + M29 CR-73d23384)"
+        "UNIFIED ANTI-SCREEN SUITE - M2-M34 probes (CR-bbd5db82 + M19 CR-b109bfe3 + M20 CR-79173139 + M21 CR-776ad8a5 + M22 CR-be05b6d8 + M23 CR-a0b60b1c + M24 CR-f26e353c + M25 CR-23c1381c + M26 CR-94dcfe15 + M27 CR-989281d9 + M28 CR-5243af63 + M29 CR-73d23384 + M34 CR-5243af63)"
     );
     println!("================================================================");
-    // 37 entries: the 33 pre-R1 probes plus the four that were standalone-only
+    // 40 entries: the 33 pre-R1 probes, the four that were standalone-only
     // although they belong to the WPs R1 touched (COMBAT-LOOP-001, DEATH-001,
-    // EFFECT-001, ENCOUNTER-001) — a green suite must cover them.
-    let suite: [SuiteEntry; 37] = [
+    // EFFECT-001, ENCOUNTER-001) and the three M34 demo probes that the M34
+    // spec §11 requires inside `ALL-001` (PLAYSESSION-001, UI-FULL-001,
+    // AUDIO-RT-001) — a green suite must cover every probe it certifies.
+    let suite: [SuiteEntry; 40] = [
         ("VIEW-001", "M2 · 3D viewer + INV-L99-5", crate::m2_probe::run_view_001),
         ("CITY-001", "M3 · 3D street city", crate::m3_probe::run_city_001),
         (
@@ -578,6 +582,21 @@ pub fn run_probe_all() -> i32 {
             "JOURNAL-001",
             "M29 · journal: log/note -> notebook -> missing message -> reopen (REQ-L99-062)",
             crate::m29_probe::run_quest_journal_001,
+        ),
+        (
+            "PLAYSESSION-001",
+            "M34 · demo: S01-S12 in one session, 12/12 scenarios = 216000 steps, digest ×2 (spec §11, REQ-L99-067)",
+            crate::playsession_probe::run_playsession_001,
+        ),
+        (
+            "UI-FULL-001",
+            "M34 · 85-window census (16+11+7+51) + 85/85 shell + HUD GV-03 + 51/51 playable, digests ×2 (spec §11, REQ-L99-067)",
+            crate::m34_ui_probe::run_ui_full_001,
+        ),
+        (
+            "AUDIO-RT-001",
+            "M34 · 132/132 songs + 459 SND records + 60/60 triggers + real device or declared SKIP-DEVICE (spec §11, REQ-L99-067)",
+            crate::m34_audio_probe::run_audio_rt_001,
         ),
     ];
     let mut results: Vec<(&str, &str, i32)> = Vec::with_capacity(suite.len());

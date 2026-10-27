@@ -179,7 +179,7 @@ pub struct Door {
 /// A BlockData (exterior or interior of a sub-record).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BlockData {
-    /// 3D models ([0] of the exterior = building model).
+    /// 3D models (`[0]` of the exterior = building model).
     pub models: Vec<Model3d>,
     /// Flats/billboards.
     pub flats: Vec<Flat>,
@@ -227,7 +227,7 @@ pub struct MapBlockRecord {
     pub ground_scenery: Vec<u8>,
     /// 64×64 automap (0 = empty; value−1 = building type, UESP).
     pub automap: Vec<u8>,
-    /// Name of the record itself (FileNameList[0]).
+    /// Name of the record itself (`FileNameList[0]`).
     pub block_file_name: String,
     /// Sub-records (buildings) in order.
     pub sub_records: Vec<SubRecord>,
@@ -238,7 +238,7 @@ pub struct MapBlockRecord {
 }
 
 impl MapBlockRecord {
-    /// Building `i` (convenience: BuildingDataList[i] if present).
+    /// Building `i` (convenience: `BuildingDataList[i]` if present).
     pub fn building(&self, i: usize) -> Option<&BuildingData> {
         self.buildings.get(i)
     }

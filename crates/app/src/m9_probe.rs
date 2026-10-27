@@ -10,7 +10,8 @@
 //! exits `1` instead of reporting a green verdict.
 //!
 //! The probes run standalone, outside the `ALL-001` suite (same pattern as
-//! `SKILLS-001`/`EQUIP-001`): `m6_probe::run_probe_all` keeps its 37 entries.
+//! `SKILLS-001`/`EQUIP-001`): `m6_probe::run_probe_all` keeps its 37 entries
+//! for M2-M29 — 40 since M34 integrated its three demo probes (spec §11).
 use std::path::{Path, PathBuf};
 
 use daggerfall_heart::clock::GameClock;

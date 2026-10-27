@@ -123,7 +123,7 @@ pub struct MarchReport {
     pub geometry_blocks: usize,
     /// Directions that ended outside the block bounds.
     pub outside_seen: usize,
-    /// Directions with at least [`MARCH_MIN_OPEN_STEPS`] accepted steps.
+    /// Directions with at least `MARCH_MIN_OPEN_STEPS` accepted steps.
     pub open_dirs: usize,
 }
 
@@ -278,8 +278,8 @@ pub fn run_view_probe(spec: &MeshSpec) -> ViewProbeReport {
 /// Soundness: every triangle AABB is inserted into **all** buckets it overlaps
 /// and the query covers every bucket of `[p − reach − eps, p + reach + eps]`, so
 /// a triangle inside `reach` of `p` cannot be missed. A triangle spanning more
-/// than [`ORACLE_INDEX_MAX_BUCKETS`] buckets (ground planes, long walls) is kept
-/// as one AABB in [`TriAabbIndex::big`] and distance-tested per query: the same
+/// than `ORACLE_INDEX_MAX_BUCKETS` buckets (ground planes, long walls) is kept
+/// as one AABB in `TriAabbIndex::big` and distance-tested per query: the same
 /// guarantee with bounded memory.
 #[derive(Debug, Clone, Default)]
 pub struct TriAabbIndex {

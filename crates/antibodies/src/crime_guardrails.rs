@@ -118,7 +118,7 @@ pub fn check_crime(value: u8) -> Result<u8, LawViolation> {
 }
 
 /// Invariants of a court sentence: non-negative values, the fine never above
-/// the player's gold, no table for [`None`](Crimes::None), and — only when the
+/// the player's gold, no table for `Crimes::None`, and — only when the
 /// gold cap did not bind — the split identity `fine/40 + days/3 = steps`.
 pub fn check_sentence(
     steps: i32,

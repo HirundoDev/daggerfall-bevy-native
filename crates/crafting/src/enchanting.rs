@@ -86,7 +86,7 @@ pub mod ench_types {
 /// Static registry of the real enchanting effects (§2.3). The six positive
 /// families are powers (`EnchantCost > 0`); `ExtraWeight`/`WeakensArmor` are
 /// the negative side-effects. ExtraSpellPts' 11 variants are appended from
-/// [`EXTRA_SPELL_PTS`].
+/// `EXTRA_SPELL_PTS`.
 pub const ENCHANTMENT_REGISTRY: &[EnchantmentSettings] = &[
     // ── powers (EnchantCost > 0) ──────────────────────────────────────────
     EnchantmentSettings {

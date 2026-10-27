@@ -12,6 +12,11 @@
 #            quoting Spanish -> the gate MUST exit 0 with 0 hits
 #   exempt/  Spanish under docs/sintergic/, a README.es.md and the vendored
 #            MIT corpus -> the gate MUST exit 0 (declared exemptions)
+#   ratchet/ the es/ surface plus an explicit baseline table that covers its
+#            five hits -> the gate MUST exit 0 with baselined>0 and new_hits: 0,
+#            --no-baseline MUST exit 1, one new Spanish file MUST exit 1 naming
+#            it, and a malformed table MUST be a usage error (exit 2), never a
+#            silent pass
 #
 # Usage: bash scripts/ci/test-language-check.sh
 # Exit 0 = the gate behaves as specified.
@@ -157,8 +162,59 @@ code_ex=$?
 expect "exempt: exit code" "$code_ex" "0"
 contains "exempt: zero hits" "$out_ex" "hits: 0"
 
+# ── Scenario 4: a declared baseline covering existing hits must pass ─────
+mkdir -p "$TMP/ratchet"
+cp -R "$TMP/es/." "$TMP/ratchet/"
+mkdir -p "$TMP/ratchet/scripts/ci"
+cat > "$TMP/ratchet/scripts/ci/language-baseline.txt" <<'BASE'
+# fixture allowance: exactly the five hits the es/ surface declares
+README.md 1
+src/lib.rs 3
+crates/motor/Cargo.toml 1
+BASE
+out_rat="$(python3 "$CHECK" --root "$TMP/ratchet" 2>&1)"
+code_rat=$?
+expect "ratchet: exit code" "$code_rat" "0"
+contains "ratchet: real global count" "$out_rat" "hits: 5"
+contains "ratchet: covered hits" "$out_rat" "baselined: 5"
+contains "ratchet: no regression" "$out_rat" "new_hits: 0"
+contains "ratchet: verdict" "$out_rat" "language-check: PASS"
+
+# ── Scenario 5: --no-baseline fails, and one new hit fails the ratchet ───
+out_nb="$(python3 "$CHECK" --root "$TMP/ratchet" --no-baseline 2>&1)"
+code_nb=$?
+expect "no-baseline: exit code" "$code_nb" "1"
+contains "no-baseline: verdict" "$out_nb" "language-check: FAIL"
+mkdir -p "$TMP/regress"
+cp -R "$TMP/ratchet/." "$TMP/regress/"
+mkdir -p "$TMP/regress/docs"
+cat > "$TMP/regress/docs/extra.md" <<'MD'
+# Nota adicional
+
+Este documento nuevo no está en el baseline y el gate debe señalarlo.
+MD
+out_reg="$(python3 "$CHECK" --root "$TMP/regress" 2>&1)"
+code_reg=$?
+expect "regression: exit code" "$code_reg" "1"
+contains "regression: names the new file" "$out_reg" "NEW docs/extra.md:"
+contains "regression: counts the regression" "$out_reg" "new_hits: 1"
+contains "regression: verdict" "$out_reg" "language-check: FAIL"
+
+# ── Scenario 6: a malformed baseline is a usage error, never a pass ──────
+mkdir -p "$TMP/broken"
+cp -R "$TMP/es/." "$TMP/broken/"
+mkdir -p "$TMP/broken/scripts/ci"
+cat > "$TMP/broken/scripts/ci/language-baseline.txt" <<'BASE'
+# missing the count is a typo, not a free pass
+README.md
+BASE
+out_broken="$(python3 "$CHECK" --root "$TMP/broken" 2>&1)"
+code_broken=$?
+expect "malformed: exit code" "$code_broken" "2"
+contains "malformed: points at the line" "$out_broken" "expected '<path> <count>'"
+
 if [ "$fail" -eq 0 ]; then
-  echo "test-language-check: PASS (3/3 scenarios)"
+  echo "test-language-check: PASS (6/6 scenarios)"
   exit 0
 fi
 echo "test-language-check: FAIL"

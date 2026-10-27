@@ -1,4 +1,4 @@
-//! M26: [`npc_ai`] — city population and observable urban routine
+//! M26: `npc_ai` — city population and observable urban routine
 //! (SPEC-M26-NPC-AI §1-§2, REQ-L99-059).
 //!
 //! **Scope.** The caps and probabilities of §1, the units and the state

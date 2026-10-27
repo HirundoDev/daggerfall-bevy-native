@@ -6,6 +6,9 @@
 # exemptions DECLARED in is_exempt(); nothing stays hidden — exempted hits are
 # scanned anyway and listed in the ADVISORY band (non-gating) with their class.
 #
+# Advisory classes: internal-governance · readonly-mirror · mother-copy-framework
+# · guardrail-implementation · third-party-corpus · internal-planning.
+#
 #   R2 (DECISION-A): the internal codename "Daggerfall Bevy" and the
 #   daggerfall-* prefix are NOT a violation while the repo is private. G1 (public
 #   brand name) remains OPEN by design —
@@ -26,9 +29,44 @@ echo "root: $ROOT"
 echo "pattern: 'Elder[[:space:]]+Scrolls' | '\\bTES\\b' (case-insensitive, word-boundary)"
 
 # ── DECLARED exemptions (internal surface / third parties / meta) ─────────
+#
+# docs/daggerfall-corpus/** — READ-ONLY INTERNAL MIRROR; why the 5 citations of
+# the mark there are NOT a trademark use (legal note, evidence-pinned):
+#   · Nature: an internal mirror of the Mother's L99 knowledge corpus.
+#     docs/daggerfall-corpus/README.md declares it: the corpus is NOT edited
+#     here, it is a read-only mirror; anything to correct is corrected in the
+#     Mother and copied again. The source lives in the Mother, read-only here.
+#   · Not the surface this gate protects: the gate guards brand/domain/store/
+#     metadata (see header). The corpus is documentary knowledge — licence text,
+#     legal-risk matrices, mark disclaimers, naming guardrails — and ships no
+#     product identity, no binaries, no assets and no retail data
+#     (docs/daggerfall-corpus/README.md "what it is NOT"; DATA-CLASSIFICATION.md).
+#   · The 5 hits FORBID the mark, they do not claim it (anchors, corpus root):
+#     - 00-orientation:134 — the project will not use the mark in executable
+#       names, namespaces or public repositories;
+#     - 10-architecture:144 — risk matrix R2 rates branding a product with it as
+#       trademark infringement;
+#     - 10-architecture:167 — zero mark occurrences in brand / domain / store /
+#       metadata, stated as the acceptance rule;
+#     - 10-architecture:190 — naming guardrail: zero mark in the product brand;
+#     - 20-engine-prior-art:70 — ZeniMax's own enforcement letter quoted as
+#       precedent ("removal of all ZeniMax trademarks").
+#     A nominative citation that records and enforces the prohibition is the
+#     opposite of an infringing use.
+#   · Not distributed: the public export aborts while the surface carries
+#     Spanish prose (tools/public-export/export-public.py check
+#     "spanish_stopwords_absent"), and this mirror is Spanish throughout. No
+#     exported artefact carries these lines today.
+#   · Cannot be rewritten here: all 5 files carry a PROVENANCE.jsonl row with
+#     sha256+bytes, and any local edit surfaces as DRIFT on the mirror's own
+#     refresh check (README "refresh"). Editing the mirror breaks provenance
+#     instead of fixing anything — the fix belongs to the Mother.
+# Nothing is hidden: the hits are still scanned and listed in the ADVISORY band
+# under their own class, `readonly-mirror`.
 is_exempt() {
   case "$1" in
     ./reference/*)                return 0 ;;  # third-party MIT spec corpus (inherited: 0 assets)
+    ./docs/daggerfall-corpus/*)   return 0 ;;  # read-only internal mirror: cites the mark to forbid it (see note above)
     ./docs/sintergic/*|./.sintergic/*) return 0 ;;  # live internal record: defines the guardrail by naming the mark
     ./sovereign-arch/*)           return 0 ;;  # READ-ONLY copy of the Mother (framework)
     ./scripts/ci/*)               return 0 ;;  # guardrail implementation (self-match)
@@ -39,6 +77,7 @@ is_exempt() {
 
 classify() {
   case "$1" in
+    ./docs/daggerfall-corpus/*)        echo "readonly-mirror" ;;
     ./docs/sintergic/*|./.sintergic/*) echo "internal-governance" ;;
     ./sovereign-arch/*)                echo "mother-copy-framework" ;;
     ./scripts/ci/*)                    echo "guardrail-implementation" ;;
@@ -111,7 +150,7 @@ done <<< "$names"
 
 # ── Output ──
 n_adv="$(printf '%s' "$advisory_lines" | grep -c . || true)"
-echo "gate_files_scanned: $n_scanned (target/ and .git/ excluded; exemptions: reference docs/sintergic .sintergic sovereign-arch scripts/ci MASTER-PLAN* prototype-gap*)"
+echo "gate_files_scanned: $n_scanned (target/ and .git/ excluded; exemptions: reference docs/daggerfall-corpus docs/sintergic .sintergic sovereign-arch scripts/ci MASTER-PLAN* prototype-gap*)"
 echo "gate_names_scanned: $n_names"
 echo "gate_file_hits: $n_gate"
 echo "gate_name_hits: $n_names_hit"

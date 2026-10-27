@@ -7,20 +7,17 @@ reproduction with golden vectors instead of screenshots.
 The engine itself contains **no game data**. It reads a copy of Daggerfall that you already own and
 keep outside this repository. See [Data, legal and trademarks](docs/acknowledgments/legal-and-trademarks.md).
 
-> **Release status (honest): `v0.2.0-alpha` — pre-release, M18 is still open.** `main` carries the
-> **M18 technical candidate**: the seven closure states the B3 tanda set out to close
-> (**CS-12/13/14/15/16/18/19**) are measured with window evidence (PNG + sha256), so the technical
-> side is closed. What is still missing is the **owner-signed side-by-side review** of M18 — the
-> global acceptance gate — whose 21 acceptance rows measured on the real window are
-> **3 PASS · 6 PARTIAL · 12 NO**. So this alpha carries **no `M18` tag**, makes **no claim of full
-> visual parity** with the original game, and the **0.0.0** release line ("living country, fully
-> offline") remains in progress. A technical closure is not an accepted milestone, and this README
-> does not blur the two.
+> **Release status (honest): `v0.1.0-alpha` — pre-release, M18 is still open.** M0–M29 exist and
+> each has a recorded technical closure. The only closure still missing is the **owner-signed
+> side-by-side review** of M18 — the global acceptance gate — whose 21 acceptance rows measured on
+> the real window are **3 PASS · 6 PARTIAL · 12 NO**. So this alpha carries **no `M18` tag**, makes
+> **no claim of full visual parity** with the original game, and the **0.0.0** release line ("living
+> country, fully offline") remains in progress. A technical closure is not an accepted milestone,
+> and this README does not blur the two.
 
-## What `v0.2.0-alpha` means
+## What `v0.1.0-alpha` means
 
-This is the second public pre-release (`v0.1.0-alpha` shipped the M0–M29 tramo; this one adds the
-M18 parity tanda on top of `main`). The mechanism is playable end to end and every claim below is
+This is the first public pre-release. The mechanism is playable end to end and every claim below is
 backed by an executable probe or golden vector, but the acceptance gate is unsigned and part of the
 presentation is not at parity. Concretely:
 
@@ -32,9 +29,8 @@ presentation is not at parity. Concretely:
   M18 because its closure is the owner's signature (**3 PASS · 6 PARTIAL · 12 NO**, 12 rows still
   NO). The tally is published in [Status](docs/acknowledgments/status.md#final-re-audit-of-the-campaign-m0m29).
 - **Not in the alpha:** M30 economy and banking is **frozen** (written specification, no code);
-  M31–M35 — travel/weather/calendar, conditions/death/rest, total savegame, end-to-end UI
-  integration and the closing annex — are **spec-only**, not implemented; and the visual
-  side-by-side against the original has not been signed.
+  M31–M33 — travel/weather/calendar, conditions/death/rest and the total savegame — are specified and
+  **not implemented**; and the visual side-by-side against the original has not been signed.
 - **No parity claim:** nothing here should be read as "visually identical to Daggerfall", "feature
   complete" or "release quality". What is verified is the mechanism, probe by probe.
 
@@ -49,14 +45,6 @@ closed at technical level, each adding its probes to the suite. At the M29 close
 verification of M9 re-measures **19/19 = 1.00** with its full denominator (the earlier `15/15` claim
 excluded four critical rows; the erratum is recorded in [Status](docs/acknowledgments/status.md)).
 
-**On the M18 technical candidate (this release).** The parity tanda that closes the technical side of
-M18 — street population and the city watch, the retail dialogue and journal overlays, the two map
-panels and visual precipitation — lands **7 of 7 CS** (CS-12/13/14/15/16/18/19), each with a captured
-PNG and its sha256. On `main` `cargo test --workspace` reports **905 passed / 0 failed** and the
-`--features window` configuration adds **157 passed / 0 failed**; `cargo check --workspace
---all-targets` is clean. None of that changes the tally above: the 21 acceptance rows stay
-**3 PASS · 6 PARTIAL · 12 NO** and the owner signature stays **PENDING**.
-
 - **Closed with evidence:** M19 locomotion · M20 stats/skills · M21 items, equipment and loot ·
   M22 combat · M23 magic · M24 enchanting/alchemy · M25 monsters, enemy AI and encounters ·
   M26 living NPCs (schedules, faction dialogue, `RUMOR.DAT` rumours) · M27 guilds and factions
@@ -68,12 +56,30 @@ PNG and its sha256. On `main` `cargo test --workspace` reports **905 passed / 0 
   put six milestones below the acceptance bar — M2, M5, M11, M12 and M19 on named parity defects, and
   M18 because its closure is the owner's signature. The tally and the residual defects are published
   in [Status](docs/acknowledgments/status.md#final-re-audit-of-the-campaign-m0m29).
-- **In flight:** nothing at code level. The **owner signature** of M18 is pending; no `M18` tag exists
-  and this release's tag (`v0.2.0-alpha`) is a version tag, not a milestone tag.
+- **In flight:** nothing at code level. Owner signature and tag are pending for M18–M29, M34, M35,
+  M36 and M37 alike.
 - **Frozen:** M30 economy and banking — a written specification, no code, frozen by owner decision.
-- **Specified, not implemented:** M31–M35 — travel/weather/calendar, conditions/death/rest, total
-  savegame, end-to-end integration with the full UI, and the closing annex. One written
-  specification each, no code.
+- **Closed with evidence (M34):** end-to-end integration and presentation — the E2E spine, the full
+  presentation pass and the HUD, with `PLAYSESSION-001`, `UI-FULL-001` and `AUDIO-RT-001` inside the
+  probe suite (**40/40**). Technical closure measured 2026-10-26; no milestone tag.
+- **Delivered with one declared gap (M35):** biomes, 2D vegetation and sky — optional, non-blocking
+  annex. `BIOME-001` **25 passed / 0 failed / 1 NA** (`GAP-TAX-11`: no tile-class data in the corpus,
+  so the probability gate cannot be measured) and `SPRITE-001` **11/11**. No milestone tag.
+- **Closed with evidence (M36):** the UI-0 audit — one row per census window, recomputed from the
+  code by `scripts/ui-audit-001.py` (blocks A+B+C print `VERDICT: PASS`, exit 0, in two separate
+  processes with byte-identical stdout). It measured what the census actually holds — **85 = 78
+  surfaces (27 + 51) + 7 infrastructure rows**, and **4 implemented / 47 partial / 34 absent** — and
+  settled the patch/rewrite rule at **35 PATCH · 50 REWRITE**. Technical closure measured 2026-10-27;
+  no milestone tag.
+- **Closed with evidence (M37):** the UI compatibility layer — seven axes (surface, palette,
+  typography, text, navigation, input, presentation) in
+  `crates/parser-bevy-bridge/src/ui_compat/`, exercised by **3 pilot windows** under `UI-BASE-001`
+  (9/9) and `UI-INPUT-001` (10/10): `VERDICT: PASS`, exit 0, two separate processes with
+  byte-identical stdout. The pilots measured a depth cost of **0.4708333 u/window at one QA round**
+  (band `r`, n = 3, W = 50) — **8.33×** the L1 baseline of **0.0565 u/window**. Technical closure
+  measured 2026-10-27; no milestone tag.
+- **Specified, not implemented:** M31–M33 — travel/weather/calendar, conditions/death/rest and the
+  total savegame. One written specification each, no code.
 - **Design landed 2026-10-21 (no code):** instance taxonomy and biomes, procedural classification and
   asset modularity, and a generative-asset catalogue with a VRAM budget — design only.
 
@@ -88,14 +94,17 @@ at the **[Agent entry point](docs/acknowledgments/agent-entrypoint.md)** for the
 of truth, real state, closure rule, limits, how to continue).
 
 State in one line: **M18 PARTIAL** (owner signature pending) · **M19–M29 DONE** (technical closure,
-no milestone tags) · **M30 FROZEN** (written specification, no code) · **M31–M35 SPEC-ONLY** ·
-**M36–M48 NOT STARTED** · **E8 a separate program**. Public release tags: `v0.1.0-alpha` and
-`v0.2.0-alpha` (version tags only — no `M18` tag).
+no milestone tags) · **M30 FROZEN** (written specification, no code) · **M31–M33 SPEC-ONLY** ·
+**M34 DONE** (technical closure measured 2026-10-26, no milestone tag) · **M35 ANNEX DELIVERED**
+(one block NA behind a declared gap) · **M36 DONE** (technical closure measured 2026-10-27, no
+milestone tag) · **M37 DONE** (technical closure measured 2026-10-27, no milestone tag) ·
+**M38–M48 NOT STARTED** · **E8 a separate program**.
+Public tag: `v0.2.0-alpha`.
 
 | M | Epic | Scope | State | `u` nominal (range) | Gate |
 |:-:|:---|:---|:---|--:|:---|
-| **M36** | UI-0 | audit the 85 windows, patch/rewrite rule, compatibility contract, E1 re-estimate | NOT STARTED | 2.00 (1.60–2.40) | `UI-AUDIT-001` A+B+C |
-| **M37** | UI-1 | UI compatibility layer (7 axes) | NOT STARTED | 4.50 (3.45–5.60) | `UI-BASE-001` + `UI-INPUT-001` (3 pilot windows) |
+| **M36** | UI-0 | audit the 85 windows, patch/rewrite rule, compatibility contract, E1 re-estimate | DONE (technical closure 2026-10-27, no tag) | 2.00 (1.60–2.40) | `UI-AUDIT-001` A+B+C |
+| **M37** | UI-1 | UI compatibility layer (7 axes) | DONE (technical closure 2026-10-27, no tag) | 4.50 (3.45–5.60) | `UI-BASE-001` + `UI-INPUT-001` (3 pilot windows) |
 | **M38** | UI-2 | 16 creation + 11 configuration + menus (27 surfaces) | NOT STARTED | 6.50 (4.95–8.40) | `UI-CREATE-001` 16/16 · `UI-CONFIG-001` 11/11 |
 | **M39** | UI-3 | 51 interactive playable windows | NOT STARTED | 7.50 (5.65–9.40) | `UI-JUGABLE-001` A–H |
 | **M40** | UI-4 | UI gate + side-by-side + input + accessibility | NOT STARTED | 3.50 (2.45–4.55) | `UI-FULL-001` 85/85 |
@@ -110,9 +119,12 @@ no milestone tags) · **M30 FROZEN** (written specification, no code) · **M31�
 | **E8** | Starfield-like | **separate program** after M48, own genesis contract (`E8` is not "M49") | NOT STARTED / not estimable | — | own contract |
 
 **Totals.** M36–M48 = **382.50 u** nominal (**253.40–508.55**); **E8 counted separately**. Plan A is
-**planned scope, not delivery**: it closes at **M34 PASS** (today SPEC-ONLY), and **M35 is an optional
-non-blocking annex** planned for `0.1.0`. The UI gate of M36–M40 is the stretch that decides whether the
-game *feels* the original — it is specified, not started.
+**planned scope, not delivery**: it closes at **M34 PASS**, measured 2026-10-26 — technical closure,
+with the owner signature and the milestone tag still pending — and **M35 is an optional non-blocking
+annex** that is delivered with one declared gap. The UI gate of M36–M40 is the stretch that decides
+whether the game *feels* the original: the audit (M36) and the seven-axis layer exercised by its three
+pilots (M37) are closed at technical level, while the 27 UI-2 surfaces (M38), the 51 playable windows
+(M39) and the 78/78 gate (M40) are still to be built.
 
 ## What this is
 
@@ -315,7 +327,8 @@ makes the project controllable by agents. The loop:
    parser is a leaf, so an automated edit stays local and a render-side patch cannot reach game
    rules.
 3. **Probe.** A claim counts once it executes: `./scripts/launch.sh --probe ALL-001` runs the
-   anti-screen probe suite (**37/37** at the M29 close) and `cargo test --workspace` measured **854
+   anti-screen probe suite (**37/37** at the M29 close, **40/40** since the three M34 demo probes
+   entered it, spec §11) and `cargo test --workspace` measured **854
    passed / 0 failed** there. Golden vectors and digests — 0 ULP on the Perlin port, FNV-1a64
    texture vectors, map and population digests — stop a bug from certifying itself.
 4. **Gate.** The battery listed under [Contributing](#contributing), plus the method's position gate:
@@ -404,49 +417,6 @@ export DF_APP_ROOT="$HOME/Games/Daggerfall/app"
 
 The launcher, its modes, flags and exit codes are documented in
 [The launcher](docs/acknowledgments/launcher.md).
-
-## Try it: probes and how to play
-
-Two things you can do with this tree: play the current build, and measure it. Both start from the same
-entry point.
-
-```bash
-# Play the integrated demo (opens on the retail main-menu panel; Enter enters the world)
-./scripts/launch.sh --mode complete
-
-# The same composition, measured headless instead of shown
-./scripts/launch.sh --probe DEMO-001
-
-# The whole Anti-Screen suite: 37 members, M2-M29, exit 0 only if all pass
-./scripts/launch.sh --probe ALL-001
-
-# Prove what would run, without building or executing anything
-./scripts/launch.sh --mode complete --print-plan
-```
-
-**What you should see.** A probe prints one row per check (`[OK]`/`[PASS]`, or `[FAIL]`) and one
-decisive verdict line, for example `VERDICT: PROBE-CITY-001 PASS - ...`, followed by the launcher's
-`launch: exit 0`. Exit codes: `0` pass, `1` a failed check or unreadable data, `2` retail data
-unavailable (the probes that declare that contract), `3` window without a display, `124` timeout. A
-green suite prints `VERDICT: ANTI-SCREEN SUITE PASS (37/37 probes, exit 0)`.
-
-**What it does not do.** The panels are retail images with **no interactive widgets** (nothing is
-clickable; the main-menu buttons open nothing, and there is no character creation), the demo has no
-seamless exterior-to-interior transition (the state machine is measured by `INTERIOR-TRANSIT-001`, the
-window wiring is not in this build), audio stays silent unless you build the `audio` feature
-(`--features audio,window`), and the default composition logs `0 ocean samples` — `T` moves the
-terrain origin to a coastal pixel, so a sea is drawn there, but it is not walkable. `CITY-001` is
-**not** the integrated city: the headless M3 probe scene is a deterministic 3x3 street grid with six
-`ARCH3D.BSA` landmarks (low-poly by design); the M3 window (with the `window` feature) opens a 4x4
-city window with the same landmarks. The retail city is the `--mode complete` demo above.
-
-**Where this build stands.** This is `v0.2.0-alpha` and none of it is a parity claim. `main` carries
-the M18 **technical** candidate (7/7 CS of the B3 tanda, PNG + sha256 each); the M18 **acceptance**
-review is **unsigned** (3 PASS · 6 PARTIAL · 12 NO; owner signature pending) and no `M18` tag
-exists. M30 is frozen; M31–M35 are spec-only, **not implemented**. No date is promised.
-
-**[How to play and how to probe](HOW-TO-PLAY.md)** has the verified key map, the 37-member probe
-matrix (M2-M29) with its expected PASS lines, how to triage a failure, and the full known-issue list.
 
 ## Bring your own data (BYOA)
 

@@ -5,6 +5,9 @@
 # kept as a pure intermediate type).
 # - DAG: app → bridge → daggerfall_parser_rs; the parser stays a
 #   0-dependency leaf (clean-room AB-11). The bridge does NOT modify the parser.
+#   M38 adds bridge → daggerfall-behavior (nav_build extracts the pure
+#   `behavior::nav_graph` types from RdbBlock + CollisionGrid; behavior itself
+#   keeps 0 dependencies — I-2 — so `cargo tree -p daggerfall-behavior` is unchanged).
 # - Bevy 0.20.0 = single workspace version (0 drift, PRE-2 §8).
 # - default-features=false: the bridge compiles and is tested HEADLESS
 #   (PRE-2 §8 rule 4). Windowing/winit are NOT a bridge feature
@@ -20,7 +23,16 @@ description = "Daggerfall parser ↔ Bevy bridge: MeshSpec conversion (runtime-o
 
 [dependencies]
 daggerfall-parser-rs = { path = "../daggerfall_parser_rs" }
-bevy = { version = "0.20.0", default-features = false, features = [
+daggerfall-behavior = { path = "../behavior" }
+# M37/UI-1 (§3.5): `Navigation` wraps `perception::ui_shell::UiShell` without
+# editing it; `TextEnv` reads `perception::read_models::SessionReadModels`.
+# Acyclic: perception depends only on `daggerfall-nervous` (0 reverse edge).
+daggerfall-perception = { path = "../perception" }
+# `UiShell` speaks `WindowId` but perception does not re-export it (and this
+# lane does not edit perception), so the vocabulary crate is named directly.
+# Same acyclic direction: bridge -> nervous, 0 reverse edge.
+daggerfall-nervous = { path = "../nervous" }
+bevy = { workspace = true, features = [
     "std",
     "async_executor",
     "bevy_asset",

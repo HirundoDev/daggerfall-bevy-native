@@ -61,7 +61,7 @@
 //! M10: additive new interfaces, pure without Bevy:
 //! - [`city_retail`] — city composition from real `.RMB` Map Block Records
 //!   (the seed is no longer the layout source, DoD §a): each
-//!   BuildingDataList[i] resolves to (type, doors, ARCH3D model) at its
+//!   `BuildingDataList[i]` resolves to (type, doors, ARCH3D model) at its
 //!   real position; [`RetailCity::canonical_bytes`]/[`RetailCity::digest`]
 //!   for the PROBE-SEED-001 determinism probe (real ext).
 //!
@@ -92,13 +92,24 @@ pub mod city_spec;
 pub mod collision_grid;
 pub mod commerce_spec;
 pub mod convert;
+pub mod dungeon_grid;
 pub mod interior_probe;
 pub mod interior_retail;
 pub mod interior_spec;
 pub mod mesh_spec;
+pub mod nav_build;
 pub mod npc_spec;
+pub mod stream_policy;
+pub mod terrain_nature;
 pub mod terrain_spec;
+pub mod ui_compat;
 pub mod ui_spec;
+pub mod ui_windows_g1;
+pub mod ui_windows_g2;
+pub mod ui_windows_g3;
+pub mod ui_playable_g1;
+pub mod ui_playable_g2;
+pub mod ui_playable_g3;
 pub mod view_probe;
 
 pub use bevy_assets::{
@@ -111,7 +122,8 @@ pub use bsa_source::{
 };
 pub use city_probe::{run_city_probe, synthetic_city, CityProbeReport};
 pub use city_retail::{
-    build_retail_city, RetailBuilding, RetailCity, RETAIL_BLOCK_M, ROTATION_DIVISOR,
+    build_retail_cell, build_retail_city, cell_canonical_bytes, BlockMeshRange, RetailBuilding,
+    RetailCity, RETAIL_BLOCK_M, ROTATION_DIVISOR,
 };
 pub use city_spec::{
     build_city_mesh, landmark_is_solid, street_spawn, CityLayout, CityMesh, CITY_BLOCK_M,
@@ -125,6 +137,12 @@ pub use commerce_spec::{
     interact_target, merchant_world, shop_merchant, InteractHit, MerchantProp, INTERACT_RANGE_M,
 };
 pub use convert::{mesh_record_to_spec, ConvertError};
+pub use dungeon_grid::{
+    assemble_dungeon, block_origin_m, dedupe_doors, is_action_door, object_position_m,
+    DungeonDoor, DungeonGrid, PlacedBlock, ACTION_DOOR_DESCRIPTIONS, DOOR_OVERLAP_TOLERANCE_M,
+    EDITOR_FLATS_ARCHIVE, ENTER_MARKER_RECORD, RDB_SIDE_UNITS, RED_BRICK_DOOR_MODEL_ID,
+    START_MARKER_RECORD,
+};
 pub use interior_probe::{
     march_axis, run_interior_probe, synthetic_world, world_from_landmarks, InteriorProbeReport,
     March,
@@ -139,6 +157,10 @@ pub use interior_spec::{
     FIXTURE_MIN_H_M, SHOP_HEIGHT_M, SHOP_X_MAX, SHOP_Z_MAX, SHOP_Z_MIN,
 };
 pub use mesh_spec::MeshSpec;
+pub use stream_policy::{
+    cell_of_point, desired_cells, plan, plan_digest, priority, span_of, CellKey, CellSpan,
+    StreamConfig, StreamPlan, STREAM_HYSTERESIS_CELLS,
+};
 pub use npc_spec::{
     create_npc_at, place_npc, region, spawn_city_guards, subclimate_race, Caption, CaptionSource,
     FlatRef, GuardSpec, NpcError, NpcSpec, NpcWorld, Occupation, Place, Placement, Population,

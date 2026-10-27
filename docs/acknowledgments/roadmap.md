@@ -11,7 +11,7 @@
 | Stage | State | What closes it |
 |---|---|---|
 | M0–M17 | Closed and tagged | Annotated tags `M<n>-YYYY-MM-DD` with matching `release/M<n>` branches (`M13b` is a tagged parity follow-up) |
-| M18 — Acceptance | Technical closure PASS, **PARTIAL** (owner signature pending) | `PROBE-MAP-001` resolves 15,251/15,251 locations; the suite froze at 18/18 for this milestone and has grown with each later one (37/37 at the M29 close); the **B3 parity tanda closes 7/7 CS** (CS-12/13/14/15/16/18/19, PNG + sha256 each) on `main`; the 21 acceptance rows were measured on the real window (**3 PASS · 6 PARTIAL · 12 NO**) and the side-by-side review against the original still has to be signed by the owner, so no `M18` tag and no `release/M18` branch exist |
+| M18 — Acceptance | Technical closure PASS; **owner signature pending** | `PROBE-MAP-001` resolves 15,251/15,251 locations; the suite froze at 18/18 for this milestone and has grown with each later one (37/37 at the M29 close); the 21 acceptance rows were measured on the real window (**3 PASS · 6 PARTIAL · 12 NO**) and the side-by-side review against the original still has to be signed by the owner, so no `M18` tag and no `release/M18` branch exist |
 | M19 — Locomotion | Technical closure PASS; owner signature and tag pending | Daggerfall Unity locomotion and the player body (`behavior::locomotion`, 21 tests) integrated into the demo and the window through `Locomotion::step`; `PROBE-LOCOMOTION-001` runs 70 checks (`STEALTH-001` 16) |
 | M20–M26 — gameplay parity, first tramo | Technical closure PASS each; owner signature and tag pending | Stats and skills (M20), items/equipment/loot (M21), combat (M22), magic (M23), enchanting and alchemy (M24), monsters, enemy AI and encounters (M25), living NPCs, dialogue and rumours (M26). At the M26 close: 534 tests passed / 0 failed and the suite printed 27/27 |
 | **M26 — living NPCs** | Technical closure PASS (2026-10-21); owner signature and tag pending | `behavior::npc_ai` (population 24/48/72/96, 1.6 m navgrid, `SeekingTile↔MovingForward` routine, 1/32 guards) + `behavior::dialogue` (7209/7208/7207/7206 greetings, faction topics, `TEXT.RSC` answer IDs) + `parser::rumor` (a mill over `RUMOR.DAT`: 31 records, channels, a 50/1 reservoir, expiry and a region filter); `PROBE-NPC-AI-001` / `DIALOGUE-001` / `RUMOR-001` + `NPC-DEMO-001` |
@@ -21,9 +21,10 @@
 | **M30 — economy and banking** | **Frozen**: written specification, no code | Frozen by owner decision; the specification stands, nothing runs |
 | **M31–M32 — travel/weather/calendar · conditions/death/rest** | **Specified, not implemented** | One written specification each; no code |
 | **M33 — total savegame (v2)** | **Specified, not implemented** | Save v2 specification; no probe executed |
-| **M34 — end-to-end integration + presentation** | Specified, not implemented | The E2E spine plus the full presentation pass; its acceptance probes have not run. **Closes Plan A** |
-| **M35 — biomes, 2D vegetation, sky** | Specified, not implemented | **Optional annex**, non-blocking, planned for the `0.1.0` surface. Not a gate for closing Plan A |
-| **M36–M48 — Plan B (E1–E7)** | Not started | 13 milestones. Each one is listed with its scope, gate and `u` in [Plan B in detail](#plan-b-in-detail--13-milestones-m36m48--e8) below, and broken into work packages in the [complete plan](roadmap-m18-m48.md#3-atomic-work-breakdown-for-plan-b) |
+| **M34 — end-to-end integration + presentation** | Technical closure measured 2026-10-26; owner signature and tag pending | The E2E spine, the full presentation pass and the HUD, measured by `PLAYSESSION-001`, `UI-FULL-001` and `AUDIO-RT-001` (`ALL-001` **40/40**) with `SPINE-001` **12/12**. **Closes Plan A** at technical level |
+| **M35 — biomes, 2D vegetation, sky** | Annex delivered 2026-10-26 with one declared gap (`GAP-TAX-11`); no tag | **Optional annex**, non-blocking: `BIOME-001` **25 passed / 0 failed / 1 NA** and `SPRITE-001` **11/11**. Not a gate for closing Plan A |
+| **M36–M37 — Plan B, UI-0 and UI-1** | Technical closure measured 2026-10-27; owner signature and tag pending | `UI-AUDIT-001` A+B+C recomputes the census from the code (`VERDICT: PASS`, two processes, identical stdout): **85 = 78 surfaces + 7 infrastructure**, measured **4 implemented / 47 partial / 34 absent**, rule **35 PATCH · 50 REWRITE**; then the seven-axis layer with `UI-BASE-001` **9/9** and `UI-INPUT-001` **10/10** over **3 pilot windows**, measuring **0.4708333 u/window at one QA round** (band `r`) against an L1 baseline of **0.0565 u/window** |
+| **M38–M48 — Plan B, remaining (E1–E7)** | Not started | 11 milestones. Each one is listed with its scope, gate and `u` in [Plan B in detail](#plan-b-in-detail--13-milestones-m36m48--e8) below, and broken into work packages in the [complete plan](roadmap-m18-m48.md#3-atomic-work-breakdown-for-plan-b) |
 | **E8 — Starfield-like horizon** | Not started; not estimable | A **separate program** after M48, with its own genesis contract. Never "M49" |
 | After M18 — content packs | Design | Declarative packs, a manifest with dependencies, load order, per-pack settings; no code execution |
 | Android | Next platform, not started | Free distribution is the point: APK, F-Droid and plain sideloading, offline and online, phone-first interface and performance envelope. No build has been validated |
@@ -34,13 +35,14 @@
 
 ## Plan B in detail — 13 milestones M36–M48 + E8
 
-All 13 milestones and E8 are **NOT STARTED**: specifications live in the [complete plan](roadmap-m18-m48.md), no code,
-no dispatch, no tag. `u` is a nominal estimate with its rounding range (§3.15 of the plan); no dates.
+M38–M48 and E8 are **NOT STARTED**: specifications live in the [complete plan](roadmap-m18-m48.md), no code,
+no dispatch, no tag. M36 and M37 closed at technical level on 2026-10-27 — the gates are in the table
+below — and they carry no milestone tag either. `u` is a nominal estimate with its rounding range (§3.15 of the plan); no dates.
 
 | M | Epic | Scope | State | `u` nominal (range) | Gate | Plan |
 |:-:|:---|:---|:---|--:|:---|:-:|
-| **M36** | UI-0 | audit of the 85 windows + patch/rewrite decision + compatibility contract + E1 re-estimate | NOT STARTED | 2.00 (1.60–2.40) | `UI-AUDIT-001` A+B+C | [§3.1](roadmap-m18-m48.md#31-m36--ui-0-measure-before-touching-anything-200-u-range-160240) |
-| **M37** | UI-1 | UI compatibility layer (7 axes) | NOT STARTED | 4.50 (3.45–5.60) | `UI-BASE-001` A–E + `UI-INPUT-001` (3 pilot windows) | [§3.2](roadmap-m18-m48.md#32-m37--ui-1-the-compatibility-layer-450-u-range-345560) |
+| **M36** | UI-0 | audit of the 85 windows + patch/rewrite decision + compatibility contract + E1 re-estimate | DONE (technical closure 2026-10-27, no tag) | 2.00 (1.60–2.40) | `UI-AUDIT-001` A+B+C | [§3.1](roadmap-m18-m48.md#31-m36--ui-0-measure-before-touching-anything-200-u-range-160240) |
+| **M37** | UI-1 | UI compatibility layer (7 axes) | DONE (technical closure 2026-10-27, no tag) | 4.50 (3.45–5.60) | `UI-BASE-001` A–E + `UI-INPUT-001` (3 pilot windows) | [§3.2](roadmap-m18-m48.md#32-m37--ui-1-the-compatibility-layer-450-u-range-345560) |
 | **M38** | UI-2 | 16 creation + 11 configuration + menus (27 surfaces) | NOT STARTED | 6.50 (4.95–8.40) | `UI-CREATE-001` (16/16) · `UI-CONFIG-001` (11/11) | [§3.3](roadmap-m18-m48.md#33-m38--ui-2-creation-configuration-and-menus-650-u-range-495840) |
 | **M39** | UI-3 | 51 interactive playable windows | NOT STARTED | 7.50 (5.65–9.40) | `UI-JUGABLE-001` A–H | [§3.4](roadmap-m18-m48.md#34-m39--ui-3-the-51-playable-windows-interactive-750-u-range-565940) |
 | **M40** | UI-4 | UI gate 78/78 + side-by-side + input + accessibility | NOT STARTED | 3.50 (2.45–4.55) | `UI-FULL-001` (85/85 resolved) | [§3.5](roadmap-m18-m48.md#35-m40--ui-4-the-gate-for-the-complete-ui-350-u-range-245455) |
@@ -55,9 +57,10 @@ no dispatch, no tag. `u` is a nominal estimate with its rounding range (§3.15 o
 | **E8** | Starfield-like | separate program after M48, own genesis contract | NOT STARTED / not estimable | — | own contract | [§3.14](roadmap-m18-m48.md#314-e8--starfield-like-horizon-a-separate-program-not-estimable-not-m49) |
 
 **Totals.** 13 milestones M36–M48 = **382.50 u** nominal (**253.40–508.55**). E8 is counted
-**separately**: it is a program, not a milestone, and never "M49". M36 closes Plan A's UI gate only when
-`UI-FULL-001` prints 85/85; Plan A closes when **M34 PASS** is measured (today SPEC-ONLY), with M35 as a
-non-blocking annex.
+**separately**: it is a program, not a milestone, and never "M49". The UI gate closes at **M40**
+(`UI-FULL-001`, 78/78 resolved); Plan A closed at technical level when **M34 PASS** was measured on
+2026-10-26, with M35 as a non-blocking annex. M36 and M37 are the first two Plan B gates, both closed at
+technical level on 2026-10-27 with no tags.
 
 ---
 

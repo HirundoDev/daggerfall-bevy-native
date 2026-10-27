@@ -179,7 +179,9 @@
 //! cap/mastery, the level-up applied by the driver, determinism ×2 and the
 //! M25 humanoid contract (`HumanoidProfile` over `CLASS01.CFG`). The same
 //! driver is the only progression path of the M18 window and `DEMO-001`
-//! (`ALL-001` stays **37 probes**: the new probe is standalone).
+//! (`ALL-001` stayed **37 probes** at M20 — dated phase note; the suite is
+//! **40 entries** since M34 integrated PLAYSESSION-001/UI-FULL-001/
+//! AUDIO-RT-001, spec §11).
 //!
 //! M21: items, equipment,
 //! durability and loot — `--probe ITEM-001` (spec §7: block A with **55
@@ -277,6 +279,30 @@
 //! `QuestFailure` with no panic, reopen without duplicate `stepID`). REQ-L99-062.
 //! **The ALL-001 suite becomes 33 probes** (30/30 with `LAW-001` → 33/33 with
 //! `EXEC-001` + `LIFECYCLE-001` + `JOURNAL-001`).
+//!
+//! M34: the demo probes land in the suite (spec §11 — `ALL-001` **with the 3
+//! new probes integrated**): `--probe PLAYSESSION-001` (S01-S12 in one session,
+//! 12/12 scenarios = 216000 steps, FNV-1a 64 digest ×2 in two separate
+//! processes), `--probe UI-FULL-001` (85-window census 16+11+7+51 + 85/85 shell
+//! navigation + HUD GV-03 + **51/51 playable** = 48 image-class + 3 video,
+//! three digests ×2) and `--probe AUDIO-RT-001` (132/132 songs + 459 DAGGER.SND
+//! records + 60/60 triggers; real device output or a declared `[SKIP-DEVICE]`
+//! ⇒ `PASS(degraded)`). Each keeps its own verdict and exit code; REQ-L99-067.
+//! **The ALL-001 suite becomes 40 probes** (37 before this integration = 33
+//! pre-R1 entries + the four R1 entries `COMBAT-LOOP-001`/`DEATH-001`/
+//! `EFFECT-001`/`ENCOUNTER-001`; +3 M34 = 40).
+//! Dated phase note: `UI-FULL-001` exited 1 while block B (the 51 retail
+//! compositions) was still pending (W34-1); W34-2a..2f composed it, the
+//! measurement is 51/51 and the probe exits 0 on PASS — measured 2026-10-26.
+//!
+//! M37 (F-AUD-01, design f-aud-01-02-streaming-navmesh-CR-96142f2f) —
+//! `--probe STREAM-001` (async cell streaming): pure policy block P in every
+//! build (window/hysteresis/digest of `bridge::stream_policy`), plus blocks
+//! A (frame repartition) and M (measurements: active window under a
+//! synthetic walk, per-tick cost, population-seed stability / 0 re-seed,
+//! §2.5 per-cell cota) with `--features window` over a headless
+//! `MinimalPlugins` app (0 GPU, I-6). Blocks C/D (F3), E (F4) and F (F5)
+//! print `[PENDING]` until their phase lands; EXIT=2 without ARENA2.
 
 use bevy::prelude::*;
 
@@ -317,6 +343,24 @@ mod m26_probe;
 mod m27_probe;
 mod m28_probe;
 mod m29_probe;
+mod m30_probe;
+mod m31_probe;
+mod m32_probe;
+mod m33_probe;
+mod m34_audio_probe;
+mod m34_ui_probe;
+mod m37_ui1_probe;
+mod m38_ui2_probe;
+mod m34_video_probe;
+mod m34_light_probe;
+mod m35_biome_probe;
+mod m35_sprite_probe;
+mod f_aud_01_stream_probe;
+mod playsession_probe;
+mod dungeon_probe;
+mod m34_automap;
+mod interior_retail;
+mod spine_probe;
 mod m9_probe;
 mod ui_assets;
 #[cfg(feature = "window")]
@@ -335,6 +379,11 @@ mod m8_window;
 mod m17_window;
 #[cfg(feature = "window")]
 mod m18_window;
+// M37 (F-AUD-01): async cell streaming. The ECS layer is window-only by
+// design (§2.8); its policy lives headless in the bridge (`stream_policy`)
+// and the STREAM-001 probe runs its pure block in every build.
+#[cfg(feature = "window")]
+mod world_stream;
 
 fn main() {
     // M2: Anti-Screen probe — handled BEFORE any other path
@@ -447,19 +496,127 @@ fn main() {
             Some("CHUNK-001") => m9_probe::run_chunk_001(),
             Some("SCHEDULE-001") => m9_probe::run_schedule_001(),
             Some("MODB-ISOLATION-001") => m9_probe::run_modb_isolation_001(),
+            // M30: economy — shops, inns, banking and transport
+            // (all standalone), spec M30 (REQ-L99-063).
+            Some("SHOP-001") => m30_probe::run_shop_001(),
+            Some("ECONOMY-001") => m30_probe::run_economy_001(),
+            Some("BANK-001") => m30_probe::run_bank_001(),
+            // M31: travel/weather/calendar — TRAVEL-001 (A-D, EXIT=2 without
+            // ARENA2), WEATHER-001 (A-B) and CALENDAR-001 (A-B), spec M31
+            // (REQ-L99-064).
+            Some("TRAVEL-001") => m31_probe::run_travel_001(),
+            Some("WEATHER-001") => m31_probe::run_weather_001(),
+            Some("CALENDAR-001") => m31_probe::run_calendar_001(),
+            // M32: conditions/death/rest — CONDITION-001 (diseases,
+            // contagion, poisons, cure), VAMPIRE-001 (vampirism/lycanthropy),
+            // REST-001 (rest + retail demo, EXIT=2 without ARENA2) and
+            // DEATH-STATE-001 (death + NEGATIVE census), spec M32
+            // (REQ-L99-065).
+            Some("CONDITION-001") => m32_probe::run_condition_001(),
+            Some("VAMPIRE-001") => m32_probe::run_vampire_001(),
+            Some("REST-001") => m32_probe::run_rest_001(),
+            Some("DEATH-STATE-001") => m32_probe::run_death_state_001(),
+            // Spine: typed 5-type plumbing + the 12-step smoke (§7).
+            // EXIT=0 ⟺ 12/12 with digest ×2; EXIT=2 while M33 is unavailable.
+            Some("SPINE-001") => spine_probe::run_spine_001(),
+            // M34-D / G-N1 (spec m34d-dungeon-grid-spec-CR-2d5c8f41.md):
+            // PROBE-DUNGEON-001 — MAPDITEM dungeon grid, 4232 dungeons,
+            // 51.2 m cells, 1.4 m door dedupe; EXIT=2 without ARENA2.
+            Some("PROBE-DUNGEON-001") => dungeon_probe::run_dungeon_001(),
+            // M34/W34-5 (spec m34-e2e-integration-presentation-spec-CR-5243af63.md
+// §1.5): PROBE-AUTOMAP-001 — dungeon automap (per-block state
+// discovered/visited + grey material, ASCII 24) and city automap
+// (nameplates at depth 4.0, collision ⇒ `*`), persisted in the
+// classic 0x33 record without touching the M33 keys; EXIT=2 without ARENA2.
+            Some("PROBE-AUTOMAP-001") => m34_automap::run_automap_001(),
+            // M33: total persistence — SAVE-ALL-001 (A-E: 24 states roundtrip,
+            // S0 census, corruption, determinism, escaping), SAVE-MIGRATION-001
+            // (3 v1 fixtures → v2, idempotence, GV-05/GV-09 census),
+            // SAVEGAME-READ-001 (Mode A retail MAPSAVE.SAV/IMG layout + NEGATIVE
+            // N2/N3, EXIT=2 without ARENA2), SAVEGAME-WRITE-001 (synthetic
+            // SAVETREE/MAPSAVE round-trips through our reader) and
+            // M33-DEMO-001 (DEMO-033 headless: save → mutate → load restores
+            // the snapshot exactly), spec M33 (REQ-L99-066).
+            Some("SAVE-ALL-001") => m33_probe::run_save_all_001(),
+            Some("SAVE-MIGRATION-001") => m33_probe::run_save_migration_001(),
+            Some("SAVEGAME-READ-001") => m33_probe::run_savegame_read_001(),
+            Some("SAVEGAME-WRITE-001") => m33_probe::run_savegame_write_001(),
+            Some("M33-DEMO-001") => m33_probe::run_m33_demo_001(),
+            // M34/W34-3 (spec §5:239-257, REQ-L99-067): PROBE-AUDIO-RT-001 —
+            // 132/132 songs + 459 DAGGER.SND records, 60/60 triggers, real
+            // device output (`samples_played` from the audio callback) or a
+            // declared `[SKIP-DEVICE]`, and the DFU water placement.
+            // EXIT=2 when MIDI.BSA/DAGGER.SND are not readable.
+            Some("AUDIO-RT-001") => m34_audio_probe::run_audio_rt_001(),
             // M18 B3-d (O3/CS-12): visual precipitation fed by the M13
             // climate index; EXIT=2 when CLIMATE.PAK is not readable.
             Some("WEATHER-VISUAL-001") => m18_b3_probe::run_weather_visual_001(),
             // M18 B3-c (O7/CS-18/CS-19): census of the 6 retail panels + the
             // per-asset palette range that unblocks MAP100I0/TRAV0I00.
             Some("PANELS-001") => m18_b3_probe::run_panels_001(),
+            // M34/W34-1 (spec §4:217-239): PROBE-UI-FULL-001 — the closed
+            // 85-window census (16+11+7+51, `N/A-engine` per row), the
+            // canonical UiShell navigating all 85, the HUD census (GV-03) and
+            // the three data-derived digests ×2.
+            // Phase note (2026-10-26): W34-1 shipped block A alone and the
+            // probe exited 1 because block B (the 51 retail compositions) was
+            // still pending at that time; W34-2a..2f composed block B and the
+            // measurement is **51/51** (48 image-class + 3 video,
+            // `assets_missing=0`, `generic_widgets=0`), so the probe exits
+            // **0** on PASS today — same entry, real verdict.
+            Some("UI-FULL-001") => m34_ui_probe::run_ui_full_001(),
+            // M37/UI-1 (plan §5, CR-c45ab703): the two executable gates of the
+            // seven-axis layer — PROBE-UI-BASE-001 (A1/A2/A3/A4/A7: three
+            // pilots composed, painted, presented 640×480, double measurement)
+            // and PROBE-UI-INPUT-001 (A5/A6: fixed literal intent script over
+            // the typed stack). Both EXIT=2 without ARENA2.
+            Some("PROBE-UI-BASE-001") => m37_ui1_probe::run_base(),
+            Some("PROBE-UI-INPUT-001") => m37_ui1_probe::run_input(),
+            // M38/UI-2 (plan §4, CR-71f2b7bf): the 27 surfaces of the creator
+            // (16) and the typed configuration (11) — PROBE-UI-CREATE-001 and
+            // PROBE-UI-CONFIG-001 measure A1..A7, D-2 string map, and write one
+            // 640x480 BMP per surface. Both EXIT=2 without ARENA2.
+            Some("PROBE-UI-CREATE-001") => m38_ui2_probe::run_create(),
+            Some("PROBE-UI-CONFIG-001") => m38_ui2_probe::run_config(),
             // M18 B3-a (CS-13/CS-14): street population + visible city guard.
             Some("POPULATION-001") => m18_b3a::run_population_001(),
             // M18 B3-b (CS-15/CS-16): retail dialogue + journal overlays.
             Some("RETAIL-TEXT-001") => m18_b3b::run_retail_text_001(),
+            // M34/W34-4 (spec §6:257-268): PROBE-VIDEO-001 — the 33 retail
+            // cinematics (17 .VID + 16 .FLC) decoded frame by frame, the
+            // chunk histogram counted from the data, GV-07/GV-08 clock.
+            Some("VIDEO-001") => m34_video_probe::run_video_001(),
+            // M34/W34-6 (spec §1.6:109-123, GV-10/11/12/14):
+            // PROBE-LIGHT-001 — torch 1.0/1.25 (ratio 1.25) + guttering,
+            // six ambient values, fade 0.1/3 every 0.1 s of 3 s, GV-11 u8
+            // conversion, sun 180·time at dawn 6 / dusk 18, underwater fog
+            // and dungeon light 51.5 m / 0.4 s. Pure arithmetic: EXIT=0/1
+            // only, digest ×2 in two separate processes.
+            Some("PROBE-LIGHT-001") => m34_light_probe::run_light_001(),
+            // M35 (annex, CR-2fef7f8a): PROBE-BIOME-001 blocks A–G
+            // (vegetation placement + night sky) and PROBE-SPRITE-001 blocks
+            // A–C (species catalogue disposition + LRU budget). Both run
+            // headless against retail ARENA2 only.
+            Some("BIOME-001") => m35_biome_probe::run_biome_001(),
+            Some("SPRITE-001") => m35_sprite_probe::run_sprite_001(),
+            // M37 (F-AUD-01, design f-aud-01-02-streaming-navmesh-CR-96142f2f):
+            // STREAM-001 — async cell streaming: pure policy block P in every
+            // build + block A (frame repartition) and M (measurements:
+            // window under movement, tick cost, population-seed stability)
+            // with `--features window`; C/D/E/F land with F3/F4/F5. EXIT=2
+            // without ARENA2 (or without the window feature — the ECS
+            // blocks are cfg(window) by design §2.8).
+            Some("STREAM-001") => f_aud_01_stream_probe::run_stream_001(),
+            // W34-7 (spec §"PLAYSESSION-001"): the twelve-scenario
+            // deterministic playthrough — 12 × 18 000 = 216 000 frames at
+            // 1/60 s with an FNV-1a 64 fold of the live state. EXIT=2 when
+            // the M33 v2 prerequisite or the ARENA2 retail custody is absent,
+            // EXIT=1 on any FAIL row, EXIT=0 on 12/12 with the same digest in
+            // two separate processes.
+            Some("PLAYSESSION-001") => playsession_probe::run_playsession_001(),
             other => {
                 eprintln!(
-                    "--probe: unknown name {other:?} (supported: VIEW-001, CITY-001, INTERIOR-001, COMMERCE-001, FORMULA-001, WORLD-001, ALL-001, READMODEL-001, SESSION-001, RMB-001, SEED-001, RDB-001, INTERIOR-TRANSIT-001, AUDIO-001, TEXTURE-001, TERRAIN-001, CLIMATE-001, NPC-001, TEXT-RSC-001, QUEST-ORIGINAL-001, UI-001, MAP-001, DEMO-001, LOCOMOTION-001, STEALTH-001, STATS-001, SKILLS-001, PROGRESSION-001, ITEM-001, EQUIP-001, LOOT-001, COMBAT-001, COMBAT-LOOP-001, DEATH-001, MAGIC-001, EFFECT-001, SPELLMAKER-001, ENCHANT-001, POTION-001, MONSTER-001, ENEMY-AI-001, ENCOUNTER-001, NPC-AI-001, DIALOGUE-001, RUMOR-001, NPC-DEMO-001, FACTION-001, GUILD-001, M27-DEMO-001, CRIME-001, LAW-001, EXEC-001, LIFECYCLE-001, JOURNAL-001, CHUNK-001, SCHEDULE-001, MODB-ISOLATION-001, ORIGIN-001, ATTACK-KEY-001, MENU-001)"
+                    "--probe: unknown name {other:?} (supported: VIEW-001, CITY-001, INTERIOR-001, COMMERCE-001, FORMULA-001, WORLD-001, ALL-001, READMODEL-001, SESSION-001, RMB-001, SEED-001, RDB-001, INTERIOR-TRANSIT-001, AUDIO-001, TEXTURE-001, TERRAIN-001, CLIMATE-001, NPC-001, TEXT-RSC-001, QUEST-ORIGINAL-001, UI-001, MAP-001, DEMO-001, LOCOMOTION-001, STEALTH-001, STATS-001, SKILLS-001, PROGRESSION-001, ITEM-001, EQUIP-001, LOOT-001, COMBAT-001, COMBAT-LOOP-001, DEATH-001, MAGIC-001, EFFECT-001, SPELLMAKER-001, ENCHANT-001, POTION-001, MONSTER-001, ENEMY-AI-001, ENCOUNTER-001, NPC-AI-001, DIALOGUE-001, RUMOR-001, NPC-DEMO-001, FACTION-001, GUILD-001, M27-DEMO-001, CRIME-001, LAW-001, EXEC-001, LIFECYCLE-001, JOURNAL-001, CHUNK-001, SCHEDULE-001, MODB-ISOLATION-001, SHOP-001, ECONOMY-001, BANK-001, ORIGIN-001, ATTACK-KEY-001, MENU-001, SAVE-ALL-001, SAVE-MIGRATION-001, SAVEGAME-READ-001, SAVEGAME-WRITE-001, M33-DEMO-001, VIDEO-001, PLAYSESSION-001, BIOME-001, SPRITE-001, STREAM-001)"
                 );
                 2
             }

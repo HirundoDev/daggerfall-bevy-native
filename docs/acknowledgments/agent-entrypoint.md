@@ -22,17 +22,17 @@ corrected rather than reconciled by prose.
 
 | Milestone | State | What it means in practice |
 |:---|:---|:---|
-| **M18** | **PARTIAL** | technical closure passed and the **B3 parity tanda closes 7/7 CS** (CS-12/13/14/15/16/18/19, PNG + sha256 each) on `main`; the 21 acceptance rows were measured, the **owner signature and tag are pending**. Not the same as DONE |
+| **M18** | **PARTIAL** | technical closure passed, the 21 acceptance rows were measured, the **owner signature and tag are pending**. Not the same as DONE |
 | **M19–M29** | **DONE** | 11 milestones, each with probes and a QA verdict. "DONE" here means technical closure at the declared bar, not a signed release |
 | **M30** | **FROZEN** | economy and banking: a written specification, **no code**, frozen by owner decision |
 | **M31–M33** | **SPEC-ONLY** | travel/weather/calendar, conditions/death/rest and total savegame: one written specification each, not implemented |
-| **M34** | **SPEC-ONLY** | end-to-end integration and presentation: only the typed spine event vocabulary exists; the event bus, the savegame and the acceptance probes are not implemented. **Closes Plan A** |
-| **M35** | **SPEC-ONLY** | biomes, 2D vegetation, sky. **Optional annex**, non-blocking, planned for `0.1.0` |
-| **M36–M48** | **NOT STARTED** | Plan B (E1–E7). Specifications exist *in the plan*; no code, no dispatch, no tag |
+| **M34** | **DONE** (technical) | end-to-end integration and presentation: closed 2026-10-26 — `ALL-001` **40/40**, QA **0.94** (0 critical / 0 major), owner rows 12/12. No tag. **Closes Plan A** |
+| **M35** | **PARTIAL** | biomes, 2D vegetation, sky — delivered 2026-10-26 for the `0.1.0` surface: `BIOME-001` 25 passed / 0 failed / **1 declared NA** (`GAP-TAX-11`: the corpus carries no tile-class data) and `SPRITE-001` 11/11. **Optional annex**, not a gate for Plan A |
+| **M36–M37** | **DONE** (technical) | UI-0 audit and the seven-axis UI layer: closed 2026-10-27 — `UI-AUDIT-001` A+B+C `VERDICT: PASS` in two separate processes with identical stdout (**85 = 78 surfaces (27 + 51) + 7 infrastructure rows**, measured **4 implemented / 47 partial / 34 absent**, rule **35 PATCH · 50 REWRITE**) and `UI-BASE-001` **9/9** + `UI-INPUT-001` **10/10** `VERDICT: PASS` over **3 pilot windows**. No tag |
+| **M38–M48** | **NOT STARTED** | Plan B, remaining (E1–E7). Specifications exist *in the plan*; no code, no dispatch, no tag |
 | **E8** | **NOT STARTED, not estimable** | a **separate program** after M48, with its own genesis contract. It is not "M49" |
 
-Public surface: version tags **`v0.1.0-alpha`** and **`v0.2.0-alpha`** only. No milestone tag exists for
-M18 or later.
+Public surface: tags up to **`v0.2.0-alpha`** only. No milestone tag exists for M18 or later.
 
 ## 3. Closure rule (the only one)
 
@@ -47,27 +47,26 @@ Two consequences that are frequently violated:
    separate act and belongs to the owner.
 2. **The plan is not a checklist of intentions.** A work package without a named probe does not exist.
 
-**Plan A vs Plan B cut.** Plan A closes at **M34 PASS** (49.95 u strict) — today M34 is **SPEC-ONLY**, so
-Plan A is **planned scope, not delivery**. **M35** is an optional, non-blocking annex planned for the
-`0.1.0` surface; it is not a gate for closing Plan A. The
+**Plan A vs Plan B cut.** Plan A closes at **M34 PASS** (49.95 u strict) — measured on 2026-10-26, so
+Plan A is **delivered at technical level**; the owner acceptance (signature, tag) that would make it an
+*accepted* milestone is still pending, and no tag exists. **M35** is an optional, non-blocking annex
+delivered for the `0.1.0` surface with one declared `NA`; it is not a gate for closing Plan A. The
 multiplier base (51.85 u) includes M35 for continuity of the historical series, and the roadmap declares
 both figures so the two readings never merge.
 
-## 4. Next gate — M36, and only with an explicit go
+## 4. Next gate — M38, and only with an explicit go
 
-The next gate is **M36 (UI-0)**, a **measurement** gate, not a code gate. It produces:
+The next gate is **M38 (UI-2)**: the 16 creation windows, the 11 configuration pages and the menu family,
+built on the layer M37 landed. It requires an explicit go from the owner before any dispatch, with its
+requirements addendum. Absence of a go is a hard stop, not an invitation.
 
-1. an executable census of the 85 original windows with a measured state per row;
-2. an 85×9 fit matrix against the current substrate (focus, typed modal outcome, scrolling lists, text
-   input, drag and drop, paper doll/portraits, sprite animation, pointer, gamepad);
-3. a **patch vs rewrite** decision under a falsifiable rule (no rewrite for taste);
-4. a UI↔game compatibility contract (read-only binding, typed modal outcome, assets, scaling, i18n,
-   input, save sections);
-5. a re-estimate of E1 from the real census.
-
-**M36 is NOT STARTED.** Nothing in Plan B is dispatched. Starting M36 — or any M36–M48 work — requires an
-explicit go from the owner for that milestone, with its requirements addendum. Absence of a go is a hard
-stop, not an invitation.
+**M36 and M37 are closed at technical level (2026-10-27), with no tag.** M36 produced what used to be the
+blocker: the executable census of the 85 original windows with a measured state per row (`UI-AUDIT-001`,
+blocks A+B+C, `VERDICT: PASS`), the 85×9 fit matrix, the patch-vs-rewrite decision (35 PATCH ·
+50 REWRITE), the UI↔game compatibility contract (seven axes) and the E1 re-estimate (21.81–49.95 u).
+M37 turned that contract into code — `crates/parser-bevy-bridge/src/ui_compat/` — exercised by 3 pilot
+windows under `UI-BASE-001` (9/9) and `UI-INPUT-001` (10/10), `VERDICT: PASS` with byte-identical stdout
+in two processes. Nothing in M36–M37 remains dispatched, and neither carries a tag.
 
 ## 5. Limits (hard)
 
@@ -98,7 +97,8 @@ stop, not an invitation.
 1. **Read the plan, not the chat.** Section 2 tells you the state; section 3 tells you the work; section 5
    tells you the dependencies; section 10 tells you what a closure means.
 2. **Pick the next unblocked gate, never a random milestone.** The critical path is depth → dungeon →
-   online → platform → modern; the UI runs in parallel. M36 is cheap and unlocks the UI branch.
+   online → platform → modern; the UI runs in parallel. The audit (M36) and the layer (M37) are closed,
+   so **M38** is the next unblocked window gate.
 3. **Write the specification with golden vectors before the code.** A stretch without golden vectors is
    where estimates are least reliable (see the risk factors in section 6.3 of the plan).
 4. **Name the probe in the first commit.** If you cannot name the probe, you do not yet know what you are

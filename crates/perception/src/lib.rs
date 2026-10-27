@@ -9,8 +9,14 @@
 //! `UiShell` (registry + stack of windows, `open`/`close`/`toggle`/`top`/
 //! `route_input`). It holds ids and captions only: the read models stay in
 //! [`read_models`], so the shell cannot own prices, HP or quests.
+//!
+//! M34 §1.6 (W34-6): [`lighting`] — torch, ambient, fade, sun, underwater fog
+//! and dungeon-light rules (GV-10/11/12/14), consumed from the DFU sources
+//! with no formula of its own.
 
+pub mod lighting;
 pub mod read_models;
+pub mod ui_census;
 pub mod ui_shell;
 
 /// Canonical organ id (Sintergic organ map, ADR-FW-104).

@@ -39,7 +39,10 @@
 //! unsupported version → [`SaveError::BadVersion`] and any altered byte
 //! → [`SaveError::Corrupt`] (the attacker cannot recompute the checksum
 //! without rewriting the checksum — and if they rewrite it, the strict
-//! parser rejects unknown/duplicate/missing keys).
+//! parser rejects unknown keys, missing mandatory keys and missing list
+//! sections. **Declared residual:** a *duplicated* scalar key still parses
+//! to its last value — measured 2026-10-27 in `CR-M39SAVES-20261027`, out
+//! of that ticket's scope).
 //!
 //! 🧠 Memory organ rules (bevy-bridge-matrix): pure Rust, **0 Bevy**,
 //! 0 external dependencies (the crate keeps `cargo tree` edge-free).
@@ -53,6 +56,32 @@ use std::path::Path;
 pub const FORMAT_MAGIC: &str = "DFL-SESSION";
 /// Format version supported by this build.
 pub const FORMAT_VERSION: i64 = 1;
+
+/// The sixteen scalar keys [`SessionSnapshot::to_text`] always writes and
+/// [`SessionSnapshot::from_text`] always demands: a document missing any of
+/// them is a **truncated** file, not a partial session (audit `CR-257b2960`
+/// M8, P2 — «truncated-but-valid file is accepted»).
+///
+/// The three `*_count` keys that open the list families are checked
+/// separately, right after the parse loop.
+const MANDATORY_SCALARS: [&str; 16] = [
+    "pos_x_mm",
+    "pos_z_mm",
+    "yaw_mrad",
+    "clock_year",
+    "clock_month",
+    "clock_day",
+    "clock_hour",
+    "clock_minute",
+    "clock_second",
+    "level",
+    "experience",
+    "health",
+    "max_health",
+    "stamina",
+    "max_stamina",
+    "gold",
+];
 
 /// Offset FNV-1a 64.
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
@@ -234,6 +263,7 @@ impl SessionSnapshot {
         }
 
         let mut snap = SessionSnapshot::default();
+        let mut seen_scalars: Vec<&str> = Vec::with_capacity(MANDATORY_SCALARS.len());
         let mut seen_goods = false;
         let mut seen_quests = false;
         let mut seen_chunks = false;
@@ -242,6 +272,9 @@ impl SessionSnapshot {
             let (key, value) = line
                 .split_once('=')
                 .ok_or_else(|| SaveError::Corrupt(format!("line without '=': {line:?}")))?;
+            if MANDATORY_SCALARS.contains(&key) && !seen_scalars.contains(&key) {
+                seen_scalars.push(key);
+            }
             match key {
                 "pos_x_mm" => snap.pos_x_mm = parse_i64(value)?,
                 "pos_z_mm" => snap.pos_z_mm = parse_i64(value)?,
@@ -309,6 +342,20 @@ impl SessionSnapshot {
                 }
             }
         }
+        // Truncation barrier: every scalar `to_text` writes must be in the
+        // file. Without this a shortened document parsed to `default()` —
+        // a valid checksum over fewer keys (audit CR-257b2960 M8, P2).
+        let missing: Vec<&str> = MANDATORY_SCALARS
+            .iter()
+            .copied()
+            .filter(|key| !seen_scalars.contains(key))
+            .collect();
+        if !missing.is_empty() {
+            return Err(SaveError::Corrupt(format!(
+                "missing mandatory key(s): {}",
+                missing.join(", ")
+            )));
+        }
         if !(seen_goods && seen_quests && seen_chunks) {
             return Err(SaveError::Corrupt(
                 "missing mandatory sections (goods/quests/chunks)".into(),
@@ -372,7 +419,7 @@ fn split_entry<'a>(line: &'a str, expected: &str) -> Result<(&'a str, &'a str), 
 }
 
 /// Escapes `\`, `|` and newlines in text fields (exact roundtrip).
-fn escape(raw: &str) -> String {
+pub(crate) fn escape(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
         match ch {
@@ -386,7 +433,7 @@ fn escape(raw: &str) -> String {
     out
 }
 
-fn unescape(escaped: &str) -> Result<String, SaveError> {
+pub(crate) fn unescape(escaped: &str) -> Result<String, SaveError> {
     let mut out = String::with_capacity(escaped.len());
     let mut chars = escaped.chars();
     while let Some(ch) = chars.next() {
@@ -410,7 +457,7 @@ fn unescape(escaped: &str) -> Result<String, SaveError> {
 }
 
 /// FNV-1a 64 (deterministic, 0 dependencies — corruption detection).
-fn fnv1a64(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash = FNV_OFFSET_BASIS;
     for byte in bytes {
         hash ^= u64::from(*byte);
@@ -551,6 +598,60 @@ mod tests {
             SessionSnapshot::from_text(&payload),
             Err(SaveError::Corrupt(_))
         ));
+    }
+
+    /// Reseals a valid checksum over `payload` (the last line of a document
+    /// is the checksum; every preceding line it covers is the payload).
+    fn sealed(payload: Vec<&str>) -> String {
+        let mut body = payload.join("\n");
+        body.push('\n');
+        let checksum = fnv1a64(body.as_bytes());
+        body.push_str(&format!("checksum={checksum:016x}\n"));
+        body
+    }
+
+    /// ANTIBODY (auditoría `CR-257b2960` M8, P2 — «truncated-but-valid file
+    /// is accepted»): a document missing a mandatory scalar key, with a *valid*
+    /// checksum resealed over what remains, must be [`SaveError::Corrupt`]
+    /// **naming the key** — never a session silently defaulted to `0`.
+    ///
+    /// The checksum is resealed on purpose: this case has to die at the key
+    /// barrier, not at the FNV one (GV-05 / GV-07 / S0 keep their literals).
+    #[test]
+    fn missing_mandatory_key_is_corrupt_naming_the_key() {
+        let text = sample().to_text();
+        let mut lines: Vec<&str> = text.lines().collect();
+        lines.pop(); // the checksum line
+        let without_gold: Vec<&str> = lines
+            .into_iter()
+            .filter(|line| !line.starts_with("gold="))
+            .collect();
+        let error = SessionSnapshot::from_text(&sealed(without_gold))
+            .expect_err("a missing mandatory key must not parse");
+        match error {
+            SaveError::Corrupt(reason) => assert!(
+                reason.contains("gold"),
+                "the reason must name the missing key, got: {reason}"
+            ),
+            other => panic!("expected SaveError::Corrupt, got {other}"),
+        }
+    }
+
+    /// The same barrier for a file truncated in the middle: the reason lists
+    /// the absent keys (not only the list sections, which are absent too).
+    #[test]
+    fn truncated_file_is_corrupt_naming_the_absent_keys() {
+        let text = sample().to_text();
+        let lines: Vec<&str> = text.lines().take(6).collect();
+        let error =
+            SessionSnapshot::from_text(&sealed(lines)).expect_err("a truncated file must not parse");
+        match error {
+            SaveError::Corrupt(reason) => {
+                assert!(reason.contains("gold"), "reason must name gold: {reason}");
+                assert!(reason.contains("level"), "reason must name level: {reason}");
+            }
+            other => panic!("expected SaveError::Corrupt, got {other}"),
+        }
     }
 
     #[test]

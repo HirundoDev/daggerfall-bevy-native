@@ -1976,6 +1976,7 @@ dependencies = [
  "daggerfall-behavior",
  "daggerfall-combat",
  "daggerfall-crafting",
+ "daggerfall-game-core",
  "daggerfall-heart",
  "daggerfall-inventory",
  "daggerfall-memory",
@@ -2000,6 +2001,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "daggerfall-content-api"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
+name = "daggerfall-content-runtime"
+version = "0.1.0"
+dependencies = [
+ "daggerfall-content-api",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "daggerfall-crafting"
 version = "0.1.0"
 dependencies = [
@@ -2008,8 +2025,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "daggerfall-game-core"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "daggerfall-heart",
+ "daggerfall-inventory",
+ "daggerfall-memory",
+ "daggerfall-nervous",
+ "daggerfall-parser-bevy-bridge",
+ "daggerfall-perception",
+ "daggerfall-skills",
+]
+
+[[package]]
+name = "daggerfall-game-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "daggerfall-content-api",
+ "nix",
+ "serde_json",
+]
+
+[[package]]
 name = "daggerfall-heart"
 version = "0.1.0"
+dependencies = [
+ "daggerfall-memory",
+ "daggerfall-nervous",
+]
 
 [[package]]
 name = "daggerfall-inventory"
@@ -2025,13 +2069,19 @@ version = "0.1.0"
 [[package]]
 name = "daggerfall-nervous"
 version = "0.1.0"
+dependencies = [
+ "rodio",
+]
 
 [[package]]
 name = "daggerfall-parser-bevy-bridge"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "daggerfall-behavior",
+ "daggerfall-nervous",
  "daggerfall-parser-rs",
+ "daggerfall-perception",
 ]
 
 [[package]]
@@ -2043,6 +2093,29 @@ name = "daggerfall-perception"
 version = "0.1.0"
 dependencies = [
  "daggerfall-nervous",
+]
+
+[[package]]
+name = "daggerfall-promotion-gate"
+version = "0.1.0"
+dependencies = [
+ "daggerfall-content-api",
+ "daggerfall-game-runtime-api",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
+
+[[package]]
+name = "daggerfall-side-contract"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
 ]
 
 [[package]]
@@ -2752,6 +2825,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3081,6 +3160,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3204,6 +3292,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -4116,6 +4205,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.154"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -5481,3 +5583,9 @@ dependencies = [
  "quote",
  "syn 3.0.9",
 ]
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"

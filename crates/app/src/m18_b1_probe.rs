@@ -1,6 +1,7 @@
 //! M18 · **B1 (O2/O4/O9/O8)** — standalone Anti-Screen probes of the parity
-//! wave. They live **outside** the `ALL-001` suite (which stays at 37 probes)
-//! and share every composition with the window: 0 duplicated logic.
+//! wave. They live **outside** the `ALL-001` suite (37 M2-M29 entries; 40
+//! since M34, spec §11) and share every composition with the window: 0
+//! duplicated logic.
 //!
 //! | Probe | Sub-WP | What it measures |
 //! |---|---|---|

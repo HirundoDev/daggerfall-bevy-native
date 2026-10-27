@@ -1,222 +1,266 @@
 # How to play and how to probe
 
-This guide is for the published `v0.2.0-alpha` build — the commit of `main` that the annotated
-`v0.2.0-alpha` tag points at. It covers what you can actually do in the window, the keys that are
-bound in code, how to read the probe harness that measures the engine, and what is known to be
-broken. Everything below is read from the code in this repository, not from memory.
+This guide is for the **`v0.1.0-alpha`** build: how to start it, what the keys actually do, how to
+read a behaviour probe, and what is knowingly broken. Every binding below is read from the code that
+consumes it (file names are given), not from memory; nothing here is a promise of parity with the
+original game.
 
-## 1. What you are running
+> **Status, honest:** this is a pre-release. The engine runs end to end and every claim is backed by
+> an executable probe, but the owner-signed side-by-side review of M18 is still pending, so the
+> alpha carries no `M18` tag and makes **no claim of visual parity**. See
+> [Status: what is actually done](docs/acknowledgments/status.md).
 
-`daggerfall-app` is a Bevy 0.20 engine that reads your own copy of Daggerfall's game data (through
-`ARENA2/`) and plays it in a window, or measures it headless. It is an engine, not a finished game:
-it ships no assets and it claims no parity.
+## 1. Requirements
 
-## 2. Requirements
+- **Rust toolchain** (`cargo` + `rustc`; the release record was verified with 1.97.1).
+- **Linux with X11 or Wayland** for the windowed demos. Headless runs and every probe need no display.
+- **Your own Daggerfall installation**, kept outside the repository. The engine reads `ARENA2/` at
+  runtime and packages no game bytes. Resolution order (see `crates/app/src/main.rs` and
+  `crates/app/src/mode_a.rs`):
+  - `--data-root <dir>` (launcher flag), else
+  - `DF_APP_ROOT`, else
+  - `$HOME/Games/Daggerfall/app`.
+  The directory must contain `ARENA2/` (either capitalisation).
+- **First build takes minutes** (release build for `--mode complete`, debug for `--mode preview`).
+  `--print-plan` resolves and prints the exact commands with zero side effects; `--no-build` reuses a
+  binary that already exists.
 
-| Need | Why |
-|---|---|
-| Rust toolchain (`cargo`, `rustc`) | builds the release binary |
-| Daggerfall game data | an `ARENA2/` folder with `ARCH3D.BSA`, `MAPS.BSA`, `BLOCKS.BSA`, `TEXTURE.*`, `NAMEGEN.DAT`, `TEXT.RSC`, `MIDI.BSA`, `DAGGER.SND`, `CLIMATE.PAK`, `SPELLS.STD`, `MAGIC.DEF`, `QBN`/`QRC` |
-| `DF_APP_ROOT` | folder under which `ARENA2/` lives, when you do not want to pass `--data-root` |
-| A display (X11 or Wayland) | only for the window; every probe runs headless with no GPU |
+Launcher exit codes (`scripts/launch.sh`): `0` success, `1` build/binary/feature failure, `2` invalid
+usage, `3` window requested without a display, `124` timeout, anything else is the probe's own code.
+
+## 2. Start it
 
 ```bash
-export DF_APP_ROOT="$HOME/Games/Daggerfall/app"     # or: ./scripts/launch.sh --data-root /path/to/Daggerfall/app
+export DF_APP_ROOT="$HOME/Games/Daggerfall/app"
+./scripts/launch.sh --mode complete
 ```
 
-## 3. Start it
+That is the **integrated demo**: a retail `.RMB` city with retail textures, the terrain ring, NPC
+billboards, the 1996-style panels and a live character HUD, in a window whose title bar is rewritten
+every frame with the live state (`m19_update_title` in `crates/app/src/m18_window.rs`): phase
+(`MENU`/`PLAYING`), locomotion mode, the character line (`SPELLSWORD - LV 1 - HP ... - STA ... - MAG
+... - RUN ...`), breath, the sea level when the ring has water, and the crime/warrant line when the
+city watch is active.
 
-```bash
-./scripts/launch.sh --mode complete    # release build, opens the window
-./scripts/launch.sh --mode preview     # fast debug build (default)
-./scripts/launch.sh --mode complete --no-build      # skip the build, reuse the binary
-./scripts/launch.sh --mode complete --print-plan    # print what would run, execute nothing
-```
+It opens on the **main-menu panel** (the 1996 title screen composition, an overlay over the world).
+`Enter` transitions `MENU` to `PLAYING` (measured capture `01-enter-playing` in the owner pack); until
+then the world is frozen (0 world frames, 0 clock minutes).
 
-`--mode complete` builds the parser, the bridge, the runtime and `daggerfall-app` in release and
-opens the window. **The window opens on the retail main-menu panel** (`main-menu`, `TITL00I0` +
-`MENU.IMG` + two buttons) with every world system gated: the clock stays at 0 minutes and nothing in
-the scene moves until you press `Enter`, which enters the integrated demo (`--mode complete` with no
-`--probe`). The transition is one-way. The panel is a picture: there is no character creation, no
-new-game flow and no options screen behind the buttons.
+> The published `v0.1.0-alpha` artifact predates the M18 B1/B2/B3 parity fixes. In that artifact the
+demo starts directly in the world, without the menu overlay and without the `,` / `.` / `T` bindings
+listed below; this tree is the newer, still-unsigned state.
 
-Log lines worth knowing while the window is open:
+Other entry points, same launcher:
 
-- `M14 VE: feature \`audio\` not compiled - NullSink (no device playback)` — the build has no audio
-  feature; music and sound effects do not play.
-- `M18 VE: 0 ocean samples in the ring - no water surface` — the current composition has no ocean.
-- `M20 VE: HUD could not be uploaded to the GPU` — the HUD texture did not reach the GPU; the HUD
-  text is then not visible.
-
-## 4. Keys, and the code that binds them
-
-The integrated demo is `M18`; the keys below are bound in the window crate and in the player input
-system. Every row cites the file that consumes the key.
-
-| Key | What it does | Source |
+| What | Command | What you get on screen |
 |---|---|---|
-| `W` `A` `S` `D` | walk / strafe (`W` forward, `S` back, `A` left, `D` right) | `crates/app/src/m2_player.rs` (`ActionState`) |
-| Mouse move | look / turn (raw motion; yaw and pitch) | `crates/app/src/m2_player.rs` |
-| Left click | attack (trigger `ActionState.Attack`, resolved by the combat engine) | `crates/app/src/m2_player.rs` |
-| `Shift` (either) | run | `crates/app/src/m2_player.rs` |
-| `Ctrl` (either) | crouch | `crates/app/src/m2_player.rs` |
-| `Esc` | release the cursor (the window stays open; press again to reclaim input) | `crates/app/src/m2_player.rs` |
-| `Enter` | leave the main menu and enter the world (one-way: `Menu` ⇒ `Playing`) | `crates/app/src/m18_window.rs` (`m18_phase_keys`) + `crates/app/src/m18_phase.rs` |
-| `1` `2` `3` `4` | show one of the four 1996 world panels: HUD, inventory, quests, main menu | `crates/parser-bevy-bridge/src/ui_spec.rs` + `crates/app/src/m18_window.rs` |
-| `5` | show the `map-local` panel (`MAP100I0.IMG`) | `crates/app/src/m18_window.rs` (`m18_switch_panel`) |
-| `6` | show the `map-world` panel (`TRAV0I00.IMG`) | `crates/app/src/m18_window.rs` (`m18_switch_panel`) |
-| `,` `.` | rotate the view ∓/± 5° (`YAW_KEY_STEP_RAD`), works in both phases | `crates/app/src/m18_window.rs` (`m18_yaw_keys`) |
-| `T` | move the terrain origin between the capital pixel and the nearest coastal pixel of `WOODS.WLD` (re-samples and respawns the terrain) | `crates/app/src/m18_window.rs` (`m18_origin_toggle`) |
-| `J` | toggle the retail dialogue overlay (`TEXT.RSC`; one overlay at a time) | `crates/app/src/m18_window.rs` (`m18_overlay_keys`) |
-| `I` | toggle the retail journal overlay | `crates/app/src/m18_window.rs` (`m18_overlay_keys`) |
-| `O` | advance to the next retail climate of `CLIMATE.PAK` that precipitates, rewriting the precipitation sheet in place | `crates/app/src/m18_window.rs` (`m18_weather_key`) |
-| `F` | attack — the second binding of the one `attack` flag (the first is the left click) | `crates/app/src/m2_player.rs` (`attack_triggered`) |
-| `Space` | jump (DFU locomotion) | `crates/app/src/m2_player.rs` (`ActionState.jump`) |
-| `C` | sneak toggle (feeds the stealth engine: detection radius and noise) | `crates/app/src/m2_player.rs` |
-| `R` | save the session (`M20`) | `crates/app/src/m2_player.rs`, `crates/memory/src/lib.rs` |
-| `L` | load the last session save (`M20`) | `crates/app/src/m2_player.rs`, `crates/memory/src/lib.rs` |
-| `G` | bash the nearest door if one is inside the door range (`M28`); otherwise nothing | `crates/app/src/m2_player.rs`, `crates/daggerfall-bevy-bridge/src/lib.rs` |
+| Integrated demo (M18) | `./scripts/launch.sh --mode complete` | 647 buildings, 177,137 retail triangles, 136 textures, 3 NPC billboards, 6 UI panels + terrain + HUD; opens on the menu overlay |
+| Legacy single-block window (M2) | `./scripts/launch.sh --mode complete -- --window` | one real `ARCH3D.BSA` block, first-person spawn inside it |
+| City window (M3) | `./scripts/launch.sh --mode complete --probe CITY-001` | the M3 probe scene: 3x3 synthetic street grid, 6 `ARCH3D.BSA` landmarks, 487 triangles, sky + clouds; opens only after the probe PASSes |
+| Interior window (M4) | `./scripts/launch.sh --mode complete --probe INTERIOR-001` | real `.RDB` shop interior, game clock in the title bar |
+| Commerce window (M5) | `./scripts/launch.sh --mode complete --probe COMMERCE-001` | the same interior with the merchant Vendel, dialogue and `[B]`/`[V]` prices + gold in the title bar |
 
-Inside the **commerce window** (`--mode complete --probe COMMERCE-001`, `M5`) additional keys apply:
+The `--probe` windows are **visual evidence** of a headless probe that already ran and passed: the
+probe decides, the window only shows. If the probe fails, no window opens.
 
-| Key | What it does |
+## 3. Keys, verified
+
+### 3.1 Integrated demo (`--mode complete`)
+
+Input is read in one place (`m2_gather_action` in `crates/app/src/m2_player.rs`); the systems that
+consume the actions live in `crates/app/src/m18_window.rs`.
+
+| Key / button | Effect | Where it is consumed |
+|---|---|---|
+| `Enter` | leave the start menu, one way (`Menu` to `Playing`) | `m18_phase_keys` (m18_window.rs) |
+| `W` `A` `S` `D` | walk / strafe (locomotion engine decides the step, not the renderer) | `m2_player.rs`, `m18_apply_player_action` |
+| Mouse move | look (raw motion; pitch clamped to +/-1.55 rad) | `m2_player.rs` (`LOOK_SENSITIVITY = 0.0025` rad/px) |
+| `Esc` | release the cursor to the desktop. It is **not** a pause and opens no menu | `m2_escape_cursor` |
+| `,` / `.` | rotate the view 5 degrees left / right (keyboard yaw) | `m18_yaw_keys` |
+| `Space` | jump | `m18_apply_player_action` (M19 engine) |
+| `Shift` (left or right) | run | same |
+| `Ctrl` (left or right) | crouch | same |
+| `C` | sneak toggle: changes the speed the locomotion engine resolves (the mode label stays `grounded`) | `m18_apply_player_action` |
+| Left mouse **or** `F` | melee swing (one binding, two keys) | `m14_melee_sfx`, `m22_enemy_retaliation` |
+| `G` | bash the nearest building door; a failed bash is a crime and can bring the city watch | `m28_door_bash` |
+| `L` | cast Levitate (retail spell-point cost and pool gate; drives the movement flags) | `m23_cast_key` |
+| `R` | demo accelerator, not gameplay: 109 `Running` skill uses plus one skill check, then the HUD re-renders | `m20_key_use_skill` |
+| `T` | re-sample the terrain between the capital pixel and the nearest coastal pixel; the city does not move | `m18_origin_toggle` |
+| `1` | HUD panel | `m18_switch_panel` |
+| `2` | inventory panel (retail `IMG`/`CIF`/`FNT`, gold and item counts) | same |
+| `3` | quests panel | same |
+| `4` | main-menu panel (the same title screen, over the world) | same |
+
+The first four panels follow the composition order returned by `ui_spec::build_all_panels`
+(`crates/parser-bevy-bridge/src/ui_spec.rs`): hud, inventory, quests, main-menu. Two further map
+panels are composed in this tree but have no key yet, so they are not reachable from the window.
+
+**Keys that exist in the input layer but do nothing in this demo:** `E`, `B`, `V`. They are set by
+`m2_gather_action` for the M5 commerce window (below), but the integrated demo composes no dialogue
+window, so pressing them is silent.
+
+### 3.2 City window (`--probe CITY-001`)
+
+`W` `A` `S` `D` walk, mouse look, `Esc` release the cursor. Nothing else is bound. This is the M3
+probe scene: a deterministic 3x3 street grid with **6 landmarks (487 triangles)** fitted into lots -
+low-poly probe geometry, not a retail city layout. The retail city is the integrated demo (647
+buildings, 177,137 retail triangles); the retail `.RMB` parser is measured by `PROBE-RMB-001`.
+
+### 3.3 Interior window (`--probe INTERIOR-001`)
+
+`W` `A` `S` `D` walk, mouse look, `Esc` release the cursor. The window title carries the real `.RDB`
+block name and the game clock (1 real second = 1 game minute).
+
+### 3.4 Commerce window (`--probe COMMERCE-001`)
+
+| Key | Effect |
 |---|---|
-| `E` | talk to the merchant / close the dialogue |
-| `B` | buy the first item of the menu, paying the DFU price formula |
-| `V` | sell the first good, receiving the DFU sell price |
-| `Enter` | close the dialogue |
-| `M` | (in the shop) open the merchant's stock |
+| `W` `A` `S` `D` + mouse | walk and look inside the shop |
+| `Esc` | release the cursor |
+| `E` | talk: opens the dialogue only when the merchant is in range and no wall is in between (otherwise it logs `E with no valid target`); pressed again it closes the dialogue |
+| `B` | buy the first item of the menu, paying the DFU price formula (only while the dialogue is open) |
+| `V` | sell the first good, receiving the DFU sell price (only while the dialogue is open) |
 
-The panels are pictures: `1`–`6` choose which surface is drawn, and nothing on them is clickable
-(there is no widget model yet). Mouse look and `,`/`.` yaw both drive the same camera; the mouse
-cannot be scripted, which is why the automated captures use the keys.
+Gold is always visible in the title bar; prices are recomputed on every title refresh. Commerce is
+in-memory only (no persistence).
 
-## 5. How to read a probe
+### 3.5 Legacy block window (`-- --window`)
+
+`W` `A` `S` `D` walk, mouse look, `Esc` release the cursor. This is the M2 path: one real block, no
+city, no UI.
+
+## 4. How to read a probe
+
+A probe is a program that prints its own evidence and exits with a code. Run one through the launcher
+(default mode is a fast debug build, headless):
 
 ```bash
-./scripts/launch.sh --probe CITY-001      # one probe, headless, exits with its code
-./scripts/launch.sh --probe ALL-001       # the whole suite: 37 members, M2-M29
+./scripts/launch.sh --probe CITY-001
 ```
 
-Each probe prints one row per check (`[OK]` / `[FAIL]`) and one decisive verdict line:
+What a green run looks like:
 
-```
-VERDICT: PROBE-CITY-001 PASS - street <name> walkable end-to-end, solid blocks, 0 crossings
-```
+- a header line naming the probe (`PROBE-CITY-001 - ...`);
+- one line per check, prefixed `[OK]` or `[PASS]` (failures print `[FAIL]`);
+- one final verdict line, `VERDICT: PROBE-CITY-001 PASS - ...`;
+- the launcher's own last line, `launch: exit 0`.
 
-Exit codes (the launcher's own contract):
+How to read the exit code:
 
 | Code | Meaning |
-|---|---|
-| `0` | pass: every check green |
-| `1` | a check failed, or retail data is unreadable |
-| `2` | retail data unavailable to the probes that declare that contract (nothing was measured) |
-| `3` | a window was requested without a display |
-| `124` | timeout (probe took longer than the runner allows) |
+|:---:|---|
+| `0` | the probe ran and every check passed |
+| `1` | a check failed, or the probe could not read the data it needs (the old M2-M18 probes fail with `1` and a `[FAIL]` row) |
+| `2` | **retail data unavailable** in the probes that declare this contract (`PROBE-DEMO-001`, `PROBE-LOCOMOTION-001` "NO DATA"). `2` is not a green run: it means the measurement could not happen |
+| `3` | the launcher requested a window but there is no `DISPLAY`/`WAYLAND_DISPLAY` |
+| `124` | the run hit the launcher timeout (`--timeout`, default 900 s) |
 
-If a probe fails, read the first `[FAIL]` row: it names the check. `2` is not a green run and `124` is
-not a verdict; in both cases nothing was measured.
+If a probe fails, in this order: (1) confirm `DF_APP_ROOT` points at a directory that contains
+`ARENA2/`; (2) run `./scripts/launch.sh --print-plan --probe <ID>` to see the exact binary, features
+and data root it resolved; (3) read the first `[FAIL]` row - it names the check, not just the suffix.
 
-## 6. The suite: 37 members, M2-M29
+## 5. Probe matrix
 
-`ALL-001` is the suite runner, not a member. Each member also runs on its own with `--probe <ID>`.
-Expected decisive line for every member is `VERDICT: PROBE-<ID> PASS` (with its detail after `-`).
+One command per row; the last column is the decisive line you should see. Full suite: `ALL-001`.
 
-| Member | What it measures | Expected PASS (prefix) |
+| Probe | What it measures | Expected decisive line |
 |---|---|---|
-| `VIEW-001` | 3D viewer over one `ARCH3D.BSA` block + anti-screen invariants | `VERDICT: PROBE-VIEW-001 PASS - INV-L99-5 coherent ...` |
-| `CITY-001` | M3 city street walkable end to end, solid blocks, 0 crossings | `VERDICT: PROBE-CITY-001 PASS - street ... walkable end-to-end` |
-| `INTERIOR-001` | door transition without crossing a wall + time cycle + real `.RDB` interior | `VERDICT: PROBE-INTERIOR-001 PASS - door transition ...` |
-| `COMMERCE-001` | enter → interact → buy (gold down, item up) with the DFU formula | `VERDICT: PROBE-COMMERCE-001 PASS - enter→interact→buy ...` |
-| `FORMULA-001` | DFU trade-price formula, 100% parity on the on-disk corpus | `VERDICT: PROBE-FORMULA-001 PASS - 100% parity (Mode A only, corpus on disk)` |
-| `WORLD-001` | exterior → interior → commerce → exit → return cycle | `VERDICT: PROBE-WORLD-001 PASS - ... cycle without crash` |
-| `READMODEL-001` | live ECS → read models (an ECS change reaches the model) | `VERDICT: PROBE-READMODEL-001 PASS - live ECS→read models ...` |
-| `SESSION-001` | byte-by-byte save → load round trip | `VERDICT: PROBE-SESSION-001 PASS - byte-by-byte save→load roundtrip ...` |
-| `RMB-001` | retail `.RMB` cities from `ARENA2`, `BuildingDataList` 100% consumed | `VERDICT: PROBE-RMB-001 PASS - <N> retail cities ...` |
-| `SEED-001` | retail city determinism: same bytes, same city | `VERDICT: PROBE-SEED-001 PASS - ...` |
-| `RDB-001` | census of the retail `.RDB` interiors in `BLOCKS.BSA` | `VERDICT: PROBE-RDB-001 PASS - census <n>/<n> .RDB records ...` |
-| `AUDIO-001` | `MIDI.BSA` songs and `DAGGER.SND` clips through the production playback path | `VERDICT: PROBE-AUDIO-001 PASS - ...` |
-| `TEXTURE-001` | 12/12 FNV-1a64 texture digests (`TEXTURE.002/007/256`) | `VERDICT: PROBE-TEXTURE-001 PASS - 12/12 FNV-1a64 digests ...` |
-| `TERRAIN-001` | 8 byte-by-byte terrain height goldens + determinism | `VERDICT: PROBE-TERRAIN-001 PASS - 8 byte-by-byte height goldens ...` |
-| `NPC-001` | `NAMEGEN.DAT` parts, name goldens, population | `VERDICT: PROBE-NPC-001 PASS - NAMEGEN.DAT ...` |
-| `TEXT-RSC-001` | `TEXT.RSC` token recomputation | `VERDICT: PROBE-TEXT-RSC-001 PASS - ...` |
-| `QUEST-ORIGINAL-001` | original quest census (247/247 `QBN`, 244/244 `QRC`, 82 verbs) | `VERDICT: PROBE-QUEST-ORIGINAL-001 PASS - 247/247 QBN ...` |
-| `UI-001` | the 1996 UI panels: assets, font, panel composition | `VERDICT: PROBE-UI-001 PASS - ...` |
-| `MAP-001` | the complete `MAPS.BSA` location index | `VERDICT: PROBE-MAP-001 PASS (resolved=<n>/<n>, ...` |
-| `DEMO-001` | the headless integrated composition: retail city + `M12` textures + `M13` terrain + `M15` NPCs + `M17` panels + `M20` character, digest identical across passes | `VERDICT: PROBE-DEMO-001 PASS - retail city <n> with M12 textures ...` |
-| `LOCOMOTION-001` | the DFU locomotion engine: formulas, engine, stealth, demo, cast-driven effects | `VERDICT: PROBE-LOCOMOTION-001 PASS - <n> checks ...` |
-| `STATS-001` | 18+1 classes, 20 derived values, biography, determinism | `VERDICT: PROBE-STATS-001 PASS - <n> checks ...` |
-| `ITEM-001` | item census and the `A 15+15+8+17` checks | `VERDICT: PROBE-ITEM-001 PASS - checks=55 passed=55 failed=0 ...` |
-| `COMBAT-001` | combat math with injected rolls, armour from equipment, no global RNG | `VERDICT: PROBE-COMBAT-001 PASS - checks=52 passed=52 failed=0 ...` |
-| `COMBAT-LOOP-001` | 600 ticks / 60 swings, digest twice, seed sensitivity | `VERDICT: PROBE-COMBAT-LOOP-001 PASS - ticks=600 swings=60 ...` |
-| `DEATH-001` | on-death latch, fall/fade/reset timings | `VERDICT: PROBE-DEATH-001 PASS - checks=8 passed=8 failed=0 ...` |
-| `MAGIC-001` | `SPELLS.STD` census, spell cost, casting | `VERDICT: PROBE-MAGIC-001 PASS - A∧B∧C∧D ...` |
-| `EFFECT-001` | effects: keys, templates, isolated instances, application and expiry | `VERDICT: PROBE-EFFECT-001 PASS - A∧B∧C∧D∧E∧F ...` |
-| `ENCHANT-001` | `MAGIC.DEF` enchantment tables and keys | `VERDICT: PROBE-ENCHANT-001 PASS - A∧B∧C∧contract ...` |
-| `MONSTER-001` | monster census, HP from the `EnemyBasics` table, spawn table | `VERDICT: PROBE-MONSTER-001 PASS - census 103/60/43 ...` |
-| `ENCOUNTER-001` | encounter tables, cells resolve, `EnemyBasics` lookups, negative controls | `VERDICT: PROBE-ENCOUNTER-001 PASS - E1-E10 ...` |
-| `NPC-AI-001` | enemy AI formulas, `Idle→Pursue`, contact distance, give-up | `VERDICT: PROBE-NPC-AI-001 PASS - formulas D1-D13 ...` |
-| `GUILD-001` | guild and faction tables against the DFU data | `VERDICT: PROBE-GUILD-001 PASS` |
-| `CRIME-001` | crime detection and legal state | `VERDICT: PROBE-CRIME-001 PASS` |
-| `LAW-001` | law and punishment state | `VERDICT: PROBE-LAW-001 PASS` |
-| `EXEC-001` | the execution model (condition/effect verbs) | `VERDICT: PROBE-EXEC-001 PASS` |
-| `LIFECYCLE-001` | the world lifecycle (season/date-driven updates) | `VERDICT: PROBE-LIFECYCLE-001 PASS` |
-| `JOURNAL-001` | quest journal entries and ordering | `VERDICT: PROBE-JOURNAL-001 PASS` |
+| `ALL-001` | the unified Anti-Screen suite: **37 probes, M2-M29** | `VERDICT: ANTI-SCREEN SUITE PASS (37/37 probes, exit 0)` |
+| `VIEW-001` | 3D viewer over one `ARCH3D.BSA` block, collision coherence | `VERDICT: PROBE-VIEW-001 PASS` |
+| `CITY-001` | M3 city street walkable end to end, solid blocks, 0 crossings | `VERDICT: PROBE-CITY-001 PASS` |
+| `INTERIOR-001` | street to interior through the door, time cycle, real `.RDB` | `VERDICT: PROBE-INTERIOR-001 PASS` |
+| `COMMERCE-001` | enter - interact - buy (gold down, item up) with the DFU price formula | `VERDICT: PROBE-COMMERCE-001 PASS` |
+| `FORMULA-001` | the DFU trade-price formula golden vectors | `VERDICT: PROBE-FORMULA-001 PASS` |
+| `WORLD-001` | full playthrough cycle exterior - interior - commerce - exit - return | `VERDICT: PROBE-WORLD-001 PASS` |
+| `READMODEL-001` | the session read models behind the HUD and panels | `VERDICT: PROBE-READMODEL-001 PASS` |
+| `SESSION-001` | session save/load round trip | `VERDICT: PROBE-SESSION-001 PASS` |
+| `RMB-001` | retail `.RMB` cities from `MAPS.BSA`/`BLOCKS.BSA` | `VERDICT: PROBE-RMB-001 PASS` |
+| `SEED-001` | retail city determinism (same bytes, same city) | `VERDICT: PROBE-SEED-001 (real ext) PASS` |
+| `RDB-001` | census of the retail `.RDB` interiors in `BLOCKS.BSA` | `VERDICT: PROBE-RDB-001 PASS` |
+| `TEXTURE-001` | retail textures and palettes, digest goldens | `VERDICT: PROBE-TEXTURE-001 PASS` |
+| `TERRAIN-001` | retail terrain heights against byte goldens | `VERDICT: PROBE-TERRAIN-001 PASS` |
+| `CLIMATE-001` | retail climate index (`CLIMATE.PAK`) | `VERDICT: PROBE-CLIMATE-001 PASS` |
+| `NPC-001` | NPC names, population, retail captions | `VERDICT: PROBE-NPC-001 PASS` |
+| `TEXT-RSC-001` | `TEXT.RSC` token recomputation | `VERDICT: PROBE-TEXT-RSC-001 PASS` |
+| `QUEST-ORIGINAL-001` | the original `QBN`/`QRC` quest census | `VERDICT: PROBE-QUEST-ORIGINAL-001 PASS` |
+| `UI-001` | the 1996 UI panels (assets, font, panels) | `VERDICT: PROBE-UI-001 PASS` |
+| `MAP-001` | the complete `MAPS.BSA` location index | `VERDICT: PROBE-MAP-001 PASS (resolved=15251/15251, ...)` |
+| `DEMO-001` | the integrated demo composition, headless: city + terrain + NPCs + panels + live HUD, digest identical across passes | `VERDICT: PROBE-DEMO-001 PASS` |
+| `LOCOMOTION-001` | the DFU locomotion engine: speed, jump, sneak, water | `VERDICT: PROBE-LOCOMOTION-001 PASS` (or `NO DATA` without `ARENA2`) |
+| `COMBAT-001` | hit, damage and cadence through the combat engine | `VERDICT: PROBE-COMBAT-001 PASS` |
+| `MAGIC-001` | `SPELLS.STD`, spell cost and casting | `VERDICT: PROBE-MAGIC-001 PASS` |
+| `AUDIO-001` | `MIDI.BSA` songs and `DAGGER.SND` sound clips, production playback path | `VERDICT: PROBE-AUDIO-001 PASS` |
 
-A green suite prints `VERDICT: ANTI-SCREEN SUITE PASS (37/37 probes, exit 0)`.
+The suite covers 37 probes across M2-M29 (the members include the ones above plus `STEALTH-001`,
+`STATS-001`, `SKILLS-001`, `ITEM-001`, `ENCHANT-001`, `MONSTER-001`, `NPC-AI-001`, `GUILD-001`,
+`CRIME-001`, `LAW-001`, `EXEC-001`, `LIFECYCLE-001` and `JOURNAL-001`); `ALL-001` prints the current
+list and total. Nothing outside that public set is runnable here: the private M33 work in progress and
+the later milestones are not part of this alpha.
 
-There is **no M30 or later probe in this build**: M30 is frozen and M31-M35 are specified but not
-implemented, so no `SHOP-001`, `ECONOMY-001`, `BANK-001`, `TRAVEL-001`, `WEATHER-001`,
-`CALENDAR-001`, `CONDITION-001`, `VAMPIRE-001`, `REST-001` or `SPINE-001` exists here.
+`ALL-001` needs the retail data too: without `ARENA2` its members fail and the suite exits `1`.
 
-The M18 parity probes added after the 37-member freeze are **standalone** (outside `ALL-001`) and
-exist in this build: `ORIGIN-001`, `ATTACK-KEY-001`, `MENU-001`, `INTERIOR-TRANSIT-001`,
-`WEATHER-VISUAL-001`, `PANELS-001`, `POPULATION-001` and `RETAIL-TEXT-001`. Run them one at a time
-with `--probe <name>`.
+## 6. Known issues (measured, not fixed in this pass)
 
-## 7. Known issues
+These are the defects a player will actually hit. They are documented as they are; this pass changes
+no UI code.
 
-- **The panels are pictures, not widgets.** The 1996 panels (HUD, inventory, quests, menu) are
-  composed as retail images with **0 interactive widgets**. Nothing is clickable; there is no button
-  navigation and no character creation.
-- **No seamless exterior-to-interior transition in the demo.** Walking the city does not take you
-  inside a building; interiors are shown by the `INTERIOR-001` probe window, and the
-  `INTERIOR-TRANSIT-001` probe measures the transition state machine headlessly (steps 4–5 of the
-  spine smoke). Wiring it into the live window is not part of this build.
-- **Audio is silent unless you build the `audio` feature.**
-  `./scripts/launch.sh --mode complete --features audio,window`. Without a usable device the engine
-  degrades to a null sink and prints why instead of panicking.
-- **The default composition has no ocean** (`M18 VE: 0 ocean samples ...`). Press `T` and the
-  terrain origin moves to the nearest coastal pixel of `WOODS.WLD`, which does carry an ocean band
-  (logged as `coastal pixel (x,y) ... ocean N / beach N / land N`); the water surface is drawn at
-  sea level and is **not walkable** — walking into it is blocked by design.
-- **`CITY-001` is probe geometry, not a retail city.** The headless probe runs a deterministic 3x3
-  street grid; the M3 window (with the `window` feature) opens a 4x4 city window. Six `ARCH3D.BSA`
-  landmarks, low-poly by design. The retail city is the `--mode complete` demo.
-- **Two different dialogue surfaces.** `E` runs the M5 commerce dialogue; in the integrated demo `J`
-  toggles the retail `TEXT.RSC` dialogue overlay and `I` the journal overlay (one overlay at a time,
-  both read-only pictures — 0 invented text).
-- **No day/night cycle and no nature sprites.** Vegetation and the visible night sky are not part of
-  this alpha.
-- **No damage numbers on screen.** Combat resolves and the HUD shows HP, but the hit number is not
-  drawn over the target.
-- **Mouse look cannot be scripted.** The demo reads raw mouse motion; synthetic input does not
+- **The menus and panels are pictures, not widgets.** The 1996 panels, including the main-menu overlay,
+  are composed as retail images with **0 interactive widgets**. Nothing is clickable, there is no
+  button navigation and no character creation; `Enter` is the only way out of the start screen, and
+  the same is true of the four world panels (`1`-`4`). This is the "broken UI/menus" state and it is
+  not being fixed in this documentation pass. A **seven-axis UI compatibility layer** now exists in
+  code — surface, palette, typography, text, navigation, input and presentation, in
+  `crates/parser-bevy-bridge/src/ui_compat/` — and it is exercised by **three pilot windows** under
+  `UI-BASE-001` (9/9) and `UI-INPUT-001` (10/10). The panels this window draws are still composed by
+  `ui_spec::build_all_panels`, not by that layer, so nothing on screen changed: the pilots prove the
+  layer works, they are not playable UI.
+- **No seamless exterior-to-interior transition in the integrated demo.** Walking in the city does not
+  take you inside a building. Interiors are shown by the M4/M5 probe windows instead; the transition
+  machinery itself is measured separately by the project, not wired into this window.
+- **Audio is silent unless you build the `audio` feature.** `--mode complete` enables only `window`, so
+  the runtime logs ``M14 VE: feature `audio` not compiled - NullSink (no device playback)``. Ask for
+  both features explicitly: `./scripts/launch.sh --mode complete --features audio,window`. With the
+  feature compiled but no usable device, the engine degrades to the same null sink and prints the
+  reason instead of panicking.
+- **The current composition has no ocean.** The measured run of the current composition logs
+  `M18 VE: 0 ocean samples in the ring - no water surface`, so the sea is not reachable by walking in
+  it. When a ring does contain water, the surface is rendered at the band elevation and is **not
+  walkable** (the adapter stops the player and a jump at the shoreline).
+- **`E` does not open a dialogue in the integrated demo.** NPC captions are drawn from `TEXT.RSC`, but
+  the dialogue window is not composed there; commerce dialogue exists only in the M5 window.
+- **`CITY-001` is the M3 probe scene, not a city.** 3x3 synthetic grid, 6 landmarks, 487 triangles.
+  The retail city is the integrated demo; the retail `.RMB` parser is `PROBE-RMB-001`.
+- **No nature sprites and no day/night cycle.** Vegetation and the visible night sky were measured by
+  the M35 annex probes — `SPRITE-001` 11/11 and `BIOME-001` 25 passed / 0 failed / 1 NA on the declared
+  gap `GAP-TAX-11` — and are still not part of this window; the scene lighting does not follow the
+  clock yet.
+- **No damage numbers on screen.** Combat retaliation is resolved and logged (`M22 VE`), and the HUD
+  shows HP, but the hit number is not drawn over the target.
+- **Mouse look cannot be scripted.** The demo reads raw mouse motion; synthetic X11 input does not
   produce it, so automated captures keep a fixed yaw. A real mouse works.
-- **HP can drop while you stand still**: enemy retaliation ticks while the window is open.
+- **HP can drop while you stand still.** Enemy retaliation ticks while the window is open.
 
-## 8. Where this build stands
+## 7. What is not in this alpha
 
-`v0.2.0-alpha`, no parity claim. `main` carries the **M18 technical candidate**: the seven closure
-states of the B3 tanda it set out to close (CS-12/13/14/15/16/18/19) are measured with window
-evidence — PNG plus sha256 — so the technical side is closed. The **acceptance** review is not: the
-21 acceptance rows read **3 PASS · 6 PARTIAL · 12 NO**, the owner signature is **pending**, and no
-`M18` tag exists. M30 is frozen; M31–M35 are specified but not implemented. No date is promised for
-any of them.
+`v0.1.0-alpha`, no parity claim. The public probe suite is **37 probes, M2-M29**. M18 is
+**code-complete for its B1/B2/B3 parity work but unsigned**: the owner signature is pending, one
+acceptance row (CS-09) has an open decision, and two further rows (CS-05 vegetation, CS-11 night) were
+measured by the M35 annex - biomes, vegetation and night sky for the already-closed acceptance set,
+**not** all buildings, cities or quests - and remain pending the owner's side-by-side. So no `M18` tag
+exists.
 
-## 9. Where to look next
+The private M33 save/load work in progress is **not part of this alpha and not runnable from this
+tree's public surface**. M34 closed at technical level on 2026-10-26 and the M35 annex was delivered
+the same day; both are unsigned, with no milestone tag. The UI plan has closed its first two gates the
+same way on 2026-10-27 - M36 the audit, M37 the seven-axis layer - and neither produced a playable
+interface. No date is promised for any of them.
 
-- [`README.md`](README.md) — the project story, data policy and repository layout.
-- [`docs/acknowledgments/launcher.md`](docs/acknowledgments/launcher.md) — modes, flags, exit codes.
-- [`docs/acknowledgments/status.md`](docs/acknowledgments/status.md) — the acceptance state per milestone.
-- [`docs/acknowledgments/roadmap.md`](docs/acknowledgments/roadmap.md) — what is planned next.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — crates, data flow, the module pattern.
+## 8. Where to look next
+
+- [The launcher](docs/acknowledgments/launcher.md) - modes, flags, exit codes, examples.
+- [How parity is verified](docs/acknowledgments/parity-verification.md) - sources of truth, golden
+  vectors, the probe suite.
+- [Status: what is actually done](docs/acknowledgments/status.md) - the per-milestone record and the
+  known gaps.
+- [Data, legal and trademarks](docs/acknowledgments/legal-and-trademarks.md) - why game data never
+  ships here.

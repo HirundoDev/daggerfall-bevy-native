@@ -28,8 +28,8 @@
 //!   `DFU:Arch3dFile.cs:40` `textureDivisor = 16.0f`,
 //!   `Arch3dFile.cs:947-948`) + [`MeshSpec::face_textures`]. The linear
 //!   model of UESP Appendix E is replicated as in DFU
-//!   (`Arch3dFile.WritePlane`/`FaceUVTool`): absolute UV[0], UV[1] delta of
-//!   UV[0], UV[2] delta of UV[1]+UV[0], points ≥3 through the affine map of the
+//!   (`Arch3dFile.WritePlane`/`FaceUVTool`): absolute `UV[0], UV[1]` delta of
+//!   `UV[0], UV[2]` delta of `UV[1]+UV[0]`, points ≥3 through the affine map of the
 //!   basis (p1−p0, p2−p0) — our re-derivation from the linear
 //!   statement, 0 third-party code copied (clean-room AB-11). The sign of V
 //!   is NOT negated: DFU negates V for Unity's bottom-left origin; Bevy

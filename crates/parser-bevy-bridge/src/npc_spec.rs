@@ -32,6 +32,21 @@
 //! **H2 `NEGATIVE`** (0 evidence in the corpus): here only the
 //! direction 0..7 and the record's frame count are modeled; the render decides the frame.
 //!
+//! **Clothed reclassification (CR-f1b5045b, declared deviation):** the retail
+//! draw is uniform over the 60 records, and 7 of them are drawn with an
+//! uncovered torso ([`TOPLESS_RECORDS`], measured from the decoded pixels with
+//! 2 VLM passes + 3×/6×/10× montages on 2026-10-26). DFU shows them as they
+//! are; this engine maps each one to a measured clothed record of the same
+//! gender ([`TOPLESS_SUBSTITUTE`]) **inside [`NpcWorld::resolve_flat`]**, the
+//! single choke point of population and guard draws. The remap is applied
+//! after the draw, so it consumes no RNG value and the same seed reproduces
+//! the same population except for the corrected indices. Consequences:
+//! - the **caption chain is untouched**: every person `flat_id` is
+//!   `32768 + record ≥ 32768`, above the retail `TEXT.RSC` id range (max
+//!   9999), so the resolved text comes from the occupation either way;
+//! - the destination's `frame_count` is not conserved (measured: `34→53`
+//!   1→3, `48→47` 5→4, the other five equal); the render clamps the frame.
+//!
 //! **Captions (Person.cs:377-382):** DFU resolves the text through
 //! `TextManager.GetLocalizedText(flatID, TextCollections.TextFlats)`, which is
 //! a DFU StringTable (`TextManager.cs:36,271` `Internal_Flats`), **not**
@@ -70,6 +85,56 @@ pub const FLAT_DIRECTIONS: u8 = 8;
 pub const FACE_COUNT: u8 = 10;
 /// NPCs per city population (M15 decision; no figure in the corpus).
 pub const CITY_POPULATION: usize = 24;
+
+/// Person billboard records whose art shows an **uncovered torso**.
+///
+/// Measured on the decoded pixels of `TEXTURE.182` (`medium Common people`,
+/// 60 records) — 2 VLM passes plus 3×/6×/10× montages, CR-f1b5045b
+/// (2026-10-26): `{30, 32, 34, 41, 48, 57, 58}`. Record `33` was **rejected**
+/// as nude (armoured bandeau; 2 of 5 prompts disagreed and it stays
+/// classified as clothed).
+pub const TOPLESS_RECORDS: [u16; 7] = [30, 32, 34, 41, 48, 57, 58];
+
+/// Measured clothed substitute of every [`TOPLESS_RECORDS`] entry (same
+/// gender as the art it replaces; each destination verified `Image` with
+/// frames on the same archive).
+///
+/// The frame count is **not** conserved — `34→53` goes 1→3 frames and
+/// `48→47` goes 5→4 — which is harmless because the render clamps the frame
+/// to `frames - 1` (H2: only the direction and the frame count are modeled).
+pub const TOPLESS_SUBSTITUTE: [(u16, u16); 7] = [
+    (30, 25),
+    (32, 9),
+    (34, 53),
+    (41, 38),
+    (48, 47),
+    (57, 43),
+    (58, 39),
+];
+
+/// Reclassifies a person billboard record whose art shows an uncovered torso.
+///
+/// Single choke point of the clause: [`NpcWorld::resolve_flat`] applies it to
+/// **every** draw (population and guards), so no caller can emit a
+/// [`TOPLESS_RECORDS`] index. It consumes no RNG draw: the population stream
+/// is untouched and the same seed reproduces the same NPCs except for the
+/// corrected indices.
+pub fn clothed_flat_record(record: u16) -> u16 {
+    let mut current = record;
+    // The table is flat by construction (test `topless_substitutes_are_clothed`);
+    // the loop costs nothing and makes a future chained entry safe.
+    for _ in 0..TOPLESS_SUBSTITUTE.len() {
+        match TOPLESS_SUBSTITUTE
+            .iter()
+            .find(|(from, _)| *from == current)
+        {
+            Some((_, to)) => current = *to,
+            None => break,
+        }
+    }
+    current
+}
+
 /// Crime threshold to call the guards (H4: `PlayerEntity` absent
 /// from the corpus ⇒ declared M15 decision).
 pub const GUARD_CRIME_THRESHOLD: u8 = 2;
@@ -503,10 +568,17 @@ impl NpcWorld<'_> {
     }
 
     /// Resolves a `TEXTURE.256` record to a [`FlatRef`] (0 NPC without flat).
+    ///
+    /// The record first goes through [`clothed_flat_record`]: Population and
+    /// guard draws share this one choke point, so a [`TOPLESS_RECORDS`] index
+    /// can never leave here (CR-f1b5045b). The remap is applied **after** the
+    /// draw, so the RNG stream — and every other field of the population — is
+    /// unchanged.
     pub fn resolve_flat(&self, record: u16, direction: u8) -> Result<FlatRef, NpcError> {
         if direction >= FLAT_DIRECTIONS {
             return Err(NpcError::FlatNotResolvable { record });
         }
+        let record = clothed_flat_record(record);
         let header = self
             .person_flats
             .records
@@ -771,33 +843,47 @@ mod tests {
         NameGen::parse(&header).expect("fixture NAMEGEN")
     }
 
-    /// Synthetic `TEXTURE.256`: one image record of 4 frames.
-    fn flats() -> (Vec<u8>, TextureArchive) {
+    /// Synthetic `TEXTURE.256`: `count` image records of 4 frames.
+    ///
+    /// One record is enough for the caption/name tests; the reclassification
+    /// antibody needs a full-width archive (the retail file holds 60 records).
+    fn flats_with(count: usize) -> (Vec<u8>, TextureArchive) {
+        assert!(count >= 1, "the archive needs at least one record");
         let mut file = Vec::new();
-        file.extend_from_slice(&1u16.to_le_bytes());
+        file.extend_from_slice(&(count as u16).to_le_bytes());
         file.extend_from_slice(b"people\0");
         file.resize(26, 0);
-        let record_at: i32 = 26 + 20;
-        file.extend_from_slice(&0u16.to_le_bytes());
-        file.extend_from_slice(&record_at.to_le_bytes());
-        file.extend_from_slice(&0u16.to_le_bytes());
-        file.extend_from_slice(&0u32.to_le_bytes());
-        file.extend_from_slice(&0i64.to_le_bytes());
-        // TextureRecord 28 B: 10×10 px, no compression, 4 frames.
-        file.extend_from_slice(&0i16.to_le_bytes()); // offset_x
-        file.extend_from_slice(&0i16.to_le_bytes()); // offset_y
-        file.extend_from_slice(&10i16.to_le_bytes()); // width
-        file.extend_from_slice(&10i16.to_le_bytes()); // height
-        file.extend_from_slice(&0u16.to_le_bytes()); // compression
-        file.extend_from_slice(&28u32.to_le_bytes()); // record size
-        file.extend_from_slice(&28u32.to_le_bytes()); // data offset
-        file.extend_from_slice(&1u16.to_le_bytes()); // is_normal
-        file.extend_from_slice(&4u16.to_le_bytes()); // frame count
-        file.extend_from_slice(&0u16.to_le_bytes()); // unknown1
-        file.extend_from_slice(&256i16.to_le_bytes()); // x_scale
-        file.extend_from_slice(&256i16.to_le_bytes()); // y_scale
+        let data_start = 26 + 20 * count;
+        for index in 0..count {
+            let record_at = (data_start + 28 * index) as i32;
+            file.extend_from_slice(&0u16.to_le_bytes());
+            file.extend_from_slice(&record_at.to_le_bytes());
+            file.extend_from_slice(&0u16.to_le_bytes());
+            file.extend_from_slice(&0u32.to_le_bytes());
+            file.extend_from_slice(&0i64.to_le_bytes());
+        }
+        for _ in 0..count {
+            // TextureRecord 28 B: 10×10 px, no compression, 4 frames.
+            file.extend_from_slice(&0i16.to_le_bytes()); // offset_x
+            file.extend_from_slice(&0i16.to_le_bytes()); // offset_y
+            file.extend_from_slice(&10i16.to_le_bytes()); // width
+            file.extend_from_slice(&10i16.to_le_bytes()); // height
+            file.extend_from_slice(&0u16.to_le_bytes()); // compression
+            file.extend_from_slice(&28u32.to_le_bytes()); // record size
+            file.extend_from_slice(&28u32.to_le_bytes()); // data offset
+            file.extend_from_slice(&1u16.to_le_bytes()); // is_normal
+            file.extend_from_slice(&4u16.to_le_bytes()); // frame count
+            file.extend_from_slice(&0u16.to_le_bytes()); // unknown1
+            file.extend_from_slice(&256i16.to_le_bytes()); // x_scale
+            file.extend_from_slice(&256i16.to_le_bytes()); // y_scale
+        }
         let archive = TextureArchive::parse(&file).expect("fixture TEXTURE");
         (file, archive)
+    }
+
+    /// Synthetic `TEXTURE.256` with a single image record (caption/name tests).
+    fn flats() -> (Vec<u8>, TextureArchive) {
+        flats_with(1)
     }
 
     /// Synthetic `TEXT.RSC` with two real occupations.
@@ -1010,6 +1096,108 @@ mod tests {
             place_npc(&registry, "anNPC", "farPlace", -1, &city),
             Err(NpcError::OutsideCity(_))
         ));
+    }
+
+    /// The reclassification table replaces every topless record by a clothed
+    /// one and never chains into another topless entry.
+    #[test]
+    fn topless_substitute_table_is_clothed() {
+        assert_eq!(TOPLESS_RECORDS.len(), TOPLESS_SUBSTITUTE.len());
+        for &from in &TOPLESS_RECORDS {
+            let to = clothed_flat_record(from);
+            assert_ne!(to, from, "record {from} maps to itself");
+            assert!(
+                !TOPLESS_RECORDS.contains(&to),
+                "substitute {to} is topless too"
+            );
+            assert_eq!(
+                TOPLESS_SUBSTITUTE
+                    .iter()
+                    .find(|(source, _)| *source == from)
+                    .map(|(_, destination)| *destination),
+                Some(to),
+                "record {from} must have a measured substitute"
+            );
+        }
+        // Clothed records pass through untouched.
+        for record in 0..60u16 {
+            if !TOPLESS_RECORDS.contains(&record) {
+                assert_eq!(clothed_flat_record(record), record);
+            }
+        }
+    }
+
+    /// **Antibody (CR-f1b5045b):** no draw can leave [`NpcWorld::resolve_flat`]
+    /// as a [`TOPLESS_RECORDS`] index — the whole draw domain, and the whole
+    /// `u16` domain of the pure mapping, are covered.
+    ///
+    /// Red before the choke point: `resolve_flat(57, 0)` returned record `57`
+    /// (the bare-torso man) and the demo put him on the street; green after.
+    #[test]
+    fn resolve_flat_never_returns_a_topless_record() {
+        // The retail people archive holds 60 records.
+        let (_flat_bytes, flats) = flats_with(60);
+        let (text_bytes, text) = text_rsc();
+        let namegen = namegen();
+        let world = NpcWorld {
+            namegen: &namegen,
+            person_flats: &flats,
+            text: &text,
+            text_bytes: &text_bytes,
+        };
+        for record in 0..60u16 {
+            let flat = world
+                .resolve_flat(record, 0)
+                .unwrap_or_else(|err| panic!("record {record}: {err}"));
+            assert!(
+                !TOPLESS_RECORDS.contains(&flat.record),
+                "record {record} resolved to the topless record {}",
+                flat.record
+            );
+            assert!(flat.frames > 0, "record {record} resolved without frames");
+            if TOPLESS_RECORDS.contains(&record) {
+                assert_eq!(flat.record, clothed_flat_record(record));
+            }
+        }
+        // The pure mapping is total over `u16` (0 panic, 0 topless output).
+        for record in 0..=u16::MAX {
+            let mapped = clothed_flat_record(record);
+            assert!(!TOPLESS_RECORDS.contains(&mapped));
+        }
+    }
+
+    /// **Antibody (CR-f1b5045b):** no seed can produce a topless NPC in a full
+    /// city population drawn from a 60-record archive.
+    #[test]
+    fn population_never_draws_a_topless_record() {
+        let (_flat_bytes, flats) = flats_with(60);
+        let (text_bytes, text) = text_rsc();
+        let namegen = namegen();
+        let world = NpcWorld {
+            namegen: &namegen,
+            person_flats: &flats,
+            text: &text,
+            text_bytes: &text_bytes,
+        };
+        for seed in 0..64u32 {
+            let population = world
+                .populate(PopulationRequest {
+                    seed,
+                    region: 17,
+                    subclimate: 231,
+                    count: CITY_POPULATION,
+                })
+                .expect("population");
+            assert_eq!(population.npcs.len(), CITY_POPULATION);
+            for npc in &population.npcs {
+                assert!(
+                    !TOPLESS_RECORDS.contains(&npc.flat.record),
+                    "seed {seed} drew the topless record {} at index {}",
+                    npc.flat.record,
+                    npc.index
+                );
+            }
+        }
     }
 
     /// A flat record outside the file does not resolve (0 panic).

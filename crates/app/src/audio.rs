@@ -781,6 +781,28 @@ pub const NIGHT_SONGS: &[midi::SongFiles] = &[
     midi::SongFiles::song_21,
 ];
 
+/// DFU playlist of taverns (`_tavernSongs`,
+/// `DFU-UP:Assets/Scripts/Game/SongManager.cs:801-808@0038a1e6`): all taverns
+/// share the song of the day and advance one track per day.
+pub const TAVERN_SONGS: &[midi::SongFiles] = &[
+    midi::SongFiles::song_square_2,
+    midi::SongFiles::song_tavern,
+    midi::SongFiles::song_folk1,
+    midi::SongFiles::song_folk2,
+    midi::SongFiles::song_folk3,
+];
+
+/// Tavern song of the day — DFU `SongManager.SelectCurrentSong`
+/// (`DFU-UP:Assets/Scripts/Game/SongManager.cs:334-345@0038a1e6`):
+/// `index = gameDays % currentPlaylist.Length`, **no RNG** (unlike every other
+/// context). `gameDays % len` is the literal M34 §5 block B asserts.
+///
+/// Single copy: the runtime, the probe and the tests consume this function.
+pub fn tavern_song(game_days: u32) -> midi::SongFiles {
+    let index = (game_days as usize) % TAVERN_SONGS.len();
+    TAVERN_SONGS[index]
+}
+
 /// Context song — DFU `SongManager.SelectCurrentSong`: the playlist is chosen
 /// by context (night vs day) and the track by `DFRandom.srand(game_days)`
 /// followed by `rand() % len`.
@@ -878,6 +900,24 @@ mod tests {
         let picked: std::collections::HashSet<midi::SongFiles> =
             (0..64).map(|days| music_context_song(days, false)).collect();
         assert!(picked.len() > 1, "DFRandom selection is degenerate: {picked:?}");
+    }
+
+    #[test]
+    fn tavern_song_is_game_days_modulo_the_playlist() {
+        // DFU `SongManager.cs:342-345`: `gameDays % currentPlaylist.Length`,
+        // no RNG involved.
+        for days in [0u32, 1, 4, 5, 6, 29, 100, 364, 12_345] {
+            let index = (days as usize) % TAVERN_SONGS.len();
+            assert_eq!(tavern_song(days), TAVERN_SONGS[index], "day {days}");
+        }
+        assert_eq!(TAVERN_SONGS.len(), 5);
+        assert_eq!(tavern_song(0), midi::SongFiles::song_square_2);
+        assert_eq!(tavern_song(1), midi::SongFiles::song_tavern);
+        assert_eq!(tavern_song(5), tavern_song(0));
+        // The law is not constant: every playlist slot is reachable.
+        let picked: std::collections::HashSet<midi::SongFiles> =
+            (0..TAVERN_SONGS.len() as u32).map(tavern_song).collect();
+        assert_eq!(picked.len(), TAVERN_SONGS.len());
     }
 
     #[test]

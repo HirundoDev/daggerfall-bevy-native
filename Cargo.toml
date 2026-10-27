@@ -1,10 +1,17 @@
 # daggerfall-bevy-native — workspace root (F0 scaffold)
 # 9 organ crates (Sintergic canon, ADR-FW-104; M22 adds combat) + app crate (Bevy, ADR-GAME-004 posture: Bevy >= 0.19).
+# I1 F1: `game-core` is the public contract for side projects (plan
+# `docs/sintergic/plans/I1-INFRA-1-TRUST-DUAL-SIDE-PROJECTS.md` §3.1).
 
 [workspace]
 resolver = "2"
 members = [
     "crates/app",
+    "crates/game-core",
+    "crates/content-api",
+    "crates/game-runtime-api",
+    "crates/content-runtime",
+    "crates/promotion-gate",
     "crates/nervous",
     "crates/heart",
     "crates/memory",
@@ -17,9 +24,21 @@ members = [
     "crates/antibodies",
     "crates/daggerfall_parser_rs",
     "crates/parser-bevy-bridge",
+    "crates/side-contract",
 ]
+# Sides are NOT members: they live outside this workspace and depend on
+# `game-core` by path (plan §8.0 — a side cannot rewrite the MAIN build graph).
+exclude = ["sides"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+
+[workspace.dependencies]
+# I1 F1 / plan §7.3 — ONE bevy declaration for the whole graph.
+# `bevy 0.20.0` is today declared twice with DIFFERENT feature sets (`app` vs
+# `parser-bevy-bridge`); Cargo unifies features, so a second declaration
+# silently changes everyone's graph. Crates consume `bevy.workspace = true`
+# and add only their own extra features.
+bevy = { version = "0.20.0", default-features = false }

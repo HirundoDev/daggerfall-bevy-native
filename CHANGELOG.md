@@ -14,7 +14,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Added
+
+- M36 — UI-0 audit: the census of the 85 windows recomputed from the code by
+  `scripts/ui-audit-001.py` (blocks A+B+C), measuring **85 = 78 surfaces (27 + 51) + 7
+  infrastructure rows**, **4 implemented / 47 partial / 34 absent**, and settling the
+  patch/rewrite rule at **35 PATCH · 50 REWRITE**. Technical closure 2026-10-27, no tag.
+- M37 — UI compatibility layer: seven axes (surface, palette, typography, text,
+  navigation, input, presentation) in `crates/parser-bevy-bridge/src/ui_compat/`,
+  exercised by **3 pilot windows** behind `UI-BASE-001` (**9/9**) and `UI-INPUT-001`
+  (**10/10**). Technical closure 2026-10-27, no tag. The layer is not yet the
+  composition path of the demo window, so it adds no playability.
+- Six workspace crates that make the engine boundary explicit: `game-core` (engine
+  contract), `side-contract` (side-facing contract), `game-runtime-api` (runtime
+  boundary), `content-api` + `content-runtime` (content loading split) and
+  `promotion-gate` (deterministic promotion gate with a signed manifest).
+- M34 — end-to-end integration and presentation: one continuous session from load to
+  combat, inventory and save, with the HUD and the presentation layer wired to the
+  measured organs.
+- M35 — biomes, 2D vegetation and sky, delivered as a non-blocking annex for the
+  `0.1.0` surface.
+- `HOW-TO-PLAY.md`: player-facing quickstart (build, bring your own data, first
+  session, controls), so the entry path is not buried in the README.
+
+### Changed
+
+- Public documentation moves M36 and M37 to **DONE at technical level** (2026-10-27)
+  with no milestone tag; M38–M48 remain **NOT STARTED**. M36/M37 state is now carried
+  by the `status.md` table and by both public roadmaps, and the UI-1 measured cost —
+  **0.4708333 u/window at one QA round** (band `r`, n = 3, W = 50), i.e. **8.33×** the
+  L1 baseline of **0.0565 u/window** — is published next to the gate instead of living
+  only in the mission record.
+- Public documentation moves M34 to **DONE at technical level** (2026-10-26) and M35
+  to **PARTIAL** with one declared gap; M31–M33 remain **SPEC-ONLY** and M30 stays
+  **FROZEN**. Recount then: **12 DONE · 2 PARTIAL · 1 FROZEN · 3 SPEC-ONLY · 13 NOT
+  STARTED · 1 separate program**; M36 and M37 lift it to **14 DONE · 11 NOT STARTED**
+  (entry above).
+- Plan A is therefore **delivered at technical level**, not accepted: the M34 owner
+  signature and milestone tag are still pending, and no milestone tag exists for M18
+  or later.
+- M36 and M37 are closed technically, **not accepted**: their owner signature and
+  milestone tag are still pending, exactly as for M34 and M35. **M38 (UI-2) remains
+  NOT STARTED** and no UI-2 surface is claimed.
+- The workspace declared in `Cargo.toml` spans **16 crates**; the exported surface
+  documents the new members by name rather than by count.
+
+### Fixed
+
+- Spanish comments in `crates/promotion-gate/src/{contract,manifest}.rs` translated to
+  English. Comments only — no string literal, fixture or byte length was touched.
+- `.gitignore` no longer whitelists `.sintergic/artifacts/`, so internal ledger
+  artifacts stay out of the public export.
+
+**Verification:** `cargo test --workspace` **1,489 passed / 0 failed** across 66 test
+suites; `cargo clippy --workspace --all-targets -- -D warnings` clean and
+`cargo clippy -p daggerfall-app --features window --all-targets -- -D warnings` clean;
+`scripts/ci/run-ci.sh` **PASS (3/3)** with `new_hits=0`; `--probe ALL-001` **40/40**;
+`SPINE-001` 12/12; `VIDEO-001` PASS; `PROBE-AUTOMAP-001` 13/13; `PROBE-LIGHT-001` PASS;
+`PROBE-DUNGEON-001` 12/12; `SPRITE-001` 11/11; `BIOME-001` **25 passed / 0 failed /
+1 NA** (`GAP-TAX-11`, declared); `UI-AUDIT-001` blocks A+B+C **PASS**, exit 0 in two
+separate processes with identical stdout; `UI-BASE-001` **9/9** and `UI-INPUT-001`
+**10/10** **PASS**, exit 0 in two separate processes with byte-identical stdout.
 
 ## [0.2.0-alpha] - 2026-10-23
 

@@ -48,6 +48,13 @@ pub const PRESENT_HEIGHT: u16 = 480;
 /// Top/bottom letterbox: `(480 − 200×2) / 2 = 40` px.
 pub const LETTERBOX: u16 = (PRESENT_HEIGHT - CANVAS_HEIGHT * PRESENT_SCALE as u16) / 2;
 
+/// Panel tag reported by [`Framebuffer::paint_nodes`] in typed errors.
+///
+/// A bare node slice carries no [`UiPanelId`], so the compositor names its own
+/// entry point instead of inventing a panel; [`compose`] therefore reports
+/// `"nodes"` (not the panel id) in `MissingAsset`/`MissingFont`.
+pub const NODES_PANEL: &str = "nodes";
+
 /// Runtime `.FNT` fonts — the complete registry is exactly this
 /// set (C7b: 0 system fonts).
 pub const FONT_FILES: [&str; 5] = [
@@ -64,7 +71,7 @@ pub const DEFAULT_FONT: &str = "FONT0000.FNT";
 /// Default text ink (index 127 = `(44,44,44)` in `PAL.PAL`).
 pub const DEFAULT_INK: u8 = 127;
 
-/// Button cell of `BUTN00I0.IMG` (32×128 → 4 cells of 32×32, [INFERENCE]).
+/// Button cell of `BUTN00I0.IMG` (32×128 → 4 cells of 32×32, \[INFERENCE\]).
 pub const BUTTON_CELL: u16 = 32;
 
 /// Vertical clip of `MENU.IMG` (258 high from y=17 → 183 visible).
@@ -139,6 +146,92 @@ impl UiRect {
     pub fn canvas() -> Self {
         Self::new(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
     }
+}
+
+/// One window of the M34 census, as the composition contract declares it
+/// (spec M34 §4(i)-(iv)).
+///
+/// W34-1 shipped the **contract**; W34-2a..2f composed its rows for the **51
+/// playable windows** in [`crate::ui_playable_g1`] (17),
+/// [`crate::ui_playable_g2`] (11) and [`crate::ui_playable_g3`] (23) —
+/// 17 + 11 + 23 = 51, the `g3` column of [`window_group_counts`]. Spec M34
+/// §4(i)
+/// (`docs/sintergic/game/programming/m34-e2e-integration-presentation-spec-CR-5243af63.md:219`)
+/// binds this struct to those 51 only: [`crate::ui_windows_g1`] (16
+/// `CreateChar*`) and [`crate::ui_windows_g2`] (11 config + 7 infra, all
+/// `N/A-engine`) are census rows counted by the shell registry, so
+/// [`crate::ui_windows_g1::specs`] and [`crate::ui_windows_g2::specs`] return
+/// `&[]` **by design**, not as pending composition — `PROBE-UI-FULL-001`
+/// prints `grupos=[g1=0 g2=0 g3=51]` with `EXIT=0` on that basis.
+/// [`crate::ui_windows_g3`] is retained for the census contract but is no
+/// longer a composition slot (see [`window_group_counts`]).
+///
+/// - `id` is the DFU class name (census `m34…:36-60`, GV-01/GV-02/GV-19), so
+///   `PROBE-UI-FULL-001` can bind every spec to its census row;
+/// - `asset_retail` is the primary `ARENA2` asset the window decodes
+///   (`IMG`/`CIF`/`FNT`/`RCI`); `None` is reserved for the `N/A-engine`
+///   pages, which carry no spec (§4) and therefore no row here;
+/// - `rect` is the declared placement inside the 320×200 canvas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSpec {
+    /// Census name (DFU class name, no `.cs`).
+    pub id: &'static str,
+    /// Primary retail asset, `None` for engine pages.
+    pub asset_retail: Option<&'static str>,
+    /// Declared placement in the 320×200 canvas.
+    pub rect: UiRect,
+}
+
+impl WindowSpec {
+    /// A concrete 1996 window: retail asset present and rectangle inside the
+    /// canvas (§4(ii) + §4(iv)).
+    pub fn is_concrete(&self) -> bool {
+        match self.asset_retail {
+            Some(asset) => !asset_is_generic(asset) && self.rect.fits_canvas(),
+            None => false,
+        }
+    }
+}
+
+/// Is `asset` an empty/placeholder name instead of a retail asset? (§4(iv):
+/// no node may paint a `default`/generic/plain-colour widget).
+pub fn asset_is_generic(asset: &str) -> bool {
+    let trimmed = asset.trim();
+    trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("default")
+        || trimmed.eq_ignore_ascii_case("generic")
+        || trimmed.eq_ignore_ascii_case("color")
+        || trimmed.eq_ignore_ascii_case("none")
+}
+
+/// **Single** concatenation point of the three census window groups
+/// (G1 createchar → G2 config+infra → G3 playable).
+///
+/// Callers never chain the groups themselves: one place to read the whole set
+/// is what lets `PROBE-UI-FULL-001` compare "specs declared" against the
+/// census without a second, drifting list.
+pub fn window_specs() -> impl Iterator<Item = &'static WindowSpec> {
+    crate::ui_windows_g1::specs()
+        .iter()
+        .chain(crate::ui_windows_g2::specs())
+        .chain(crate::ui_playable_g1::specs())
+        .chain(crate::ui_playable_g2::specs())
+        .chain(crate::ui_playable_g3::specs())
+}
+
+/// Rows declared per group: `[g1 createchar, g2 config+infra, g3 playable]`.
+///
+/// `g3` is the sum of the three wave-3 composition slots (`ui_playable_g1..g3`,
+/// W34-2a..2f); `ui_windows_g3` is retained for the census contract but is no
+/// longer part of the concatenation.
+pub fn window_group_counts() -> [usize; 3] {
+    [
+        crate::ui_windows_g1::specs().len(),
+        crate::ui_windows_g2::specs().len(),
+        crate::ui_playable_g1::specs().len()
+            + crate::ui_playable_g2::specs().len()
+            + crate::ui_playable_g3::specs().len(),
+    ]
 }
 
 /// Where a node's rectangle comes from (auditable, 0 ad hoc).
@@ -1095,28 +1188,29 @@ impl Framebuffer {
         });
         (self.palettes.len() - 1) as u8
     }
-}
 
-impl Default for Framebuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Compositor: paints the panels in order onto a 320×200 framebuffer.
-///
-/// - sprites: blit of palette indices, index 0 = transparent;
-/// - glyph-runs: 1 bpp `.FNT` mask painted with `node.ink`;
-/// - every written pixel is validated against its asset index range
-///   (C2). The first violation aborts with [`UiSpecError::PaletteViolation`].
-pub fn compose(panels: &[UiPanel], assets: &UiAssets) -> Result<Framebuffer, UiSpecError> {
-    let mut fb = Framebuffer::new();
-    for panel in panels {
-        for node in &panel.nodes {
-            let slot = fb.slot_for(node, assets);
+    /// Paints `nodes` in declaration order onto this framebuffer.
+    ///
+    /// This is the single compositor of the crate: [`compose`] is a panel
+    /// loop over this function, and any later layer (the §3.8 window
+    /// composition of `ui_compat`) reuses it instead of blitting again.
+    ///
+    /// - sprites: 1:1 blit of palette indices from `node.source`
+    ///   (`None` = whole asset), index 0 = transparent;
+    /// - glyph-runs: 1 bpp `.FNT` mask painted with `node.ink`;
+    /// - every written pixel is validated against its asset index range
+    ///   (C2); the first violation aborts with
+    ///   [`UiSpecError::PaletteViolation`].
+    ///
+    /// A node slice carries no panel identity, so the `panel` field of
+    /// [`UiSpecError::MissingAsset`] / [`UiSpecError::MissingFont`] reports
+    /// [`NODES_PANEL`].
+    pub fn paint_nodes(&mut self, nodes: &[UiNode], assets: &UiAssets) -> Result<(), UiSpecError> {
+        for node in nodes {
+            let slot = self.slot_for(node, assets);
             match node.kind {
                 UiNodeKind::Sprite => {
-                    let asset = require_image(assets, panel.id.as_str(), &node.asset)?;
+                    let asset = require_image(assets, NODES_PANEL, &node.asset)?;
                     // **Per-asset range (M18 B3-c):** the declared family/asset
                     // range, widened only for the assets whose own bytes were
                     // measured to exceed it (`image::ASSET_RANGE_DERIVATIONS`).
@@ -1143,14 +1237,14 @@ pub fn compose(panels: &[UiPanel], assets: &UiAssets) -> Result<Framebuffer, UiS
                             }
                             let x = node.rect.x as u16 + dx;
                             let y = node.rect.y as u16 + dy;
-                            let at = y as usize * fb.width as usize + x as usize;
-                            fb.pixels[at] = index;
-                            fb.slots[at] = slot;
+                            let at = y as usize * self.width as usize + x as usize;
+                            self.pixels[at] = index;
+                            self.slots[at] = slot;
                         }
                     }
                 }
                 UiNodeKind::GlyphRun => {
-                    let font = require_font(assets, panel.id.as_str(), &node.asset)?;
+                    let font = require_font(assets, NODES_PANEL, &node.asset)?;
                     let text = node.text.as_deref().unwrap_or_default();
                     let mask = font.render_text(text);
                     if !family_index_range(node.family).contains(&node.ink) {
@@ -1167,17 +1261,37 @@ pub fn compose(panels: &[UiPanel], assets: &UiAssets) -> Result<Framebuffer, UiS
                             }
                             let x = node.rect.x as u16 + dx;
                             let y = node.rect.y as u16 + dy;
-                            if x >= fb.width || y >= fb.height {
+                            if x >= self.width || y >= self.height {
                                 continue;
                             }
-                            let at = y as usize * fb.width as usize + x as usize;
-                            fb.pixels[at] = node.ink;
-                            fb.slots[at] = slot;
+                            let at = y as usize * self.width as usize + x as usize;
+                            self.pixels[at] = node.ink;
+                            self.slots[at] = slot;
                         }
                     }
                 }
             }
         }
+        Ok(())
+    }
+}
+
+impl Default for Framebuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Compositor: paints the panels in order onto a 320×200 framebuffer.
+///
+/// - sprites: blit of palette indices, index 0 = transparent;
+/// - glyph-runs: 1 bpp `.FNT` mask painted with `node.ink`;
+/// - every written pixel is validated against its asset index range
+///   (C2). The first violation aborts with [`UiSpecError::PaletteViolation`].
+pub fn compose(panels: &[UiPanel], assets: &UiAssets) -> Result<Framebuffer, UiSpecError> {
+    let mut fb = Framebuffer::new();
+    for panel in panels {
+        fb.paint_nodes(&panel.nodes, assets)?;
     }
     Ok(fb)
 }

@@ -16,4 +16,6 @@ pub mod interior_transit;
 pub mod law_runtime;
 pub mod m23_window;
 pub mod m2_kinematics;
+pub mod m37_pilots;
+pub mod m38_surfaces;
 pub mod mode_a;

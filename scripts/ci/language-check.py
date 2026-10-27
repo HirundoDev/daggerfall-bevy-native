@@ -43,7 +43,17 @@ Declared exemptions (reported, never gating):
 
 Usage:
   python3 scripts/ci/language-check.py [--root DIR] [--verbose] [--list-surface]
+                                       [--baseline FILE | --no-baseline]
   exit 0 = English-only surface - exit 1 = Spanish prose found - exit 2 = usage
+
+Baseline ratchet (declared debt, never hidden):
+  scripts/ci/language-baseline.txt records, per file, how many prose hits this
+  surface already carries and is not translating now. `hits:` always prints the
+  real global count; the ratchet adds `baselined:` (hits covered by the declared
+  allowance) and `new_hits:` (hits above it, the regression signal). The gate
+  fails only while `new_hits > 0`, so the allowance can only shrink: a file below
+  its recorded count is paid debt, a file above it is a regression. An absent
+  baseline file (or --no-baseline) restores the plain gate: any hit fails.
 """
 import argparse, ast, fnmatch, os, re, subprocess, sys
 from pathlib import Path
@@ -94,6 +104,7 @@ was were will has have can all if when there which more than but its into does d
 """.split())
 
 MIN_ES, MAX_RATIO, MIN_ACCENT = 2, 0.15, 2
+BASELINE_NAME = "scripts/ci/language-baseline.txt"
 
 
 # ── Scope: which files are on the exportable surface ──────────────────────
@@ -310,12 +321,35 @@ def scan(root, exclude_file):
     return files, scanned, out_of_scope, hits
 
 
+# ── Baseline ratchet: declared debt, per file ─────────────────────────────
+def load_baseline(path):
+    """Read '<path> <count>' lines ('#' comments allowed).
+
+    Returns (allowance, declared_total, error). A malformed line is an error,
+    never a silent zero: a typo in the table must not widen the gate.
+    """
+    allowance = {}
+    for no, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = re.sub(r"\s+#.*$", "", raw).strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.rsplit(None, 1)
+        if len(parts) != 2 or not parts[1].isdigit():
+            return None, 0, f"{path}:{no}: expected '<path> <count>', got {raw.strip()!r}"
+        allowance[parts[0]] = allowance.get(parts[0], 0) + int(parts[1])
+    return allowance, sum(allowance.values()), None
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="English-only gate for the exportable surface.")
     ap.add_argument("--root", default=str(ROOT), help="tree to scan (default: this repository)")
     ap.add_argument("--exclude", default="", help="exclude list to reuse (default: <root>/tools/public-export/exclude.txt)")
     ap.add_argument("--verbose", action="store_true", help="print per-file Spanish/English counts")
     ap.add_argument("--list-surface", action="store_true", help="print the scanned surface and exit")
+    ap.add_argument("--baseline", default="",
+                    help=f"declared allowance (default: <root>/{BASELINE_NAME}; absent = no ratchet)")
+    ap.add_argument("--no-baseline", action="store_true",
+                    help="ignore the declared allowance: any hit fails")
     args = ap.parse_args(argv)
 
     root = Path(args.root).resolve()
@@ -356,11 +390,42 @@ def main(argv):
         print(f"  HIT {hit['file']}:{hit['line']} (es={hit['es']} en={hit['en']} "
               f"accents={hit['accent']}) {hit['phrase']}")
 
-    if hits:
-        print("language-check: FAIL (translate the flagged prose to English; "
-              "translations live in *.es.md, which is local-only)")
+    actual = {}
+    for hit in hits:
+        actual[hit["file"]] = actual.get(hit["file"], 0) + 1
+
+    allowance = None
+    if not args.no_baseline:
+        baseline_path = Path(args.baseline) if args.baseline else root / BASELINE_NAME
+        if baseline_path.is_file():
+            allowance, declared, error = load_baseline(baseline_path)
+            if error:
+                print(f"language-check: {error}", file=sys.stderr)
+                return 2
+            print(f"baseline: {baseline_path} (allowed={declared} over {len(allowance)} files)")
+
+    if allowance is None:
+        print("baseline: none (every hit fails)")
+        if hits:
+            print("language-check: FAIL (translate the flagged prose to English; "
+                  "translations live in *.es.md, which is local-only)")
+            return 1
+        print("language-check: PASS")
+        return 0
+
+    covered = sum(min(n, allowance.get(rel, 0)) for rel, n in actual.items())
+    new = sum(max(0, n - allowance.get(rel, 0)) for rel, n in actual.items())
+    print(f"baselined: {covered} (declared debt, not translated)")
+    print(f"new_hits: {new}")
+    for rel in sorted(actual):
+        over = actual[rel] - allowance.get(rel, 0)
+        if over > 0:
+            print(f"  NEW {rel}: {actual[rel]} hits, baseline {allowance.get(rel, 0)} (+{over})")
+    if new > 0:
+        print("language-check: FAIL (new prose above the declared baseline; translate it, "
+              f"or record the file in {BASELINE_NAME} with its class)")
         return 1
-    print("language-check: PASS")
+    print("language-check: PASS (all hits inside the declared baseline)")
     return 0
 
 

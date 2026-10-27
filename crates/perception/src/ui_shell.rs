@@ -13,13 +13,17 @@
 //! module, which is why "the shell owns the HUD's health" cannot happen by
 //! construction rather than by discipline.
 //!
-//! The 85-window census (16 createchar + 11 config + 7 infra + 51 playable,
-//! `m34…:230`) is **M34's** deliverable: this module ships the mechanism, and
-//! the census is measured against it later (`UI-FULL-001`).
+//! The 85-window census (16 createchar + 11 config + 7 infra + 51 playable)
+//! is **closed data** in [`crate::ui_census`] (spec M34 §1.1, GV-01/GV-02/
+//! GV-19): [`WindowRegistry::canonical`] registers exactly those 85 entries,
+//! so "the census is complete" and "the shell can open every window" are the
+//! same fact (probe `UI-FULL-001` block A).
 
 use std::fmt;
 
 use daggerfall_nervous::events::WindowId;
+
+use crate::ui_census;
 
 /// One window the shell knows: identity and caption, nothing else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +32,34 @@ pub struct WindowSpec {
     pub id: WindowId,
     /// Caption/asset key the presentation layer resolves.
     pub title: &'static str,
+}
+
+/// Base of the derived ids; keeps the four contract ids (0..=3) untouched.
+const CANONICAL_BASE: u16 = 4;
+
+/// Canonical [`WindowId`] of a census row.
+///
+/// The four spine panels that already travel on the bus keep their contract
+/// ids (`WindowId::{HUD, INVENTORY, QUESTS, MAIN_MENU}`); the other 81 derive
+/// theirs from the frozen census position (GV-02), so the id is a function of
+/// the name's index in a digest-pinned list — never of registration order.
+pub fn canonical_id(index: usize, name: &str) -> WindowId {
+    match name {
+        "DaggerfallHUD" => WindowId::HUD,
+        "DaggerfallInventoryWindow" => WindowId::INVENTORY,
+        "DaggerfallQuestJournalWindow" => WindowId::QUESTS,
+        "DaggerfallStartWindow" => WindowId::MAIN_MENU,
+        _ => WindowId::new(CANONICAL_BASE + index as u16),
+    }
+}
+
+/// Canonical id of a census window by name, `None` when it is not in the
+/// census (the caller decides whether that is a hard error).
+pub fn canonical_id_for(name: &str) -> Option<WindowId> {
+    ui_census::census()
+        .iter()
+        .position(|row| row.name == name)
+        .map(|index| canonical_id(index, name))
 }
 
 /// Why a shell operation was refused.
@@ -76,6 +108,20 @@ impl WindowRegistry {
         Self {
             windows: Vec::new(),
         }
+    }
+
+    /// The canonical registry: exactly the 85 census windows (GV-01), in
+    /// census order, caption = DFU class name.
+    ///
+    /// Propagates [`UiError::AlreadyRegistered`] instead of swallowing it: a
+    /// duplicate would mean two census rows collapsed into one id, which is a
+    /// census bug, not a runtime condition.
+    pub fn canonical() -> Result<Self, UiError> {
+        let mut registry = Self::new();
+        for (index, row) in ui_census::census().iter().enumerate() {
+            registry.register(canonical_id(index, row.name), row.name)?;
+        }
+        Ok(registry)
     }
 
     /// Registers a window. One id, one spec.
@@ -164,6 +210,11 @@ impl UiShell {
             registry,
             stack: Vec::new(),
         }
+    }
+
+    /// Shell over the canonical 85-window registry (census closed).
+    pub fn canonical() -> Result<Self, UiError> {
+        Ok(Self::new(WindowRegistry::canonical()?))
     }
 
     /// The registry (what exists).
@@ -321,5 +372,53 @@ mod tests {
             Err(UiError::AlreadyRegistered { id: WindowId::HUD })
         );
         assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn the_canonical_registry_is_the_closed_85_with_unique_ids() {
+        let registry = WindowRegistry::canonical().expect("canonical registry");
+        assert_eq!(registry.len(), crate::ui_census::CENSUS_SIZE);
+        assert_eq!(registry.len(), 85);
+
+        let mut ids: Vec<u16> = registry
+            .specs()
+            .iter()
+            .map(|spec| spec.id.index())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 85, "ids must be unique");
+
+        for row in crate::ui_census::census() {
+            let id = canonical_id_for(row.name).expect("census row has an id");
+            assert_eq!(registry.title(id), Some(row.name));
+        }
+        assert_eq!(registry.title(WindowId::HUD), Some("DaggerfallHUD"));
+        assert_eq!(
+            registry.title(WindowId::INVENTORY),
+            Some("DaggerfallInventoryWindow")
+        );
+        assert_eq!(
+            registry.title(WindowId::QUESTS),
+            Some("DaggerfallQuestJournalWindow")
+        );
+        assert_eq!(
+            registry.title(WindowId::MAIN_MENU),
+            Some("DaggerfallStartWindow")
+        );
+    }
+
+    #[test]
+    fn every_census_window_opens_and_closes_leaving_depth_zero() {
+        let mut shell = UiShell::canonical().expect("canonical shell");
+        for row in crate::ui_census::census() {
+            let id = canonical_id_for(row.name).expect("census row has an id");
+            shell.open(id).expect("open");
+            assert_eq!(shell.top(), Some(id));
+            shell.close(id);
+            assert_eq!(shell.depth(), 0, "{} must close cleanly", row.name);
+            assert!(!shell.is_open(id));
+        }
+        assert_eq!(canonical_id_for("NotAWindow"), None);
     }
 }

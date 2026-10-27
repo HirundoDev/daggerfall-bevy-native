@@ -34,10 +34,10 @@ The probe suite is the project's answer to "it renders, therefore it works". A p
 behaviour and emits a verdict:
 
 ```bash
-./scripts/launch.sh --probe ALL-001   # 37/37 at the M29 close
+./scripts/launch.sh --probe ALL-001   # 40/40 (37/37 at the M29 close)
 ```
 
-`ALL-001` runs **37 entries** covering M2 to M29, starting with the data layer (`VIEW-001`,
+`ALL-001` runs **40 entries** covering M2 to M34 (37 of them M2-M29), starting with the data layer (`VIEW-001`,
 `CITY-001`, `INTERIOR-001`, `COMMERCE-001`, `FORMULA-001`, `WORLD-001`, `READMODEL-001`,
 `SESSION-001`, `RMB-001`, `SEED-001`, `RDB-001`, `AUDIO-001`, `TEXTURE-001`, `TERRAIN-001`,
 `NPC-001`, `TEXT-RSC-001`, `UI-001`, `MAP-001`, `DEMO-001`) and continuing with the gameplay
@@ -45,16 +45,13 @@ tramo (`LOCOMOTION-001`, `STATS-001`, `ITEM-001`, `COMBAT-001`, `MAGIC-001`, `EN
 `MONSTER-001`, `NPC-AI-001`, `GUILD-001`, `CRIME-001`, `LAW-001`, `EXEC-001`, `LIFECYCLE-001`,
 `JOURNAL-001` and the loop probes that belong to the milestones they certify). The suite grew
 milestone by milestone: 18 probes at the M18 freeze, one more per closed gameplay milestone from
-M19, and 37 entries at the M29 close. It prints the count for the build you run.
+M19, and 37 entries at the M29 close. M34 added its three demo probes (`PLAYSESSION-001`,
+`UI-FULL-001`, `AUDIO-RT-001`) on the same entrypoint — 40 entries, spec §11. It prints the count
+for the build you run.
 
 `CLIMATE-001`, `QUEST-ORIGINAL-001`, `PROBE-CHUNK-001`, `PROBE-SCHEDULE-001`,
 `PROBE-MODB-ISOLATION-001`, `PROGRESSION-001`, `SKILLS-001`, `STEALTH-001`, `EQUIP-001`,
 `LOOT-001`, `SPELLMAKER-001` and `ENEMY-AI-001` remain standalone probes.
-
-The **M18 parity probes** added after the freeze are standalone too: `ORIGIN-001`, `ATTACK-KEY-001`,
-`MENU-001` (B1), `INTERIOR-TRANSIT-001` (B2) and `WEATHER-VISUAL-001`, `PANELS-001`, `POPULATION-001`,
-`RETAIL-TEXT-001` (B3). The B3 tanda closes **7 of 7 CS** (CS-12/13/14/15/16/18/19), each row backed
-by a captured PNG and its sha256 — window evidence, not a screenshot claim.
 
 ## 4. CI guardrails
 

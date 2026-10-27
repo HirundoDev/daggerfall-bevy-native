@@ -4,3 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Heart organ — attention focus and long-running coordination (F0 scaffold)"
+
+[dependencies]
+# Spine §2: `GameSession::snapshot/restore` compose/read the v2 envelope
+# (🧠 memory owns the format; heart only owns its own section).
+daggerfall-memory = { path = "../memory" }
+# Spine §6: the day/night band and the scene vocabulary the events carry.
+daggerfall-nervous = { path = "../nervous" }

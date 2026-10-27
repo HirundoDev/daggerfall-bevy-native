@@ -86,6 +86,15 @@ use bevy::image::ImagePlugin;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
+// M35 (V7): the two annex modules live next to this one and are declared here
+// because `main.rs` is the trunk of the binary and does not know them. Both
+// resolve their `super::` paths against this module (`super::m18_spawn_world`,
+// `super::DemoWorld`, `super::ProgressionClock`, `super::DemoWeather`, …).
+#[path = "m35_sky_render.rs"]
+mod m35_sky_render;
+#[path = "m35_vegetation.rs"]
+mod m35_vegetation;
+
 use daggerfall_behavior::locomotion::{
     max_breath, Dice100, Frame, Locomotion, MotionMode, MoveInput, PlayerBody,
 };
@@ -436,6 +445,14 @@ pub fn run_windowed_m18(
                     ..default()
                 }),
         )
+        // M35 (V7): sky L0-L4 + vegetation annex. Both startup systems are
+        // ordered `.after(m18_spawn_world)` inside their own plugins, so the
+        // world they read exists by then; `ClearColor` stays the window's
+        // fallback until the sky composes its first horizon.
+        .add_plugins((
+            m35_sky_render::M35SkyPlugin,
+            m35_vegetation::M35VegetationPlugin,
+        ))
         .insert_resource(ClearColor(Color::srgba(0.40, 0.62, 0.94, 1.0)))
         .insert_resource(GlobalAmbientLight {
             brightness: 320.0,
