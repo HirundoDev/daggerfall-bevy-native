@@ -80,18 +80,19 @@ by it.
   differs from the register, the register wins, and the correction lives in this entry and in the
   public pages it names.
 
-**Verification:** the public export is regenerated from the content commit `e4c4869` — a clean
-detached worktree — and exports **516 files** with tree `07bcce77…` and export commit `7663f5e`.
-Exported twice and verified by `tools/public-export/verify-export.py --export <dir> --regen-dir
-<dir2>`, the run returns **PASS on all five passes**:
+**Verification:** the release is cut from the content commit `9f9cc3b` — a clean detached
+worktree — and exports **516 files** with tree `e465804a…`. Exported twice and verified by
+`tools/public-export/verify-export.py --export <dir> --regen-dir <dir2>`, the run returns **PASS on
+all five passes**:
 
 - `A_tree` **PASS** — **516 files**.
 - `B_gitobjects` **PASS**.
-- `C_regeneration` **PASS** — the second export into another directory is byte-identical, same
-  export commit `7663f5e` and same tree `07bcce77…`.
+- `C_regeneration` **PASS** — the second export into another directory is byte-identical: same tree
+  `e465804a…`, 0 files present on only one side, 0 content diffs.
 - `D_file_by_file` **PASS**.
-- `E_internal_refs` **PASS** — files=89, lines=145, functional=40, non_functional=105,
-  allowlisted=40, occurrences=176, `unallowlisted []`, `stale []`.
+- `E_internal_refs` **PASS** — `unallowlisted []` and `stale []`. The line itself is printed by the
+  verifier over the finished tree and is not restated here: this file travels inside the export, so
+  it is part of the surface that pass measures, and a count written into it moves the count.
 
 The two internal references that the previous cut carried are closed by a declared mechanism rather
 than by tolerance creep: `crates/side-contract/tests/matrix.rs` is excluded by its **exact path** in
@@ -99,14 +100,17 @@ than by tolerance creep: `crates/side-contract/tests/matrix.rs` is excluded by i
 `crates/promotion-gate/src/main.rs` lives allowlisted, with its reason, in
 `tools/public-export/internal-refs-allowlist.txt`.
 
-The export's own report carries the export `commit` and not a `tree`, so a run is identified here by
-its export commit **and** its tree. The engineering record (`docs/sintergic/` and the other internal
-trees) lies outside the export, so a commit that touches only it moves neither the tree nor the
-exported bytes; an edit to an exported file moves both.
+A release is identified by its name and the commit it was cut from, never by a figure of its own
+export. The engineering record (`docs/sintergic/` and the other internal trees) lies outside the
+export, so a commit that touches only it moves neither the tree nor the exported bytes; an edit to an
+exported file moves both, which is why this entry cites the tree of the release and not the tree of
+the commit that carries these sentences.
 
-**Test count in the tree that ships:** `cargo test --workspace` prints **1,528 passed / 0 failed / 3
-ignored** on that exported tree of `e4c4869` across **59** test binaries, and **1,606 passed / 0
-failed / 3 ignored** in the private workspace at `137e30a` across **66**. The **78**-test delta is
+**Test count of the exported tree:** `cargo test --workspace` prints **1,528 passed / 0 failed / 3
+ignored** on the exported tree of `c63f342` across **59** test binaries, and **1,606 passed / 0
+failed / 3 ignored** in the private workspace at `137e30a` across **66**; `crates/` is
+byte-identical at `c63f342` and at the release cut `9f9cc3b`, so the count belongs to the code
+and not to one commit's prose. The **78**-test delta is
 the set of test files excluded from the export by exact path;
 [Export limits](docs/acknowledgments/export-limits.md) names them, counts their `#[test]` attributes
 and explains the gap. The 1,532 figure recorded at the M38 close stays as the historical anchor of
@@ -114,12 +118,12 @@ the private tree, and the earlier cut of this entry was measured on the export o
 **1,524 passed / 0 failed / 3 ignored** on its export (59 binaries) against **1,602 / 0 / 3** in the
 private workspace (66); those figures stay attributed to that commit.
 
-**Stability of these figures.** Every number above is measured at `e4c4869`. The commit that adds
-this paragraph publishes no figure of itself, and the export regenerates byte for byte identical from
-`e4c4869`. An edit to an exported file moves the byte count, the tree and the exported content of
-*that* commit and can overturn `A_tree`: a dangling link, a secret, an internal name or an address
-outside the allowlist each fails that pass, so the five verdicts hold only for the commit measured and
-not for later trees. The final run's commit and verdicts are recorded in the lane's HH-1.
+**Stability of these figures.** Every number above is measured at the commit named beside it, and
+the commit that adds this paragraph publishes no figure of itself. An edit to an exported file moves
+the byte count, the tree and the exported content of *that* commit and can overturn `A_tree`: a
+dangling link, a secret, an internal name or an address outside the allowlist each fails that pass,
+so the five verdicts hold only for the commit measured and not for later trees. The final run's
+commit and verdicts are recorded in the lane's HH-1.
 
 ## [0.3.0-alpha] - 2026-10-27
 

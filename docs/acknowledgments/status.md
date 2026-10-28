@@ -94,7 +94,7 @@ Measured on the development head this page travels with, after the M30–M33 org
 technical closures landed:
 
 - `cargo test --workspace`, refreshed measurement: **1,528 passed / 0 failed / 3 ignored across 59
-  test binaries** on the public export of `e4c4869` (exit 0), and **1,606 passed / 0 failed / 3
+  test binaries** on the exported tree of `c63f342` (exit 0), and **1,606 passed / 0 failed / 3
   ignored across 66 test binaries** in the private workspace at `137e30a`. The delta of **78** is the
   excluded test files (43 `#[test]` in the four files the export omits, plus 35 tests from the three
   promotion-gate test files); [Export limits](export-limits.md) gives the file-by-file account and the
@@ -135,9 +135,9 @@ technical closures landed:
   (K7) is the only open clause, and the composed `FACES.CIF` face (K2) is closed — its handoff
   records `status: DONE` and the UI-2 probe prints the `FACE … match=ok` and `FACENAV` lines.
 
-### Public export of this correction
+### Public export of the earlier cut
 
-Two runs are recorded here. The first is the earlier cut: its figures are measured from commit
+The run recorded here is the earlier cut: its figures are measured from commit
 `673b8a92f2ec7dbe9663d443fd91e91c75cd50b6` — the content commit that cut follows, exported from a
 clean detached worktree — with `tools/public-export/export-public.py --release-commit 673b8a9` and
 verified by `tools/public-export/verify-export.py --export <dir> --regen-dir <dir2>`, which returned
@@ -154,21 +154,9 @@ verified by `tools/public-export/verify-export.py --export <dir> --regen-dir <di
   transformed** (name substitution and internal-link neutralisation), `manifest_sha256`
   `da05a23aab7c1fa67a77c62ffcc7c36e3c364df6a10ba37338457d923a4d9618`, 0 missing, 0 extra and
   0 unexplained content.
-- `E_internal_refs` **PASS** — files=89, lines=143, functional=40, non-functional=103,
-  allowlisted=40, occurrences=175: the metric [Export limits](export-limits.md) declares, with its
-  command and its tolerance rows. Re-measured at
-  `18a8a4664a78f5d00bd6d777c1cad840a8424a42`, the commit that publishes these figures, the same
-  mentions print lines=144 and non-functional=104 because the added sentence splits two of them onto
-  separate lines; `occurrences` stays at 175 and both runs are recorded.
-
-**Refreshed measurement — the run this correction reports.** Its input commit is `e4c4869`: **516
-files**, tree `07bcce77…`, export commit `7663f5e`, exported twice identically, and
-`verify-export.py` returned **A–E PASS**. `E_internal_refs` reports **files=89, lines=145,
-functional=40, non_functional=105, allowlisted=40, occurrences=176**, with `unallowlisted []` and
-`stale []`. The source is
-`docs/sintergic/l5-mission/plan-consolidado-pendiente-CR-d253ede6.md` (§refresh, line 205). That
-source records neither a byte count nor a `manifest_sha256` for this run, so neither is published
-here: the run is identified by its export commit `7663f5e` and its tree `07bcce77…`.
+- `E_internal_refs` **PASS** — the internal-reference metric [Export limits](export-limits.md)
+  declares, with its command and its tolerance rows: `unallowlisted []` and `stale []` at that
+  commit. Its counts are printed by the verifier at export time and are not restated on this page.
 
 The commit was exported twice from the same worktree and both runs carry the same export commit and
 the same tree, so the run is identified by export commit **and** tree: the export's own report
@@ -180,13 +168,11 @@ the verdicts **of the commit measured above** — and an edit that adds a dangli
 unresolvable reference can still fail `A_tree`. That is why every run is recorded with its commit and
 its verdicts in the lane's HH-1, not asserted here for later trees.
 
-**Stability of these figures.** The figures of the first cut are measured at `673b8a9`. The commit
-that adds this section publishes no figure of itself; the five passes were re-verified at
-`18a8a4664a78f5d00bd6d777c1cad840a8424a42` — the commit that publishes those figures — and again at
-the commit that lands this sentence, and the export regenerates byte for byte identical from
-`673b8a9`. The refreshed run is identified by its export commit `7663f5e` and its tree `07bcce77…`,
-whose source records no byte count and no manifest digest. The excluded test files move the test
-count, not the export verdicts.
+**Stability of these figures.** The figures of the earlier cut are measured at `673b8a9`. The commit
+that adds this section publishes no figure of itself, and the export regenerates byte for byte
+identical from `673b8a9`. A count measured on the commit that carries this page is not published
+here: the page is part of what it measures, so the run that carries it is the verifier's to print at
+export time. The excluded test files move the test count, not the export verdicts.
 
 The metric, the four excluded test files and every count behind them live in [Export limits](export-limits.md).
 
@@ -266,10 +252,13 @@ the tag and the ORIGINAL-side comparison remain the owner's.
 - **UI acceptance (`K7`).** The M38 surfaces pass their gates, but acceptance is the owner's
   side-by-side review against the original window; that decision is open and no `M38` tag exists.
 - **Internal paths inside the exported tree.** The export does not copy anything under
-  `docs/sintergic/` or `.sintergic/`, and at `e4c4869` it publishes **145 lines in 89 files** that
-  quote such paths as plain text: **40 functional** and **all 40 allowlisted**, with
-  `unallowlisted []` and `stale []`. The check measures `path:line` references, not files — that is
-  the metric, and nothing here claims it counts whole files. The two load-bearing references of the
+  `docs/sintergic/` or `.sintergic/`, yet the exported tree still quotes a bounded set of such paths
+  as plain text. Every functional line among them is carried by a tolerance row in
+  `tools/public-export/internal-refs-allowlist.txt`, and the verifier reports both failure lists
+  empty (`unallowlisted []`, `stale []`) when it runs over the finished tree. The check measures
+  `path:line` references, not files — that is the metric, and nothing here claims it counts whole
+  files; the counts themselves are printed by pass E at export time and are not restated here. The
+  two load-bearing references of the
   earlier cut are closed by declared means: `crates/side-contract/tests/matrix.rs` is excluded by
   **exact path** in `tools/public-export/exclude.txt` (never by a `tests/` wildcard), and the
   `DEFAULT_LEDGER` of `crates/promotion-gate/src/main.rs` is **allowlisted with its reason** in

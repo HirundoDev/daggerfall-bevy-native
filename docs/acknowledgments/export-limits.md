@@ -1,54 +1,51 @@
 # Export limits
 
-The public export is the shipping tree, not the engineering record. The record
+The public export is the published tree, not the engineering record. The record
 (`docs/sintergic/`, `.sintergic/`, `.omp/`, `.opencode/`, `promotion-ledger`) stays in the
 private workspace, so the exported code still *names* a few internal paths. This page declares
-what is missing, what the shipped code does when it meets the absence, and how many such
-references the tree carries. Every row is anchored to `file:line` in this tree and describes the
+what is missing, what the shipped code does when it meets the absence, and where the metric
+that counts such references is printed. Every row is anchored to `file:line` in this tree and describes the
 behaviour of the code as published — nothing here is a promise about a future state.
 
 The measurement and the failure policy live in `tools/public-export/verify-export.py` (pass E),
 the tolerances in `tools/public-export/internal-refs-allowlist.txt`, and the exclusions in
 `tools/public-export/exclude.txt`.
 
-Every figure on this page names the commit it was measured from. The **current cut** is content
-commit `e4c4869`, exported from a clean detached worktree: **516 files**, tree `07bcce77…`, export
-commit `7663f5e`, exported twice byte for byte and verified with
-`python3 tools/public-export/verify-export.py --export <dir> --regen-dir <dir2>` in **PASS on all
-five passes** — the figures of that cut are collected in §0. The earlier cut is
-`673b8a92f2ec7dbe9663d443fd91e91c75cd50b6`, exported with
-`python3 tools/public-export/export-public.py --release-commit 673b8a9`; that export produced commit
+Every figure on this page names the commit it was measured from. A release is identified by its
+name and the commit it was cut from — `v0.3.1-alpha` was cut from content commit `9f9cc3b` — and
+never by a figure printed on this page: pass E is printed by
+`python3 tools/public-export/verify-export.py --export <dir>` over the finished tree, at the moment
+of the export, and the line is not repeated here because this page travels inside the export and is
+part of the surface that pass measures. Writing the count into the page moves the count.
+
+The measurements quoted below belong to earlier, immutable commits and stay attributed to them: the
+cut of `673b8a92f2ec7dbe9663d443fd91e91c75cd50b6`, exported with
+`python3 tools/public-export/export-public.py --release-commit 673b8a9`, produced commit
 `30fa584c47e18b5483837965cea891dcb2291810` and tree `08560a768acd5884cf092e9a2f82d41e1bae39da`
 twice, byte for byte, and every row below that carries it stays attributed to it. The commit that
 carries these sentences publishes no figure of itself.
 
-## 0. The `e4c4869` cut (2026-10-27)
+## 0. What this page does not measure
 
-This is the current measurement of the shipping tree. Content commit `e4c4869`, exported from a clean
-detached worktree: the export carries **516 files**, tree `07bcce77…`, export commit `7663f5e`, and
-two runs of it are byte for byte identical. `verify-export.py` returns **PASS on all five passes**
-(A–E); pass E prints:
+Pass E prints one line, over the finished tree, at the moment of the export:
 
 ```
-E_internal_refs: files=89 lines=145 functional=40 non_functional=105 allowlisted=40 occurrences=176 unallowlisted=[] stale=[] verdict=PASS
+E_internal_refs: files=<n> lines=<n> functional=<n> non_functional=<n> allowlisted=<n> occurrences=<n> unallowlisted=[…] stale=[…] verdict=PASS|FAIL
 ```
 
-`unallowlisted []` and `stale []` are the two failure lists of that pass: no functional line is
-without a tolerance row, and no tolerance row has lost its line.
+The two bracketed lists are the failure lists of that pass: a functional line with no tolerance row
+is `unallowlisted`, and a tolerance row whose line disappeared, moved or stopped being functional is
+`stale`. Both are empty on a PASS.
 
-Tests on this cut, same command on both sides (`cargo test --workspace`, after
-`cargo test --no-run --workspace` compiled every target in the export with exit 0):
+That line is not reproduced here with values. This page travels inside the export, so it is part of
+the surface pass E measures: a count written into it moves the count, and a figure of the tree that
+carries the page is refuted by the page the moment the page is edited. The authority is the
+verifier's output for the export being cut; the release is identified by its name and by the commit
+it was cut from, both carried by the export report of that run and by `git`.
 
-| Tree | Tests reported | Test binaries |
-|---|---:|---:|
-| private workspace | 1,606 passed / 0 failed / 3 ignored | 66 |
-| this export | 1,528 passed / 0 failed / 3 ignored | 59 |
-| delta | 78 | 7 |
-
-The 78 absent tests are the ones declared in §1: the 43 literal attributes of the four excluded files
-plus the 35 of the three promotion-gate test files, 55 attributes that expand to 78 executed cases.
-No test binary shared by both trees reports a different count. The `673b8a9` cut quoted in §1 and §3
-is the earlier one; its numbers stay attributed to that commit.
+The tests of the exported tree are measured the same way, by running the workspace inside the
+export. §1 names the test files the export omits and the commit at which their `#[test]` attributes
+and the executed counts were measured.
 
 ## 1. Tests excluded from the export
 
@@ -83,10 +80,9 @@ shared by both trees loses one.
 
 A test attribute is not always a test: `crates/promotion-gate/tests/gate_fixtures.rs` declares one
 `#[test]` inside a `macro_rules!` template that is instantiated once per fixture, so its 5 literal
-attributes run 28 tests. The executed counts of the current cut are in §0; the ones below were
-measured at commit `673b8a9` with the same command on
-both sides (`cargo test --workspace`, after `cargo test --no-run --workspace` compiled every target
-in the export with exit 0):
+attributes run 28 tests. The executed counts below were measured at commit `673b8a9` with the same
+command on both sides (`cargo test --workspace`, after `cargo test --no-run --workspace` compiled
+every target in the export with exit 0):
 
 | Tree | Tests reported | Test binaries |
 |---|---:|---:|
@@ -159,41 +155,14 @@ python3 tools/public-export/verify-export.py --export <exported-tree>
 ```
 
 Reported on the export of commit `673b8a9` (export commit
-`30fa584c47e18b5483837965cea891dcb2291810`, tree `08560a768acd5884cf092e9a2f82d41e1bae39da`), as
-printed by the verifier with verdict **PASS**:
+`30fa584c47e18b5483837965cea891dcb2291810`, tree `08560a768acd5884cf092e9a2f82d41e1bae39da`), the
+verifier returned verdict **PASS**: every functional line of that tree was carried by a row of the
+tolerance file, and both failure lists were empty. Its `E_internal_refs` line is not restated here,
+by the same rule as §0: the page travels inside the export.
 
-| Metric | Count |
-|---|---:|
-| files with at least one mention | 89 |
-| lines with at least one mention | 143 |
-| of those lines, functional | 40 |
-| of those lines, non-functional | 103 |
-| functional lines carried by a tolerance row | 40 |
-| occurrences (matches, not lines) | 175 |
-
-```
-E_internal_refs: files=89 lines=143 functional=40 non_functional=103 allowlisted=40 occurrences=175 verdict=PASS
-```
-
-The 40 functional lines are the 40 rows of the tolerance file, each with its reason; the 103
-non-functional lines are prose, comments and the exclusion/tolerance data itself. A functional
-line added without a row fails the verifier with the number of offending references, and a row
-whose line disappears, moves or stops being functional is reported as stale and also fails: this
-number cannot be lowered by editing the allowlist, only by removing the reference from the code.
-
-Re-measured on the export of `18a8a4664a78f5d00bd6d777c1cad840a8424a42`, the commit that publishes
-these figures, the verifier prints the same files, functional, allowlisted and occurrence counts
-with **lines=144** and **non-functional=104**:
-
-```
-E_internal_refs: files=89 lines=144 functional=40 non_functional=104 allowlisted=40 occurrences=175 verdict=PASS
-```
-
-The difference is line distribution, not a new reference: the sentence added by that commit puts two
-mentions on separate lines instead of one, so `occurrences` stays at 175. Both runs are recorded,
-neither is inherited.
-
-The **current** cut is the export of `e4c4869` (tree `07bcce77…`, export commit `7663f5e`). Its pass
-E prints `files=89 lines=145 functional=40 non_functional=105 allowlisted=40 occurrences=176
-unallowlisted=[] stale=[]` with verdict **PASS**, quoted in full in §0. The `673b8a9` and `18a8a46`
-runs above stay attributed to those commits, and none of the three is inherited from another.
+The tolerance file holds one row per functional line, each with its reason; the remaining lines that
+mention an internal path are prose, comments and the exclusion/tolerance data itself. A functional
+line added without a row fails the verifier with the number of offending references, and a row whose
+line disappears, moves or stops being functional is reported as stale and also fails: the count
+cannot be lowered by editing the allowlist, only by removing the reference from the code. The
+`673b8a9` run stays attributed to that commit and is not inherited by a later tree.

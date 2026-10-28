@@ -84,14 +84,18 @@ headless and `--features window`, the content/trademark scans are
 verification of M9 re-measures **19/19 = 1.00** with its full denominator (the earlier `15/15` claim
 excluded four critical rows; the erratum is recorded in [Status](docs/acknowledgments/status.md)).
 
-**The suite today, in the tree that ships.** The public export of `e4c4869` — **516 files**, tree
-`07bcce77…`, export commit `7663f5e` — prints `cargo test --workspace` **1,528 passed / 0 failed / 3
-ignored** across **59** test binaries. The private workspace at `137e30a` prints **1,606 passed / 0
-failed / 3 ignored** across **66**. The **78**-test delta is the set of test files excluded from the
-export, declared in [Export limits](docs/acknowledgments/export-limits.md), which names them, counts
-their `#[test]` attributes and explains the gap. The earlier cut stands on its own record: `673b8a9`
-measured **1,524 passed / 0 failed / 3 ignored** on its export (59 binaries) and **1,602 / 0 / 3** in
-the private workspace (66). No figure here is inherited from an earlier head.
+**The suite of the exported tree.** `cargo test --workspace` prints **1,528 passed / 0 failed / 3
+ignored** across **59** test binaries on the exported tree of `c63f342` (exit 0), and **1,606
+passed / 0 failed / 3 ignored** across **66** in the private workspace at `137e30a`. `crates/` is
+byte-identical at `c63f342` and at the release cut `9f9cc3b` (`git diff --stat c63f342..9f9cc3b --
+crates/` is empty), so the count describes that code and not one commit's prose. The **78**-test delta is the
+set of test files excluded from the export, declared in
+[Export limits](docs/acknowledgments/export-limits.md), which names them, counts their `#[test]`
+attributes and explains the gap. The earlier cut stands on its own record: `673b8a9` measured
+**1,524 passed / 0 failed / 3 ignored** on its export (59 binaries) and **1,602 / 0 / 3** in the
+private workspace (66). The release is identified by its name and the commit it was cut from —
+`v0.3.1-alpha` from `9f9cc3b` — never by the export's tree hash, which an edit to this page would
+move.
 
 - **Closed with evidence:** M19 locomotion · M20 stats/skills · M21 items, equipment and loot ·
   M22 combat · M23 magic · M24 enchanting/alchemy · M25 monsters, enemy AI and encounters ·
@@ -443,7 +447,7 @@ makes the project controllable by agents. The loop:
 3. **Probe.** A claim counts once it executes: `./scripts/launch.sh --probe ALL-001` runs the
    anti-screen probe suite (**37/37** at the M29 close, **40/40** since the three M34 demo probes
    entered it, spec §11) and `cargo test --workspace` prints **1,528 passed / 0 failed / 3 ignored**
-   on the public export of `e4c4869` (59 test binaries; **1,606 / 0 / 3** in the private workspace at
+   on the exported tree of `c63f342` (59 test binaries; **1,606 / 0 / 3** in the private workspace at
    `137e30a`). Golden vectors and digests — 0 ULP on the Perlin port, FNV-1a64
    texture vectors, map and population digests — stop a bug from certifying itself.
 4. **Gate.** The battery listed under [Contributing](#contributing), plus the method's position gate:
