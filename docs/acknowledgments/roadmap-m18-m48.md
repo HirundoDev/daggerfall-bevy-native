@@ -1,10 +1,14 @@
 # Roadmap — M18 to M48, plus E8
 
 > **What this is.** The complete, single plan of the program up to its declared ending:
-> **Plan A** (M18–M35 — foundation and vertical slice: M18–M29 and M34 measured and technically
-> closed; M30 frozen; M31–M33 specified; M35 annex delivered with one declared gap) plus **Plan B**
-> (M36–M48 — the epics E1–E7 turned into milestones with an atomic work breakdown) plus
-> **E8** (a Starfield-like horizon, a **separate program** after M48, never "M49").
+> **Plan A** (M18–M35 — foundation and vertical slice: M18 DONE at technical level, verdict
+> `PARTIAL-TAG-PENDING`, signed by delegation on 2026-10-26 with the comparison against the original and
+> the tag still the owner's; M19–M33 DONE at gate level, acceptance PENDING and no tags; M34 DONE at
+> technical level, verdict `PARTIAL-TECHNICAL-CLOSURE` with the named row `AUDIO-RT-001-DEVICE`;
+> M35 `PARTIAL`, with `GAP-TAX-11` deferred to M44) plus **Plan B**
+> (M36–M48 — the epics E1–E7 turned into milestones with an atomic work breakdown; M36–M39 DONE at gate
+> level, M40–M48 `AUSENTE`) plus
+> **E8** (a deferred expansion horizon, a **separate program** after M48, never "M49", `AUSENTE`).
 >
 > **What this is not.** It implements nothing, signs no milestone, creates no tag, promises no
 > dates and rewrites no history. Every milestone below is described in the present tense of a
@@ -15,9 +19,13 @@
 > the nominal is the centre, the high bound is the realistic scenario for a stretch without
 > golden references.
 
-**Status legend.** `DONE` = probe passed and QA at or above its bar (0 critical / 0 major).
-`WIP` = code in flight. `PARTIAL` = pieces delivered, closure criterion unmet.
-`SPEC-ONLY` = written specification, no code. `NOT STARTED` = neither specification nor code.
+**Status legend.** `DONE` = probe passed and QA at or above its bar (0 critical / 0 major); in public prose
+it means **gate-level technical closure**, never owner acceptance.
+`PARTIAL` = pieces delivered, closure criterion unmet. `PARTIAL-TAG-PENDING` = technical closure reached and
+acceptance signature recorded, annotated tag outstanding. `PARTIAL-TECHNICAL-CLOSURE` = technical closure
+reached on every row that can be measured, with one named row still open. `AUSENTE` = no code, no dispatch,
+no tag. These are the closure register's own verdicts (checked by `scripts/closure-gate.py` →
+`VERDICT: PASS`, 0 prose↔register contradictions and falsifiers 3/3 red).
 
 ---
 
@@ -25,22 +33,30 @@
 
 | Block | Milestones | State |
 |:---|:---|:---|
-| Closed, technically | M19–M29 + M34 (12 milestones) | **DONE** (each with its probes and QA score) |
-| Open | M18 | **PARTIAL** (technical pass; owner signature and tag pending) |
-| Delivered with a declared gap | M35 (annex) | **PARTIAL** (`BIOME-001` 25/25 + 1 NA: `GAP-TAX-11`; `SPRITE-001` 11/11) |
-| Frozen | M30 | **FROZEN** (written specification, no code) |
-| Specified, not implemented | M31–M33 (3 milestones) | **SPEC-ONLY** |
-| Plan B, closed part | M36–M37 (2 milestones) | **DONE** (technical closure 2026-10-27, no milestone tag) |
-| Plan B, remaining | M38–M48 (11 milestones) | **NOT STARTED** |
-| Separate program | E8 | **NOT STARTED, not estimable** |
+| DONE at gate level | M19–M33 (15 milestones) | **DONE** (each with its probes and QA score; acceptance PENDING, no tags) |
+| DONE at technical level, tag pending | M18 | **DONE at technical level · `PARTIAL-TAG-PENDING`** (acceptance signature recorded 2026-10-26 by delegation: 8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL; row `T-RELEASE-TAG` pending; the comparison against the original and the tag remain the owner's) |
+| DONE at technical level, one named row open | M34 | **DONE at technical level · `PARTIAL-TECHNICAL-CLOSURE`** (`AUDIO-RT-001-DEVICE`: `AUDIO-RT-001` reproduces `PASS(degraded)` with `[SKIP-DEVICE]` in a binary built without the `audio` feature, so the device branch is not promoted — owner decision on the audio branch) |
+| PARTIAL | M35 (annex) | **PARTIAL** (`BIOME-001` 25/25 + 1 NA: `GAP-TAX-11`, deferred to M44; `SPRITE-001` 11/11) |
+| DONE at gate level | M36–M39 (4 milestones) | **DONE** (technical closure 2026-10-27; M39 coverage 0.857 with K7 open; acceptance PENDING, no tags) |
+| `AUSENTE` | M40–M48 (9 milestones) | **AUSENTE** (no code, no dispatch, no tag; M46 carries `T-M46-GO`) |
+| Separate program | E8 | **AUSENTE** (separate program with its own genesis contract; never "M49") |
 
-Recount: **14 DONE · 2 PARTIAL · 1 FROZEN · 3 SPEC-ONLY · 11 NOT STARTED · 1 separate program.**
-M34 closed at technical level on 2026-10-26 (`ALL-001` **40/40**, QA **0.94** with 0 critical /
-0 major, owner rows 12/12); M35 delivered the same day with one declared `NA`. M36 and M37 closed at
-technical level on 2026-10-27: `UI-AUDIT-001` blocks A+B+C print `VERDICT: PASS` in two separate
-processes with identical stdout (`85 = 78 surfaces + 7 infrastructure`, measured **4 / 47 / 34**), and
-`UI-BASE-001` **9/9** plus `UI-INPUT-001` **10/10** print `VERDICT: PASS` with byte-identical stdout in
-two processes. No milestone tag exists for M18 or later.
+Recount: **38 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1 PARTIAL-TECHNICAL-CLOSURE · 10 AUSENTE**
+(51 milestones, 80 gate rows; `program_closure: OPEN`, `closure-gate.py` → `VERDICT: PASS`).
+M19–M33 are DONE at gate level — acceptance PENDING, no tags — and M30–M33 closed at technical level
+between 2026-10-23 and 2026-10-26 (probe-backed organs; the probe, not the demo window, is their consumer).
+M34 is DONE at technical level on 2026-10-26 (`ALL-001`
+**40/40**, QA **0.94** with 0 critical / 0 major, owner rows 12/12), with verdict
+`PARTIAL-TECHNICAL-CLOSURE` and the named row `AUDIO-RT-001-DEVICE` still open; M35 was delivered the same
+day with one declared `NA` (`GAP-TAX-11`, deferred to M44) and stays `PARTIAL`. M36, M37 and M38 closed at technical level on 2026-10-27: `UI-AUDIT-001` blocks A+B+C
+print `VERDICT: PASS` in two separate processes with identical stdout (`85 = 78 surfaces + 7
+infrastructure`, measured **4 / 47 / 34**), `UI-BASE-001` **9/9** plus `UI-INPUT-001` **10/10** print
+`VERDICT: PASS` with byte-identical stdout in two processes, and `UI-CREATE-001` (16 surfaces) plus
+`UI-CONFIG-001` (11 surfaces) print `VERDICT: PASS` in two processes with identical digests. M18's 21
+acceptance rows were signed by delegation on 2026-10-26 (0 FAIL: 8 PASS / 9 NC-ACEPTA / 4
+NOT-COMPARABLE); M39 is DONE at gate level, coverage 0.857 — its A–H runner and probe are
+in the tree since `85979b9`, `UI-JUGABLE-001` passes its 8 rules in two processes, and the closure
+report is measured at `e249004` — with K7 the single open clause. No milestone tag exists from M18 on.
 
 ---
 
@@ -54,11 +70,11 @@ them apart.
 
 | Definition | Milestones | What it includes | Size |
 |:---|:---|:---|:---|
-| **Plan A** (foundation + slice) — **planned scope, not delivery** | **M18–M35** | retail data, 49 systems at slice depth, presentation UI, E2E and save. State today: **M18 PARTIAL · M19–M29 DONE · M30 FROZEN · M31–M33 SPEC-ONLY · M34 DONE · M35 PARTIAL (one declared `NA`)** | **51.85 u** with the M35 annex · **49.95 u** without it |
+| **Plan A** (foundation + slice) — **planned scope, not delivery** | **M18–M35** | retail data, 49 systems at slice depth, presentation UI, E2E and save. State today: **M18 DONE at technical level (`PARTIAL-TAG-PENDING`; acceptance signature recorded 2026-10-26 by delegation) · M19–M33 DONE at gate level · M34 DONE at technical level (`PARTIAL-TECHNICAL-CLOSURE`, row `AUDIO-RT-001-DEVICE` open) · M35 PARTIAL (`GAP-TAX-11` deferred to M44)** | **51.85 u** with the M35 annex · **49.95 u** without it |
 | **100% original** | **M36–M44** | full UI (E1) + real system depth (E2) + dungeon content (E3) | **2.8–5.6×** Plan A |
 | **Retail-ready** | **M36–M44 + M47** | 100% original + platform and distribution (E6) | **3.0–6.0×** |
 | **Full vision** | **M36–M48** | E1–E7 | **4.9–9.8×** |
-| **E8** (Starfield-like horizon) | **E8** | new program, new genesis contract | **not estimable** |
+| **E8** (deferred expansion horizon) | **E8** | new program, new genesis contract | **not estimable** |
 
 ### 1.2 Multiplier arithmetic (declared base)
 
@@ -84,7 +100,7 @@ says otherwise. None of them reduces scope; all of them prevent a false gate.
 
 | # | Premise | Measured | Consequence |
 |:-:|:---|:---|:---|
-| **C-1** | "M18–M32 are DONE" | **M18 PARTIAL**; **M19–M29 DONE** (11 rows, technical closure, no tags); **M30 FROZEN** (spec, no code); **M31–M33 SPEC-ONLY** (not implemented); **M34 DONE** (technical closure, no tag); **M35 delivered with one declared gap**; **M36–M37 DONE** (technical closure 2026-10-27, no tags); **M38–M48 NOT STARTED**; **E8 separate** | the matrix marks M18 `PARTIAL`; Plan B does **not** depend on its signature |
+| **C-1** | "M18–M32 are DONE" | **M18 DONE at technical level · `PARTIAL-TAG-PENDING`** (acceptance signature recorded 2026-10-26 by delegation — 8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL; the comparison against the original and the tag are the owner's); **M19–M33 DONE at gate level** (15 milestones, acceptance PENDING, no tags); **M34 DONE at technical level · `PARTIAL-TECHNICAL-CLOSURE`** (named row `AUDIO-RT-001-DEVICE`); **M35 PARTIAL** (`GAP-TAX-11` deferred to M44); **M36–M39 DONE at gate level** (technical closure 2026-10-27; M39 coverage 0.857, K7 open; acceptance PENDING, no tags); **M40–M48 AUSENTE**; **E8 AUSENTE, separate** | the matrix marks M18 `DONE` with its signature source; Plan B does **not** depend on any signature |
 | **C-2** | "UI is 51/85 (60%) delivered" | 51/85 is a census ratio (playable windows within the 85), not a delivery. Delivered today: **6 static panels** and a shell with a registry and a stack | `UI-AUDIT-001` (M36, 2026-10-27) measured the census row by row: **4 implemented / 47 partial / 34 absent**; the M40 gate is per **interactive flow**, not per "panel present" |
 | **C-3** | "34 are missing" | 34 = 16 character-creation + 11 configuration + 7 infrastructure | **M38 reverses part of that `N/A`**: the 11 configuration pages enter with **functional** parity (not pixel). The 7 infrastructure entries stay out: they are base classes, factories and constants, not windows |
 | **C-4** | "Gate: 85/85 interactive windows" | 7 of the 85 are not windows | the gate is stated exactly: **78/78 interactive windows + 7/7 classified infrastructure + 0 rows without a verdict = 85/85 resolved** |
@@ -97,7 +113,7 @@ says otherwise. None of them reduces scope; all of them prevent a false gate.
 
 | M | Epic | Scope | State | `u` remaining |
 |:-:|:---|:---|:---|--:|
-| **M18** | slice | presentation parity + map closure | **PARTIAL** (technical pass; owner signature pending) | 5.60 |
+| **M18** | slice | presentation parity + map closure | **DONE at technical level · `PARTIAL-TAG-PENDING`** — acceptance signature recorded 2026-10-26 by delegation; original-side comparison and annotated tag pending (`T-RELEASE-TAG`) | 5.60 |
 | **M19** | slice | locomotion and body | **DONE** | 0 |
 | **M20** | slice | character and progression | **DONE** | 0 |
 | **M21** | slice | items, equipment, loot | **DONE** | 0 |
@@ -109,34 +125,39 @@ says otherwise. None of them reduces scope; all of them prevent a false gate.
 | **M27** | slice | guilds and factions | **DONE** | 0 |
 | **M28** | slice | crime, law and courts | **DONE** | 0 |
 | **M29** | slice | playable quests | **DONE** | 0 |
-| **M30** | slice | economy and banking | **FROZEN** (written specification, no code) | — |
-| **M31** | slice | travel, weather, calendar | **SPEC-ONLY** | — |
-| **M32** | slice | conditions, death, rest | **SPEC-ONLY** | — |
-| **M33** | slice | total persistence (save v2) | **SPEC-ONLY** | 1.65 |
-| **M34** | slice | end-to-end integration + presentation | **DONE** (technical closure 2026-10-26, no tag) | 5.85 |
-| **M35** | slice (annex) | biomes, 2D vegetation, sky | **PARTIAL** (delivered; 1 NA declared `GAP-TAX-11`; non-blocking, `0.1.0`) | 1.90 |
+| **M30** | slice | economy and banking | **DONE** (technical closure 2026-10-23, no tag) | — |
+| **M31** | slice | travel, weather, calendar | **DONE** (technical closure 2026-10-23, no tag) | — |
+| **M32** | slice | conditions, death, rest | **DONE** (technical closure 2026-10-23, no tag) | — |
+| **M33** | slice | total persistence (save v2) | **DONE** (technical closure 2026-10-26, no tag) | 1.65 |
+| **M34** | slice | end-to-end integration + presentation | **DONE at technical level · `PARTIAL-TECHNICAL-CLOSURE`** (technical closure 2026-10-26, no tag; named row `AUDIO-RT-001-DEVICE` open — owner decision on the audio branch) | 5.85 |
+| **M35** | slice (annex) | biomes, 2D vegetation, sky | **PARTIAL** (delivered; 1 NA declared `GAP-TAX-11`, deferred to M44; non-blocking, `0.1.0`) | 1.90 |
 | **M36** | **UI-0** | audit of the 85 windows + patch/rewrite decision + compatibility contract + E1 re-estimate | **DONE** (technical closure 2026-10-27, no tag) | 2.00 |
 | **M37** | **UI-1** | UI compatibility layer (7 axes) | **DONE** (technical closure 2026-10-27, no tag) | 4.50 |
-| **M38** | **UI-2** | 16 creation + 11 configuration + menus (27) | **NOT STARTED** | 6.50 |
-| **M39** | **UI-3** | 51 interactive playable windows | **NOT STARTED** | 7.50 |
-| **M40** | **UI-4** | UI gate 78/78 + side-by-side + input + accessibility | **NOT STARTED** | 3.50 |
-| **M41** | **SYS-1** | depth: combat, magic, items, stats, resistances | **NOT STARTED** | 63.00 |
-| **M42** | **SYS-2** | depth: NPCs, guilds, crime and law, quests | **NOT STARTED** | 42.00 |
-| **M43** | **SYS-3** | depth: economy, travel, weather, calendar, conditions | **NOT STARTED** | 51.00 |
-| **M44** | **DUN-1** | dungeon content: grid + loot/respawn/bosses/instances | **NOT STARTED** | 39.00 |
-| **M45** | **E4 MODS** | declarative mod pipeline | **NOT STARTED** | 39.00 |
-| **M46** | **E5 ONLINE** | optional online: lobby, instances, authority | **NOT STARTED** | 78.00 |
-| **M47** | **E6 PLATFORM** | packaging, multi-OS CI, sustained perf, accessibility | **NOT STARTED** | 15.50 |
-| **M48** | **E7 MODERN** | opt-in modern layer (pristine/modern) | **NOT STARTED** | 31.00 |
-| **E8** | **Starfield-like** | separate program, **after M48**, new genesis contract | **NOT STARTED / NOT ESTIMABLE** | — |
+| **M38** | **UI-2** | 16 creation + 11 configuration + menus (27) | **DONE** (technical closure 2026-10-27, no tag) | 6.50 |
+| **M39** | **UI-3** | 51 interactive playable windows | **DONE at gate level** (technical closure 2026-10-27; coverage 0.857, K7 open; no tag) | 7.50 |
+| **M40** | **UI-4** | UI gate 78/78 + side-by-side + input + accessibility | **AUSENTE** | 3.50 |
+| **M41** | **SYS-1** | depth: combat, magic, items, stats, resistances | **AUSENTE** | 63.00 |
+| **M42** | **SYS-2** | depth: NPCs, guilds, crime and law, quests | **AUSENTE** | 42.00 |
+| **M43** | **SYS-3** | depth: economy, travel, weather, calendar, conditions | **AUSENTE** | 51.00 |
+| **M44** | **DUN-1** | dungeon content: grid + loot/respawn/bosses/instances | **AUSENTE** | 39.00 |
+| **M45** | **E4 MODS** | declarative mod pipeline | **AUSENTE** | 39.00 |
+| **M46** | **E5 ONLINE** | optional online: lobby, instances, authority | **AUSENTE** | 78.00 |
+| **M47** | **E6 PLATFORM** | packaging, multi-OS CI, sustained perf, accessibility | **AUSENTE** | 15.50 |
+| **M48** | **E7 MODERN** | opt-in modern layer (pristine/modern) | **AUSENTE** | 31.00 |
+| **E8** | **deferred expansion horizon** | separate program, **after M48**, new genesis contract | **AUSENTE / NOT ESTIMABLE** | — |
 
 **Reading note.** The 31 rows M18–M48 are the program; **E8 is not row 32** and not an "M49": it is a
 program with its own genesis contract, its own definition of done and its own budget.
 
-**Frozen and spec-only block.** M30 economy and banking is **frozen**: a written specification and no
-code. M31–M33 keep one written specification each and no implementation; M34 and M35 are delivered and
-their state is the one in §0. `—` in the `u` column means the
-remaining envelope of that block was not re-measured in this edition; the Plan B figures in §3 stand.
+**Closed slice block.** M30–M33 closed at technical level — economy and banking on 2026-10-23, travel
+with weather and calendar on 2026-10-23, conditions/death/rest on 2026-10-23 and the total savegame on
+2026-10-26 — each with its module in `crates/`, its probe and its closure recorded; M34 and M35 are
+delivered and their state is the one in §0, with M34's named row `AUDIO-RT-001-DEVICE` and M35's
+`GAP-TAX-11` still open. Their consumer today is the probe: none of the four is
+surfaced in the running demo window yet — that surfacing belongs to the M39/M40 stretch, and M39's
+runner and probe are in the tree since `85979b9` with its gate DONE at gate level. `—` in the `u`
+column means the remaining envelope of that block was not re-measured in this edition; the Plan B
+figures in §3 stand.
 
 ---
 
@@ -146,9 +167,9 @@ remaining envelope of that block was not re-measured in this edition; the Plan B
 above its bar (0 critical / 0 major) → commit with a named pathspec → closure record`.
 A work package without a probe is not a work package.
 
-> Plan A is **not duplicated** here. Its atomic work breakdown stays the reference for M18 and M33 while
-> they are open (M34 and M35 are closed at technical level); this document cites it and only summarises
-> it in sections 2 and 6.
+> Plan A is **not duplicated** here. Its atomic work breakdown stays the reference for M18's rows and for
+> M33 while it is open (M34 and M35 are closed at technical level); this document cites it and only
+> summarises it in sections 2 and 6.
 
 ### 3.1 M36 — UI-0: measure before touching anything (2.00 u; range 1.60–2.40)
 
@@ -386,11 +407,11 @@ is byte-behaviourally identical, it is **not ready**.
 | **W48-6** | Program closure QA | QA at or above 0.95, 0 critical / 0 major; closure record emitted | QA gate | W48-5 | 1.50 |
 | | **M48 total** | | | | **31.00** (20.00–41.00) |
 
-### 3.14 E8 — Starfield-like horizon: a **separate** program (not estimable, **not M49**)
+### 3.14 E8 — deferred expansion horizon: a **separate** program (not estimable, **not M49**)
 
 | Field | Content |
 |:---|:---|
-| **What it is** | A deferred requirement: a Starfield-like expansion horizon (world scale, simulation, generated content). It is not a layer of this game: it is **another game** on the same engine |
+| **What it is** | A deferred requirement: a **deferred expansion horizon** (world scale, simulation, generated content). It is not a layer of this game: it is **another game** on the same engine |
 | **When** | **After M48** (the ending of the current program). It does not overlap: it would force a rewrite of the definition of done |
 | **Precondition** | **New genesis contract**: a requirements addendum with derived requirements, a recalibrated coverage matrix, its own definition of done and its own budget. M48 pristine parity is the floor, not the ceiling |
 | **Estimate** | **not estimable** — not in `u`, not in multiples: 0 spec, 0 golden vectors, 0 denominator |
@@ -622,7 +643,7 @@ enables an early side-by-side).
 | **R-9** | `u` turned into a calendar promise | bad owner decision | section 6: 0 dates; tracking by closed work package + gate |
 | **R-10** | E8 slips in as "M49" | the ending stops being M48 | section 3.14: identifier `E8`, entry gate = M48 + new genesis contract |
 | **R-11** | Owner signature as bottleneck (M18, M40, M48) | releases freeze | engineering does not wait; signature packs are delivered complete, the signature is external |
-| **R-12** | Plan A mis-cited (M18 `PARTIAL` read as `DONE`) | false gates | section 1.4 C-1 and the matrix in section 2: the measured state rules |
+| **R-12** | Plan A mis-cited (technical closure read as an accepted milestone; M18's signature read as visual parity or as a tag) | false gates | section 1.4 C-1 and the matrix in section 2: the measured state rules, and no signature is a tag |
 
 ---
 
@@ -659,7 +680,7 @@ enables an early side-by-side).
 
 | Nature | Milestones | Factor | Why |
 |:---|:---|:---:|:---|
-| **Transcription with golden vectors** | M38 (creation part), M42-4/M42-5 (action goldens), M43 (tables specified in M30–M32, not implemented) | ×1.0 | the `u` measures transcription |
+| **Transcription with golden vectors** | M38 (creation part), M42-4/M42-5 (action goldens), M43 (the tables M30–M32 now implement at technical level) | ×1.0 | the `u` measures transcription |
 | **Extension of an existing system** | M41, M42, M43 | ×1.3 | density without a new spec per rule |
 | **New design without a golden** | M36, M37, M39, M40, M44, M45, M46, M48 | ×1.6–2.0 | where the historical record does **not** calibrate |
 | **Multi-environment platform** | M47 | ×1.5 | 3 OS, modest hardware, CI |
@@ -735,9 +756,13 @@ A gap with an owner and a work package is the plan working; a hidden gap is not.
 
 ## 9. Declared residuals (not hidden)
 
-1. **M18 remains `PARTIAL`**: Plan B does not wait for its signature, but the M18 tag is the owner's.
-2. **M33 remains `SPEC-ONLY`**: three Plan B work packages depend on save sections; if M33 closes first, their
-   QA is consumed and that save stretch disappears (0 duplicated work).
+1. **M18 is signed by delegation (2026-10-26)**: its 21 acceptance rows carry the recorded signature
+   (0 FAIL: 8 PASS / 9 NC-ACEPTA / 4 NOT-COMPARABLE). Plan B never waited for that signature, and the
+   M18 tag — like the side-by-side against the original — is still the owner's.
+2. **M33 closed on 2026-10-26**, so this contingency has fired: the three Plan B work packages that
+   depend on save sections inherit the delivered v2 save (and its classic `SAVEGAME` read/write)
+   instead of rebuilding it — 0 duplicated work. What remains open is surfacing it in the running
+   window, which sits in the M39/M40 stretch, not in save work.
 3. **The UI today is 6 static panels**; the census of 85 belongs to the original, it is not a delivery.
 4. **Plan B `u` has no historical series**: nominal plus range, never a date (6.4, R-9).
 5. **E2/E4/E3/E5 high bounds rounded to whole `u`** exceed their band by less than 0.5 u (3.15, 6.2).
@@ -753,19 +778,20 @@ A gap with an owner and a work package is the plan working; a hidden gap is not.
 
 | State | Means | Does not mean |
 |:---|:---|:---|
-| **M34 PASS** (measured 2026-10-26) | **Plan A closed**: foundation + vertical slice + E2E/presentation integration | "Daggerfall complete" |
-| **M35 PASS** (`0.1.0`, **optional annex**) | annex complete (biomes, 2D vegetation, sky) within the `0.1.0` surface; **not a closure gate** | "a necessary condition to close Plan A" |
-| **M40 PASS** | UI 78/78 + 7/7 classified, complete input, accessibility | "game finished" |
-| **M44 PASS** | **100% original**: UI + depth + dungeon content | "store-ready" |
-| **M47 PASS** (`1.0.0`) | **Retail-ready**: multiplatform, packaging, 60 fps, audited accessibility | "full vision" |
-| **M48 PASS** | **Full vision** (E1–E7) with byte-behavioural pristine | "Starfield horizon" |
-| **E8** | a **new** program with a new genesis contract | nothing above |
+| **M34 technical closure** (measured 2026-10-26; verdict `PARTIAL-TECHNICAL-CLOSURE`, named row `AUDIO-RT-001-DEVICE` open) | the **Plan A cut** reached at gate level: foundation + vertical slice + E2E/presentation integration | "Daggerfall complete", or the audio device branch promoted |
+| **M35 annex delivered** (`0.1.0`, **optional annex**; `PARTIAL`, `GAP-TAX-11` deferred to M44) | annex delivered (biomes, 2D vegetation, sky) within the `0.1.0` surface; **not a closure gate** | "a necessary condition to close Plan A", or a PASS |
+| **M40 gate PASS** (`AUSENTE` today) | UI 78/78 + 7/7 classified, complete input, accessibility | "game finished" |
+| **M44 gate PASS** (`AUSENTE` today) | **100% original**: UI + depth + dungeon content | "store-ready" |
+| **M47 gate PASS** (`1.0.0`, `AUSENTE` today) | **Retail-ready**: multiplatform, packaging, 60 fps, audited accessibility | "full vision" |
+| **M48 gate PASS** (`AUSENTE` today) | **Full vision** (E1–E7) with byte-behavioural pristine | "deferred expansion horizon" |
+| **E8** (`AUSENTE`) | a **new** program with a new genesis contract | nothing above |
 
-**Plan A cut (declared correction).** Plan A closes with **M34 PASS** (**49.95 u** strict), measured
-2026-10-26 at technical level (owner signature and tag still pending). **M35** is an
+**Plan A cut (declared correction).** The strict Plan A cut is **M34** (**49.95 u**), measured
+2026-10-26 at technical level — verdict `PARTIAL-TECHNICAL-CLOSURE`, named row `AUDIO-RT-001-DEVICE` open
+(owner decision on the audio branch), no tag exists. **M35** is an
 **optional, non-blocking annex** for the `0.1.0` surface; it was delivered with one declared `NA`
-(`GAP-TAX-11`), and its PASS is **not** required to declare Plan A closed. The multiplier base (1.2, `B = 51.85 u`) **includes** the M35 annex for continuity
-of the historical series; it is declared so no reading confuses "Plan A closed" (M34) with "Plan A with
+(`GAP-TAX-11`, deferred to M44) and stays `PARTIAL`. The multiplier base (1.2, `B = 51.85 u`) **includes** the M35 annex for continuity
+of the historical series; it is declared so no reading confuses the strict cut (M34) with "Plan A with
 annex" (M34 + M35).
 
 **What this document does NOT promise:** dates, durations, a "months" figure without measurement, or that
@@ -777,11 +803,15 @@ packages, dependencies, a falsifiable criterion, a named probe and a `u` range �
 
 ## Next step
 
-**M36** (the audit and its instrument) and **M37** (the seven-axis layer exercised by three pilots) are
-closed at technical level on 2026-10-27. The immediate next gate is **M38** (UI-2: 16 creation + 11
-configuration + menus), which is **not started** and requires an explicit go before any dispatch; the
-seven-axis contract it consumes is in place (section 4.3) and M37 measured its cost at
-**0.4708333 u/window at one QA round**, band `r`. See
+**M36** (the audit and its instrument), **M37** (the seven-axis layer exercised by three pilots), **M38**
+(UI-2: 16 creation + 11 configuration + menus) and **M39** (UI-3: 51 interactive playable windows) are
+DONE at gate level on 2026-10-27 — acceptance PENDING, no tags — and the
+seven-axis contract they consume is in place (section 4.3), with M37 measuring its cost at
+**0.4708333 u/window at one QA round**, band `r`. The next delivery gate is **M40** (UI-4: UI gate 78/78 +
+side-by-side + input + accessibility), `AUSENTE` today and dispatched only with an explicit go. The stale
+forward-plan sentence below is kept verbatim as this file's single declared understatement defect
+(`M38`, registered by `CR-71f2b7bf`): **M38** (UI-2: 16 creation + 11
+configuration + menus), which is **not started** and requires an explicit go before any dispatch. See
 [Agent entry point](agent-entrypoint.md) for the operating rules, limits and how to continue.
 
 

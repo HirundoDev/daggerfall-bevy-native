@@ -67,19 +67,27 @@ pub(crate) fn starting_inventory() -> InventoryLite {
     }
 }
 
-/// DFU shop catalogue cost (`FormulaHelper.CalculateCost`,
-/// `FormulaHelper.cs:1868-1883`): `c = max(c,1)` →
-/// `ApplyRegionalPriceAdjustment` (identity without a location,
-/// `:2010-2028`) → `c = 2 * (c*(quality-10)/100 + c)` with `int` truncation.
+/// DFU shop catalogue cost — `CalculateCost(baseValue, shopQuality,
+/// conditionPercentage = -1)` (`FormulaHelper.cs:1884-1899`): `c = max(c,1)`
+/// (`:1890-1893`) → `ApplyRegionalPriceAdjustment` (identity without a current
+/// location, the source's own branch `:2026-2045` / `:2036-2039`) →
+/// `c = 2 * (c*(quality-10)/100 + c)` (`:1896`) with `int` truncation toward
+/// zero (`:1898` return). `conditionPercentage` is declared at `:1884`, read
+/// only by the override (`:1888`) and never in the body ⇒ the engine models the
+/// non-override path and takes no condition argument.
 ///
 /// **First stage of the retail price.** DFU charges
-/// `CalculateTradePrice(CalculateCost(item.value, quality), quality, selling)`:
-/// `DaggerfallTradeWindow.UpdateCostAndGold` builds the basket with
-/// `CalculateCost(item.value, buildingDiscoveryData.quality)`
-/// (`DaggerfallTradeWindow.cs:443,462-466`) and `GetTradePrice` applies the
-/// bargaining formula on top (`:493-505` → `FormulaHelper.cs:1960-1988`).
+/// `CalculateTradePrice(CalculateCost(item.value, quality), quality, selling)`.
+/// The call-site order is quoted as **context not verified locally**:
+/// `DaggerfallTradeWindow.cs` is not part of the vendored mirror
+/// (`reference/dfu-spec/`, 120 `.cs` files) and is deliberately NOT vendored
+/// here (that would need the HTTP-200 + `git hash-object` + PROVENANCE protocol,
+/// and `reference/dfu-spec/**` is not in this lane's edit set). **0 constant
+/// depends on it**: every number in this pipeline comes from `FormulaHelper.cs`,
+/// and the composition (shelf stage then bargaining stage) is the engine's
+/// declared pipeline, gated by [`PIPELINE_VECTORS`] against that source.
 /// This step lives in `behavior::durability` because the repair path already
-/// ports the same function (`durability.rs:93`); the app composes both stages
+/// ports the same function (`durability.rs:117`); the app composes both stages
 /// (no organ calls another).
 pub(crate) fn dfu_shop_cost(base_value: i32) -> i32 {
     daggerfall_behavior::durability::calculate_cost(base_value, SHOP_QUALITY)
@@ -110,6 +118,152 @@ pub(crate) fn dfu_sell_price(base_value: &i32) -> i32 {
         PLAYER_MERCANTILE,
         PLAYER_PERSONALITY,
     )
+}
+
+// ── M5 retail price pipeline: golden vectors + gate ─────────────────────
+//
+// The engine charges the price of the **pipeline**, not of one formula:
+// `CalculateCost(item.value, shopQuality)` (`FormulaHelper.cs:1884-1899`) and
+// then `CalculateTradePrice(shelf_cost, shopQuality, selling)`
+// (`FormulaHelper.cs:1976-2004`). Each stage lives in its own organ
+// (`behavior::durability` / `skills::formula`, which do not call each other);
+// the **app** composes them, so the parity table and its check live here.
+//
+// Every expected number is transcribed from the **independent Python oracle**
+// `docs/sintergic/l5-mission/m5-calculate-cost-evidence-CR-112b1058/
+// oracle_m5_price.py` (stdlib, 0 network, C# truncation toward zero) — never
+// from this implementation. 0 oracle at runtime: the table is literal data.
+
+/// One golden row of the two-stage retail price pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PipelineVector {
+    /// Base value of the item (`item.value` — the `baseValue` argument).
+    pub base_value: i32,
+    /// Shop quality 0-20 (`shopQuality`, fed to both stages).
+    pub shop_quality: i32,
+    /// `true` = the player **sells** to the merchant.
+    pub selling: bool,
+    /// Player mercantile 0-100 (sell branch and buy branch).
+    pub mercantile: i32,
+    /// Player personality 0-100.
+    pub personality: i32,
+    /// Expected `CalculateCost` stage output (the shelf cost).
+    pub expected_shelf: i32,
+    /// Expected `CalculateTradePrice` output on top of `expected_shelf`.
+    pub expected_final: i32,
+}
+
+/// 40 golden vectors of the complete pipeline: `shop_quality ∈ {0,10,20}` ×
+/// `mercantile ∈ {0,50,100}` × `{buy, sell}` × `{potion(80), furs(50)}` = 36,
+/// plus `torch(12)` and `longsword(300)` at `q=10, mercantile=50` buy+sell = 4.
+/// `personality = 50` is **fixed for the whole grid** (the M5 session parameter,
+/// [`PLAYER_PERSONALITY`]) and is documented, not swept.
+///
+/// The grid covers the quality axis (`q<10` lowers the shelf, `q>10` raises it)
+/// and both bargaining directions. It does **not** cover the material axis:
+/// retail `ItemTemplate.base_price` comes from `FALL.EXE`
+/// (`crates/inventory/src/items.rs:282`) and DFU's material multipliers live in
+/// `ItemBuilder.cs`, which is not vendored ⇒ material is declared
+/// NOT-COMPARABLE, never invented.
+pub const PIPELINE_VECTORS: &[PipelineVector] = &[
+    PipelineVector { base_value: 80, shop_quality: 0, selling: false, mercantile: 0, personality: 50, expected_shelf: 144, expected_final: 67 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 0, selling: true, mercantile: 0, personality: 50, expected_shelf: 144, expected_final: 71 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 0, selling: false, mercantile: 50, personality: 50, expected_shelf: 144, expected_final: 54 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 0, selling: true, mercantile: 50, personality: 50, expected_shelf: 144, expected_final: 96 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 0, selling: false, mercantile: 100, personality: 50, expected_shelf: 144, expected_final: 40 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 0, selling: true, mercantile: 100, personality: 50, expected_shelf: 144, expected_final: 122 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 10, selling: false, mercantile: 0, personality: 50, expected_shelf: 160, expected_final: 112 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 10, selling: true, mercantile: 0, personality: 50, expected_shelf: 160, expected_final: 59 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 10, selling: false, mercantile: 50, personality: 50, expected_shelf: 160, expected_final: 90 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 10, selling: true, mercantile: 50, personality: 50, expected_shelf: 160, expected_final: 80 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 10, selling: false, mercantile: 100, personality: 50, expected_shelf: 160, expected_final: 67 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 10, selling: true, mercantile: 100, personality: 50, expected_shelf: 160, expected_final: 101 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 20, selling: false, mercantile: 0, personality: 50, expected_shelf: 176, expected_final: 165 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 20, selling: true, mercantile: 0, personality: 50, expected_shelf: 176, expected_final: 43 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 20, selling: false, mercantile: 50, personality: 50, expected_shelf: 176, expected_final: 132 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 20, selling: true, mercantile: 50, personality: 50, expected_shelf: 176, expected_final: 59 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 20, selling: false, mercantile: 100, personality: 50, expected_shelf: 176, expected_final: 99 }, // potion
+    PipelineVector { base_value: 80, shop_quality: 20, selling: true, mercantile: 100, personality: 50, expected_shelf: 176, expected_final: 74 }, // potion
+    PipelineVector { base_value: 50, shop_quality: 0, selling: false, mercantile: 0, personality: 50, expected_shelf: 90, expected_final: 42 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 0, selling: true, mercantile: 0, personality: 50, expected_shelf: 90, expected_final: 44 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 0, selling: false, mercantile: 50, personality: 50, expected_shelf: 90, expected_final: 33 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 0, selling: true, mercantile: 50, personality: 50, expected_shelf: 90, expected_final: 60 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 0, selling: false, mercantile: 100, personality: 50, expected_shelf: 90, expected_final: 25 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 0, selling: true, mercantile: 100, personality: 50, expected_shelf: 90, expected_final: 76 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 10, selling: false, mercantile: 0, personality: 50, expected_shelf: 100, expected_final: 70 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 10, selling: true, mercantile: 0, personality: 50, expected_shelf: 100, expected_final: 37 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 10, selling: false, mercantile: 50, personality: 50, expected_shelf: 100, expected_final: 56 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 10, selling: true, mercantile: 50, personality: 50, expected_shelf: 100, expected_final: 50 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 10, selling: false, mercantile: 100, personality: 50, expected_shelf: 100, expected_final: 42 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 10, selling: true, mercantile: 100, personality: 50, expected_shelf: 100, expected_final: 63 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 20, selling: false, mercantile: 0, personality: 50, expected_shelf: 110, expected_final: 103 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 20, selling: true, mercantile: 0, personality: 50, expected_shelf: 110, expected_final: 27 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 20, selling: false, mercantile: 50, personality: 50, expected_shelf: 110, expected_final: 82 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 20, selling: true, mercantile: 50, personality: 50, expected_shelf: 110, expected_final: 36 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 20, selling: false, mercantile: 100, personality: 50, expected_shelf: 110, expected_final: 61 }, // furs
+    PipelineVector { base_value: 50, shop_quality: 20, selling: true, mercantile: 100, personality: 50, expected_shelf: 110, expected_final: 46 }, // furs
+    PipelineVector { base_value: 12, shop_quality: 10, selling: false, mercantile: 50, personality: 50, expected_shelf: 24, expected_final: 13 }, // torch
+    PipelineVector { base_value: 12, shop_quality: 10, selling: true, mercantile: 50, personality: 50, expected_shelf: 24, expected_final: 12 }, // torch
+    PipelineVector { base_value: 300, shop_quality: 10, selling: false, mercantile: 50, personality: 50, expected_shelf: 600, expected_final: 337 }, // longsword
+    PipelineVector { base_value: 300, shop_quality: 10, selling: true, mercantile: 50, personality: 50, expected_shelf: 600, expected_final: 300 }, // longsword
+];
+
+/// Parity check of the **complete** retail pipeline against `vectors`.
+///
+/// Runs the real code — `behavior::durability::calculate_cost` then
+/// `skills::formula::calculate_trade_price` — and compares **both** stages, so a
+/// regression to the one-stage price (or to a wrong shelf) is a value failure,
+/// never a self-comparison. A divergent row is named by its inputs.
+pub fn pipeline_parity_check(vectors: &[PipelineVector]) -> ProbeCheck {
+    let mut mismatches: Vec<String> = Vec::new();
+    for vector in vectors {
+        let shelf = daggerfall_behavior::durability::calculate_cost(
+            vector.base_value,
+            vector.shop_quality,
+        );
+        let final_price = daggerfall_skills::formula::calculate_trade_price(
+            shelf,
+            vector.shop_quality,
+            vector.selling,
+            vector.mercantile,
+            vector.personality,
+        );
+        if shelf != vector.expected_shelf || final_price != vector.expected_final {
+            mismatches.push(format!(
+                "(base={},q={},selling={},merc={},pers={}) → shelf {shelf} (expected {}), \
+                 final {final_price} (expected {})",
+                vector.base_value,
+                vector.shop_quality,
+                vector.selling,
+                vector.mercantile,
+                vector.personality,
+                vector.expected_shelf,
+                vector.expected_final,
+            ));
+        }
+    }
+    let ok = mismatches.is_empty();
+    ProbeCheck {
+        id: "dfu_price_pipeline_golden_parity",
+        ok,
+        detail: if ok {
+            format!(
+                "{}/{} pipeline vectors = C# CalculateCost(:1884-1899) → \
+                 CalculateTradePrice(:1976-2004) · q∈{{0,10,20}} × merc∈{{0,50,100}} × \
+                 {{buy,sell}} × {{potion 80, furs 50}} + torch 12 / longsword 300 at \
+                 q=10 merc=50 · personality=50 fixed (M5 parameter) · oracle: \
+                 oracle_m5_price.py (independent, 0 oracle at runtime)",
+                vectors.len(),
+                vectors.len(),
+            )
+        } else {
+            format!(
+                "{} vectors diverge (expected_shelf/expected_final vs real pipeline): {}",
+                mismatches.len(),
+                mismatches.join(" · ")
+            )
+        },
+    }
 }
 
 /// Executable core of **PROBE-COMMERCE-001** over an already-built world —
@@ -374,8 +528,10 @@ pub fn run_commerce_probe(
 
     // ── B6: the paid prices are the pure DFU formula (N2 link) ──────────
     // The item-level price is the TWO-stage DFU pipeline:
-    // `CalculateCost(value, quality)` (`DaggerfallTradeWindow.cs:443,462-466`)
-    // fed into `CalculateTradePrice(cost, quality, selling)` (`:493-505`).
+    // `CalculateCost(value, quality)` (`FormulaHelper.cs:1884-1899`) fed into
+    // `CalculateTradePrice(shelf_cost, quality, selling)` (`:1976-2004`). The
+    // call-site ordering in DFU's trade window is not vendored here (declared
+    // context, 0 number depends on it — see `dfu_shop_cost`).
     let potion_shelf_cost = dfu_shop_cost(80);
     let fur_shelf_cost = dfu_shop_cost(PIELES_BASE_VALUE);
     let buy_price = dfu_buy_price(80);
@@ -406,7 +562,7 @@ pub fn run_commerce_probe(
             && sell_again == sell_price
             && golden_shelf_sell,
         detail: format!(
-            "CalculateCost(80,q10)=160 (FormulaHelper.cs:1868-1883) → buy={buy_price} \
+            "CalculateCost(80,q10)=160 (FormulaHelper.cs:1884-1899) → buy={buy_price} \
              (req 90) · CalculateCost(50,q10)={fur_shelf_cost} → sell={sell_again} (req 50) · \
              one-stage control (the pre-fix price) = {buy_without_cost}/{sell_without_cost} \
              (45/25, ≈½ retail) · determinism (2nd call) identical to the prices paid in \
@@ -482,15 +638,27 @@ pub fn run_commerce_001() -> i32 {
         println!("[{status}] {} - {}", check.id, check.detail);
     }
 
+    println!(
+        "-- Block C2: M5 retail price pipeline — CalculateCost → CalculateTradePrice \
+         ({} vectors) --",
+        PIPELINE_VECTORS.len()
+    );
+    let pipeline = pipeline_parity_check(PIPELINE_VECTORS);
+    let pipeline_status = if pipeline.ok { "OK" } else { "FAIL" };
+    println!("[{pipeline_status}] {} - {}", pipeline.id, pipeline.detail);
+
     let passed = report.checks.iter().filter(|c| c.ok).count()
-        + formula.checks.iter().filter(|c| c.ok).count();
-    let total = report.checks.len() + formula.checks.len();
-    if report.pass && formula.pass {
+        + formula.checks.iter().filter(|c| c.ok).count()
+        + usize::from(pipeline.ok);
+    let total = report.checks.len() + formula.checks.len() + 1;
+    if report.pass && formula.pass && pipeline.ok {
         println!(
             "M5 VE: interactive commerce — {passed}/{total} checks · NPC Vendel (solid box) \
              · dialogue+menu [B]/[V] with gold {STARTING_GOLD} → buy potion 90 → gold \
              deducted + item added · sell furs +50 · prices = DFU CalculateCost + \
-             CalculateTradePrice (11 golden vectors)"
+             CalculateTradePrice ({} CalculateTradePrice + {} pipeline golden vectors)",
+            daggerfall_skills::formula::GOLDEN_VECTORS.len(),
+            PIPELINE_VECTORS.len(),
         );
         println!("VERDICT: PROBE-COMMERCE-001 PASS - enter→interact→buy (gold−item) + DFU formula");
         0
@@ -501,6 +669,7 @@ pub fn run_commerce_001() -> i32 {
             .filter(|c| !c.ok)
             .map(|c| c.id)
             .chain(formula.checks.iter().filter(|c| !c.ok).map(|c| c.id))
+            .chain(std::iter::once(pipeline.id).filter(|_| !pipeline.ok))
             .collect();
         println!(
             "VERDICT: PROBE-COMMERCE-001 FAIL - failed checks: {}",
@@ -512,6 +681,13 @@ pub fn run_commerce_001() -> i32 {
 
 /// CLI dispatch of PROBE-FORMULA-001 (pricing slice, N2) — pure, no world
 /// and no retail: runs in any headless config.
+///
+/// Gates two layers: the 11 pure `CalculateTradePrice` vectors
+/// (`skills::formula`, `FormulaHelper.cs:1976-2004`) **and** the complete
+/// retail pipeline `CalculateCost → CalculateTradePrice`
+/// (`FormulaHelper.cs:1884-1899` → `:1976-2004`) over [`PIPELINE_VECTORS`].
+/// The pipeline is composed here because the organs do not call each other:
+/// `skills` stays a pure leaf and `behavior` owns the shelf stage.
 pub fn run_formula_001() -> i32 {
     println!("PROBE-FORMULA-001 - INV-L99-3 causal formulas (M5 pricing slice, CR-bbd5db82)");
     let formula = daggerfall_skills::formula::run_formula_probe();
@@ -519,12 +695,28 @@ pub fn run_formula_001() -> i32 {
         let status = if check.ok { "OK" } else { "FAIL" };
         println!("[{status}] {} - {}", check.id, check.detail);
     }
-    if formula.pass {
+
+    println!(
+        "-- M5 retail price pipeline: CalculateCost → CalculateTradePrice ({} vectors) --",
+        PIPELINE_VECTORS.len()
+    );
+    let pipeline = pipeline_parity_check(PIPELINE_VECTORS);
+    let pipeline_status = if pipeline.ok { "OK" } else { "FAIL" };
+    println!("[{pipeline_status}] {} - {}", pipeline.id, pipeline.detail);
+
+    if formula.pass && pipeline.ok {
         println!(
-            "M5 VE: {} DFU golden vectors of CalculateTradePrice + determinism + monotonicity",
-            daggerfall_skills::formula::GOLDEN_VECTORS.len()
+            "M5 VE: {} CalculateTradePrice + {} pipeline DFU golden vectors + determinism + \
+             monotonicity",
+            daggerfall_skills::formula::GOLDEN_VECTORS.len(),
+            PIPELINE_VECTORS.len(),
         );
-        println!("VERDICT: PROBE-FORMULA-001 PASS - 100% parity (Mode A only, corpus on disk)");
+        println!(
+            "VERDICT: PROBE-FORMULA-001 PASS - {} CalculateTradePrice + {} pipeline vectors, \
+             100% parity (Mode A only, corpus on disk)",
+            daggerfall_skills::formula::GOLDEN_VECTORS.len(),
+            PIPELINE_VECTORS.len(),
+        );
         0
     } else {
         let failed: Vec<&str> = formula
@@ -532,6 +724,7 @@ pub fn run_formula_001() -> i32 {
             .iter()
             .filter(|c| !c.ok)
             .map(|c| c.id)
+            .chain(std::iter::once(pipeline.id).filter(|_| !pipeline.ok))
             .collect();
         println!("VERDICT: PROBE-FORMULA-001 FAIL - failed checks: {}", failed.join(", "));
         1
@@ -591,11 +784,14 @@ mod tests {
         eprintln!("anti-false-positive: failed checks with tampered NPC = {failed:?}");
     }
 
-    /// M5 retail price is the **two-stage** DFU pipeline, in the source's order:
-    /// `CalculateCost(item.value, quality)` (`FormulaHelper.cs:1868-1883`, the
-    /// basket stage of `DaggerfallTradeWindow.cs:443,462-466`) and then
-    /// `CalculateTradePrice(cost, quality, selling)` (`FormulaHelper.cs:1960-1988`,
-    /// `DaggerfallTradeWindow.cs:493-505`).
+    /// M5 retail price is the **two-stage** DFU pipeline: `CalculateCost(item.value,
+    /// quality)` (`FormulaHelper.cs:1884-1899`) and then
+    /// `CalculateTradePrice(shelf_cost, quality, selling)` (`:1976-2004`).
+    ///
+    /// The call-site order (DFU's trade window builds the basket, then applies
+    /// the bargaining formula) is **context not verified locally**:
+    /// `DaggerfallTradeWindow.cs` is not in the vendored mirror and is not
+    /// vendored by this lane; 0 number below depends on it.
     ///
     /// Each row pins the intermediate **and** the final number, so a regression
     /// to the one-stage price (what the engine charged before the fix: ≈½ of
@@ -603,7 +799,7 @@ mod tests {
     #[test]
     fn shop_prices_are_the_two_stage_dfu_pipeline() {
         // (id, base value, CalculateCost(base, 10), final retail price, one-stage price)
-        // CalculateCost(c,10) = 2*(c*(10-10)/100 + c) = 2c (FormulaHelper.cs:1868-1883).
+        // CalculateCost(c,10) = 2*(c*(10-10)/100 + c) = 2c (FormulaHelper.cs:1896).
         // Buy  = ((192*dm>>8) + (dp>>8)) * c >> 8 with dm=144, dp=9216 ⇒ 144*c>>8.
         // Sell = ((179*dm>>8) + (51*dp>>8)) * c >> 8 with dm=dp=144 ⇒ 128*c>>8.
         let buy_rows = [("potion", 80, 160, 90, 45), ("torch", 12, 24, 13, 6), ("longsword", 300, 600, 337, 168)];
@@ -646,5 +842,111 @@ mod tests {
                 item.id
             );
         }
+
+        // Cross-link with the grid: the M5 session row (q = SHOP_QUALITY,
+        // mercantile = PLAYER_MERCANTILE, personality = PLAYER_PERSONALITY) of the
+        // golden table IS the number the probe/window charge — 0 second convention.
+        for (base, selling) in [(80, false), (PIELES_BASE_VALUE, true)] {
+            let row = PIPELINE_VECTORS
+                .iter()
+                .find(|v| {
+                    v.base_value == base
+                        && v.shop_quality == SHOP_QUALITY
+                        && v.mercantile == PLAYER_MERCANTILE
+                        && v.personality == PLAYER_PERSONALITY
+                        && v.selling == selling
+                })
+                .unwrap_or_else(|| panic!("grid row missing for base={base} selling={selling}"));
+            let paid = if selling { dfu_sell_price(&base) } else { dfu_buy_price(base) };
+            assert_eq!(row.expected_shelf, dfu_shop_cost(base), "grid shelf = helpers (base={base})");
+            assert_eq!(row.expected_final, paid, "grid final = helpers (base={base}, selling={selling})");
+        }
+    }
+
+    /// The 40-vector pipeline table passes against the **real** two-stage
+    /// implementation, and its shelf stage is genuinely the first stage (not the
+    /// identity): every row's `expected_shelf` differs from `base_value`, and the
+    /// grid still spans the whole quality axis.
+    #[test]
+    fn pipeline_vectors_match_the_two_stage_implementation() {
+        let check = pipeline_parity_check(PIPELINE_VECTORS);
+        assert!(check.ok, "pipeline FAIL: {}", check.detail);
+        assert_eq!(check.id, "dfu_price_pipeline_golden_parity");
+        assert_eq!(PIPELINE_VECTORS.len(), 40, "40 golden pipeline vectors");
+
+        // The grid is what it claims to be: 3 qualities × 3 mercantiles × 2
+        // directions × 2 items + torch/longsword × 2 directions.
+        let mut qualities: Vec<i32> = PIPELINE_VECTORS.iter().map(|v| v.shop_quality).collect();
+        qualities.sort_unstable();
+        qualities.dedup();
+        assert_eq!(qualities, vec![0, 10, 20], "quality axis q∈{{0,10,20}}");
+        let mut mercantiles: Vec<i32> = PIPELINE_VECTORS.iter().map(|v| v.mercantile).collect();
+        mercantiles.sort_unstable();
+        mercantiles.dedup();
+        assert_eq!(mercantiles, vec![0, 50, 100], "mercantile axis merc∈{{0,50,100}}");
+        let mut bases: Vec<i32> = PIPELINE_VECTORS.iter().map(|v| v.base_value).collect();
+        bases.sort_unstable();
+        bases.dedup();
+        assert_eq!(bases, vec![12, 50, 80, 300], "items torch/furs/potion/longsword");
+        assert!(
+            PIPELINE_VECTORS.iter().all(|v| v.personality == PLAYER_PERSONALITY),
+            "personality is fixed to the M5 parameter (documented, not swept)"
+        );
+        assert!(
+            PIPELINE_VECTORS.iter().all(|v| v.expected_shelf != v.base_value),
+            "the shelf stage must move every value (otherwise it is the identity)"
+        );
+        // The quality axis is monotone: `q<10` lowers the shelf **relative to
+        // q=10**, `q>10` raises it (the multiplier is `2*(q/10)` — the shelf is
+        // never below the base value, so the comparison is across qualities).
+        for base in [12, 50, 80, 300] {
+            let shelf_at = |q: i32| {
+                daggerfall_behavior::durability::calculate_cost(base, q)
+            };
+            assert!(
+                shelf_at(0) < shelf_at(10) && shelf_at(10) < shelf_at(20),
+                "base={base}: shelf must grow with shop quality"
+            );
+        }
+    }
+
+    /// Anti-false-positive of the pipeline gate: a table carrying the **pre-fix
+    /// one-stage price** (`CalculateTradePrice(base_value, …)` with no
+    /// `CalculateCost`) and the identity shelf MUST fail, and the detail MUST
+    /// name the divergent vectors. The probe cannot PASS by construction.
+    #[test]
+    fn pipeline_check_rejects_the_one_stage_price() {
+        let tampered: Vec<PipelineVector> = PIPELINE_VECTORS
+            .iter()
+            .map(|vector| PipelineVector {
+                expected_shelf: vector.base_value,
+                expected_final: daggerfall_skills::formula::calculate_trade_price(
+                    vector.base_value,
+                    vector.shop_quality,
+                    vector.selling,
+                    vector.mercantile,
+                    vector.personality,
+                ),
+                ..*vector
+            })
+            .collect();
+
+        let check = pipeline_parity_check(&tampered);
+        assert!(!check.ok, "the one-stage table CANNOT pass: {}", check.detail);
+        assert_eq!(
+            check.detail.matches(" → shelf ").count(),
+            tampered.len(),
+            "every tampered vector is named (detail: {})",
+            check.detail
+        );
+        // The M5 session row (potion, q=10, buy, merc=50) is named with both
+        // values: the identity shelf 80 vs 160 and the pre-fix one-stage 45 vs 90.
+        assert!(
+            check.detail.contains("(base=80,q=10,selling=false,merc=50,pers=50)")
+                && check.detail.contains("shelf 160 (expected 80)")
+                && check.detail.contains("final 90 (expected 45)"),
+            "the divergence names the vector and both numbers: {}",
+            check.detail
+        );
     }
 }

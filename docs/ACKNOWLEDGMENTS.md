@@ -19,7 +19,7 @@ mechanical, this index is the only part written for the split.
 | Data, legal and trademarks | [`legal-and-trademarks.md`](acknowledgments/legal-and-trademarks.md) | MIT code licence, why game data is not MIT, third-party source, marks and affiliation |
 | Why not build on Daggerfall Unity or DaggerfallJS — the long-form comparison | [`why-not-dfu-or-daggerfalljs.md`](acknowledgments/why-not-dfu-or-daggerfalljs.md) | The argued comparison; the positive Bevy case lives in the README |
 | How parity is verified | [`parity-verification.md`](acknowledgments/parity-verification.md) | Sources of truth, golden vectors, behaviour probes, CI guardrails, what is *not* claimed |
-| Status: what is actually done | [`status.md`](acknowledgments/status.md) | The full M0–M29 record plus the M34–M37 technical closures, evidence at each closure, the campaign re-audit and the known gaps |
+| Status: what is actually done | [`status.md`](acknowledgments/status.md) | The full M0–M29 record plus the M30–M38 technical closures, evidence at each closure, the campaign re-audit and the known gaps |
 | Roadmap | [`roadmap.md`](acknowledgments/roadmap.md) | Stage table — what each stage closes, what is explicitly out of scope today |
 | The launcher | [`launcher.md`](acknowledgments/launcher.md) | Modes, flags, exit codes, the verified launcher behaviour |
 | Crates, data custody and determinism | [`crates-and-determinism.md`](acknowledgments/crates-and-determinism.md) | The 13 workspace members, Mode A vs. Mode B, determinism rules |

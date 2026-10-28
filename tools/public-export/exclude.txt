@@ -38,6 +38,7 @@ scripts/cost-ledger.py
 scripts/principal-decision-audit.py
 scripts/plan-gate-check.py
 scripts/ledger-append.py
+scripts/validate-lane-registry.py
 # --- Internal governance docs at the repo root (Spanish, harness-facing) ---
 AGENTS.md
 CAPITAN.md
@@ -46,5 +47,20 @@ prompt-injection.md
 # --- Promotion gate matrix: integration tests over the Mother's contract fixtures (Spanish corpus) ---
 crates/promotion-gate/fixtures/
 crates/promotion-gate/tests/
+# --- Exported tests that read non-exported internal paths (allowlisted, exact path + reason) ---
+# Each entry below is one exact file, never a `tests/` wildcard: the remaining exported test
+# files are part of the public tree and must keep compiling and passing there.
+# 33 `#[test]`: reads `docs/sintergic/side-contract/contract.toml` (matrix.rs:247), which is not
+# exported, so the test panics in the public tree.
+crates/side-contract/tests/matrix.rs
+# 2 `#[test]`: `include_str!` of `docs/sintergic/content-api/...` (schema_published.rs:8,:9), which
+# breaks compilation of the test target in the public tree.
+crates/content-api/tests/schema_published.rs
+# 4 `#[test]`: `include_str!` of `docs/sintergic/content-runtime/CONTENT-RUNTIME-v1.md`
+# (surface_published.rs:14), which breaks compilation of the test target in the public tree.
+crates/content-runtime/tests/surface_published.rs
+# 4 `#[test]`: `include_str!` of `docs/sintergic/game-runtime-api/GAME-RUNTIME-API-v1.md`
+# (surface_published.rs:14), which breaks compilation of the test target in the public tree.
+crates/game-runtime-api/tests/surface_published.rs
 # --- Retired retail capture (H1): must never ship ---
 docs/sintergic/game/validation/m18-demo-20261021/m17-ui-fixed.png

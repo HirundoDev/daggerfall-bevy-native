@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent verification of a public export (passes A-D, ORDER CR-5a5c759b).
+"""Independent verification of a public export (passes A-E, ORDER CR-5a5c759b / CR-5c3261ee).
 
 Usage:
   python3 tools/public-export/verify-export.py --export <dir>
@@ -12,7 +12,9 @@ A: tree scan (owner/upstream/other emails, internal links, PII, retail, secrets,
 B: git object scan (every blob in history, not only the tree).
 C: regeneration from scratch in a second directory + byte-by-byte comparison.
 D: file-by-file review against the allowlist derived from the source repo's HEAD.
-Exit 0 = A/B/C/D PASS.
+E: internal-reference metric (files, lines, functional, non-functional) with a data allowlist;
+   a functional reference that is not allowlisted fails the pass *with the number*.
+Exit 0 = A/B/C/D/E PASS.
 """
 import argparse, fnmatch, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
@@ -22,6 +24,9 @@ REPO = Path(subprocess.run(["git", "-C", str(HERE), "rev-parse", "--show-topleve
                            capture_output=True, text=True, check=True).stdout.strip())
 EXPORT_TOOL = HERE / "export-public.py"
 EXCLUDE_FILE = HERE / "exclude.txt"
+# Pass E tolerances: one `path:line<TAB>reason` row per functional reference that the public
+# tree is allowed to keep. No wildcards: a moved or deleted line rots the row and fails E.
+ALLOWLIST_FILE = HERE / "internal-refs-allowlist.txt"
 # Internal change-request id recorded in the report (pass D). It is supplied at run time with
 # `--cr` on purpose: this file ships in the public export, so it carries no internal id.
 CR = ""
@@ -379,6 +384,240 @@ def pass_d(root):
     return res
 
 
+# ---------------------------------------------------------------- pass E
+# Internal-reference metric (ORDER CR-5c3261ee). Self-contained on purpose: the token list is
+# repeated here rather than imported from the generator, so a generator bug cannot validate
+# itself — the same property every other pass keeps.
+#
+# `docs/sintergic/`, `.sintergic/`, `.omp/`, `.opencode/` and `promotion-ledger` are the internal
+# paths that do NOT travel in the export. Their mentions are classified deterministically:
+#
+#   non-functional  prose in `.md`; a comment in `.rs` (`//`, `///`, `/* */`) or in
+#                   `.py`/`.sh`/`.toml` (`#`); an exclusion pattern inside `exclude.txt`; a row of
+#                   the tolerance data file; any other non-code extension (data/config).
+#   functional      a mention in `.rs`/`.py`/`.sh`/`.toml` outside a comment (a path constant,
+#                   `include_str!`, `include_bytes!`, `fs::read*`, `File::open`, `Path::new`,
+#                   `join(...)`, a `startswith(...)` prefix, a scanner pattern...), or ANY
+#                   mention in a file under `tests/` or inside a `#[cfg(test)]` item.
+#
+# A functional mention must be tolerated by `internal-refs-allowlist.txt` (`path:line<TAB>reason`).
+# The metric is printed on every run, PASS included, so it cannot be hidden.
+INTERNAL_REF_RX = re.compile(r"docs/sintergic/|\.sintergic/|\.omp/|\.opencode/|promotion-ledger")
+CODE_EXT = (".rs", ".py", ".sh", ".toml")
+# Declared data files: their internal paths are exclusion patterns / tolerance rows, never reads.
+# (`.gitignore` is treated the same way by basename below.)
+DATA_NONFUNCTIONAL = ("tools/public-export/exclude.txt",
+                      "tools/public-export/internal-refs-allowlist.txt")
+TEST_RX = re.compile(r"(^|/)tests/")
+
+
+def rust_comment_ranges(lines):
+    """Per line, the [start, end) columns covered by a Rust comment.
+
+    Walks the file so `//` inside a string literal is not a comment and `/* */` spans lines.
+    Raw strings (`r#"..."#`) are treated as ordinary strings from their first quote; they do not
+    appear in the paths this pass measures.
+    """
+    out, block_from = [], None
+    for line in lines:
+        ranges, i, n = [], 0, len(line)
+        if block_from is not None:
+            ranges.append((block_from, -1))  # closed below once `*/` is found
+        while i < n:
+            if block_from is not None:
+                j = line.find("*/", i)
+                if j < 0:
+                    i = n
+                    break
+                ranges[-1] = (ranges[-1][0], j + 2)
+                block_from = None
+                i = j + 2
+                continue
+            ch = line[i]
+            if ch == '"':
+                i += 1
+                while i < n:
+                    if line[i] == "\\":
+                        i += 2
+                        continue
+                    if line[i] == '"':
+                        i += 1
+                        break
+                    i += 1
+                continue
+            if line.startswith("//", i):
+                ranges.append((i, n))
+                i = n
+                continue
+            if line.startswith("/*", i):
+                block_from = i
+                i += 2
+                continue
+            i += 1
+        if block_from is not None:
+            ranges[-1] = (ranges[-1][0], n)
+        out.append([(a, n if b < 0 else b) for a, b in ranges])
+    return out
+
+
+def hash_comment_ranges(lines):
+    """Per line, the [start, end) columns covered by a `#` comment (`.py`, `.sh`, `.toml`)."""
+    out = []
+    for line in lines:
+        cut, quote, i, n = None, None, 0, len(line)
+        while i < n:
+            ch = line[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+                i += 1
+                continue
+            if ch in "'\"":
+                quote = ch
+                i += 1
+                continue
+            if ch == "#":
+                cut = i
+                break
+            i += 1
+        out.append([(cut, n)] if cut is not None else [])
+    return out
+
+
+def cfg_test_lines(lines):
+    """0-based indexes of the lines living inside a `#[cfg(test)]` item."""
+    out, pending, depth = set(), False, 0
+    for idx, line in enumerate(lines):
+        if depth:
+            out.add(idx)
+            depth = max(0, depth + line.count("{") - line.count("}"))
+            continue
+        if pending:
+            out.add(idx)
+            if "{" in line:
+                depth = max(0, line.count("{") - line.count("}"))
+                pending = False
+            elif line.strip().endswith(";"):
+                pending = False
+            continue
+        if "#[cfg(test)]" in line:
+            out.add(idx)
+            rest = line.split("#[cfg(test)]", 1)[1]
+            if "{" in rest:
+                depth = max(0, rest.count("{") - rest.count("}"))
+            elif not rest.strip().endswith(";"):
+                pending = True
+    return out
+
+
+def internal_ref_items(root):
+    """Every internal-path occurrence in the exported tree, with its classification."""
+    items = []
+    for rel in files_of(root):
+        data = text_of(root / rel)
+        if data is None:
+            continue
+        text = data.decode("utf-8", "surrogateescape")
+        if not INTERNAL_REF_RX.search(text):
+            continue
+        lines = text.splitlines()
+        ext = os.path.splitext(rel)[1].lower()
+        if ext == ".rs":
+            ranges = rust_comment_ranges(lines)
+        elif ext in (".py", ".sh", ".toml"):
+            ranges = hash_comment_ranges(lines)
+        else:
+            ranges = [[] for _ in lines]
+        test_block = cfg_test_lines(lines) if ext == ".rs" else set()
+        is_data = rel in DATA_NONFUNCTIONAL or rel.rsplit("/", 1)[-1] == ".gitignore"
+        is_test = bool(TEST_RX.search(rel))
+        is_prose = ext == ".md"
+        for idx, line in enumerate(lines):
+            for m in INTERNAL_REF_RX.finditer(line):
+                col = m.start()
+                if is_data or (is_prose and not is_test):
+                    functional = False
+                elif is_test or idx in test_block:
+                    functional = True
+                elif ext in CODE_EXT:
+                    functional = not any(a <= col < b for a, b in ranges[idx])
+                else:
+                    functional = False
+                items.append({"path": rel, "line": idx + 1, "column": col + 1,
+                              "text": line.strip()[:200], "functional": functional})
+    return items
+
+
+def allowlist_rows():
+    """({(path, line): reason}, [malformed rows]) from `path:line<TAB>reason`."""
+    rows, errors = {}, []
+    if not ALLOWLIST_FILE.exists():
+        return rows, errors
+    for num, raw in enumerate(ALLOWLIST_FILE.read_text(encoding="utf-8").splitlines(), 1):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        if "\t" not in raw:
+            errors.append("line %d: missing tab separator" % num)
+            continue
+        key, reason = raw.split("\t", 1)
+        path, sep, line_no = key.rpartition(":")
+        if not sep or not line_no.isdigit() or not path:
+            errors.append("line %d: key %r is not `path:line`" % (num, key))
+            continue
+        if not reason.strip():
+            errors.append("line %d: empty reason for %s" % (num, key))
+            continue
+        if any(c in path for c in "*?["):
+            errors.append("line %d: wildcard in path %r" % (num, path))
+            continue
+        rows[(path, int(line_no))] = reason.strip()
+    return rows, errors
+
+
+def pass_e(root):
+    items = internal_ref_items(root)
+    allow, allow_errors = allowlist_rows()
+    by_line = {}
+    for it in items:
+        by_line.setdefault((it["path"], it["line"]), []).append(it)
+    functional = sorted(k for k, v in by_line.items() if any(x["functional"] for x in v))
+    allowlisted = [k for k in functional if k in allow]
+    unallowlisted = [k for k in functional if k not in allow]
+    stale = [k for k in allow if k not in set(functional)]
+    rows = []
+    for key in sorted(by_line):
+        path, line = key
+        is_func = key in set(functional)
+        rows.append({"path": path, "line": line, "functional": is_func,
+                     "disposition": "allowlisted" if key in allow else
+                                    ("functional" if is_func else "non_functional"),
+                     "text": by_line[key][0]["text"]})
+    res = {
+        "files": len({k[0] for k in by_line}),
+        "lines": len(by_line),
+        "occurrences": len(items),
+        "functional": len(functional),
+        "non_functional": len(by_line) - len(functional),
+        "allowlisted": len(allowlisted),
+        "unallowlisted": [{"path": p, "line": l, "text": by_line[(p, l)][0]["text"]}
+                          for p, l in unallowlisted],
+        "stale_allowlist": [{"path": p, "line": l, "reason": allow[(p, l)]} for p, l in stale],
+        "allowlist_errors": allow_errors,
+        "allowlist": str(ALLOWLIST_FILE),
+        "items": rows,
+    }
+    ok = not unallowlisted and not stale and not allow_errors
+    res["verdict"] = "PASS" if ok else "FAIL"
+    if not ok:
+        res["reason"] = ("%d functional internal reference(s) not allowlisted, %d stale "
+                         "allowlist row(s), %d malformed allowlist row(s)"
+                         % (len(unallowlisted), len(stale), len(allow_errors)))
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--export", required=True)
@@ -402,18 +641,37 @@ def main():
         regen = a.regen_dir or tempfile.mkdtemp(prefix="daggerfall-public-regen-")
         C = pass_c(root, regen)
     D = pass_d(root)
+    E = pass_e(root)
 
     report = {"cr": CR, "export": str(root), "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
               "source_head": sh(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).stdout.strip(),
-              "A_tree": A, "B_gitobjects": B, "C_regeneration": C, "D_file_by_file": D}
+              "A_tree": A, "B_gitobjects": B, "C_regeneration": C, "D_file_by_file": D,
+              "E_internal_refs": E}
     report["verdict"] = "PASS" if all(report[k]["verdict"] == "PASS" for k in
-                                      ("A_tree", "B_gitobjects", "C_regeneration", "D_file_by_file")) else "FAIL"
+                                      ("A_tree", "B_gitobjects", "C_regeneration", "D_file_by_file",
+                                       "E_internal_refs")) else "FAIL"
     dest = Path(a.report) if a.report else root.parent / (root.name + ".verify.json")
     dest.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     summary = {k: report[k] for k in ("verdict", "export", "source_head", "generated")}
-    for k in ("A_tree", "B_gitobjects", "C_regeneration", "D_file_by_file"):
-        summary[k] = {kk: vv for kk, vv in report[k].items() if kk != "files"}
+    for k in ("A_tree", "B_gitobjects", "C_regeneration", "D_file_by_file", "E_internal_refs"):
+        # `files` is the metric itself on pass E; only the per-occurrence list is elided.
+        summary[k] = {kk: vv for kk, vv in report[k].items() if kk != "items"}
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+    # The internal-reference metric is printed unconditionally: a PASS must not hide it.
+    print("E_internal_refs: files=%d lines=%d functional=%d non_functional=%d allowlisted=%d "
+          "occurrences=%d verdict=%s"
+          % (E["files"], E["lines"], E["functional"], E["non_functional"], E["allowlisted"],
+             E["occurrences"], E["verdict"]))
+    if E["verdict"] != "PASS":
+        print("E_internal_refs FAIL: %d functional reference(s) not allowlisted, %d stale row(s), "
+              "%d malformed row(s)" % (len(E["unallowlisted"]), len(E["stale_allowlist"]),
+                                       len(E["allowlist_errors"])))
+        for row in E["unallowlisted"][:20]:
+            print("  not allowlisted: %s:%d  %s" % (row["path"], row["line"], row["text"]))
+        for row in E["stale_allowlist"][:20]:
+            print("  stale allowlist: %s:%d  (%s)" % (row["path"], row["line"], row["reason"]))
+        for err in E["allowlist_errors"][:20]:
+            print("  allowlist error: %s" % err)
     print(f"report: {dest}")
     sys.exit(0 if report["verdict"] == "PASS" else 1)
 

@@ -246,7 +246,7 @@ mod tests {
             SurfaceSource::Whole,
         );
         let right = SurfaceSpec::owned(
-            "MASK00I0.IMG",
+            "MASK99I0.IMG",
             UiRect::new(0, 0, 64, 64),
             SurfaceSource::Whole,
         );

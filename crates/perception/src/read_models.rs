@@ -694,6 +694,9 @@ pub struct SessionReadModels {
     /// Typed configuration (M38/UI-2, D-1) — declared no-session state by
     /// default.
     pub config: ConfigModels,
+    /// The 96 M39/UI-3 routes (A21 C14 D16 E12 F10 G11 H12) — declared
+    /// no-session state by default.
+    pub m39: M39Models,
 }
 
 impl SessionReadModels {
@@ -709,6 +712,7 @@ impl SessionReadModels {
             panel: SessionPanelReadModel::project(panel),
             createchar: CreateCharModels::default(),
             config: ConfigModels::default(),
+            m39: M39Models::default(),
         }
     }
 
@@ -730,7 +734,13 @@ impl SessionReadModels {
             "panel.gold" => self.panel.gold.to_string(),
             "panel.item_count" => self.panel.item_kinds().to_string(),
             "panel.quest_count" => self.panel.quest_count().to_string(),
-            path => return self.createchar.resolve(path).or_else(|| self.config.resolve(path)),
+            path => {
+                return self
+                    .createchar
+                    .resolve(path)
+                    .or_else(|| self.config.resolve(path))
+                    .or_else(|| self.m39.resolve(path))
+            }
         })
     }
 
@@ -2013,5 +2023,623 @@ mod tests {
         assert_eq!(model.nameplates[2].text, "Bank", "unique names stay readable");
         assert_eq!(nameplate_text("Temple", true), "*");
         assert_eq!(nameplate_text("Temple", false), "Temple");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// M39/UI-3 — `m39.*` read models (96): A21 C14 D16 E12 F10 G11 H12
+// ─────────────────────────────────────────────────────────────────────────
+//
+// One typed family per UI block of the M39 census partition. Every route is
+// an `Option<T>`: `None` means *absent in this session* (no live datum of that
+// kind, e.g. no save on disk), which the family reports as [`M39_ABSENT`];
+// when the session itself does not exist, [`M39Models::resolve`] reports
+// [`M39_NO_SESSION`] for every declared route. Neither marker is numeric and
+// neither is empty, so a consumer can never mistake a missing datum for a
+// measured zero.
+
+/// Marker for "the route is declared but there is no session to read it from".
+pub const M39_NO_SESSION: &str = "NO SESSION";
+/// Marker for "the route is declared, the session exists, and this datum is
+/// not present in it" — never `0` and never an empty string.
+pub const M39_ABSENT: &str = "ABSENT";
+
+/// Typed admission of one setter value into an M39 route's own type.
+///
+/// `from_*` returns `None` when the route's type does not match the setter (a
+/// text route refuses an integer, a `u16` route refuses `70_000`) and when the
+/// value cannot be represented **without clamping or truncation** — the setter
+/// contract of M39/UI-3 is "no silent clamp" (plan §3.6), so an out-of-range
+/// value is a refusal, never a saturating write. `String` refuses the empty
+/// text for the same reason [`M39_ABSENT`] is not empty: an empty read model
+/// must not be indistinguishable from a datum that was never written.
+pub trait M39Value: Sized {
+    /// Admits an integer, `None` when it does not fit the route's own type.
+    fn from_i64(value: i64) -> Option<Self>;
+    /// Admits a text, `None` for every non-text route and for `""`.
+    fn from_text(value: &str) -> Option<Self>;
+    /// Admits a flag, `None` for every non-flag route.
+    fn from_bool(value: bool) -> Option<Self>;
+}
+
+impl M39Value for u8 {
+    fn from_i64(value: i64) -> Option<Self> {
+        u8::try_from(value).ok()
+    }
+
+    fn from_text(_value: &str) -> Option<Self> {
+        None
+    }
+
+    fn from_bool(_value: bool) -> Option<Self> {
+        None
+    }
+}
+
+impl M39Value for u16 {
+    fn from_i64(value: i64) -> Option<Self> {
+        u16::try_from(value).ok()
+    }
+
+    fn from_text(_value: &str) -> Option<Self> {
+        None
+    }
+
+    fn from_bool(_value: bool) -> Option<Self> {
+        None
+    }
+}
+
+impl M39Value for i64 {
+    fn from_i64(value: i64) -> Option<Self> {
+        Some(value)
+    }
+
+    fn from_text(_value: &str) -> Option<Self> {
+        None
+    }
+
+    fn from_bool(_value: bool) -> Option<Self> {
+        None
+    }
+}
+
+impl M39Value for bool {
+    fn from_i64(_value: i64) -> Option<Self> {
+        None
+    }
+
+    fn from_text(_value: &str) -> Option<Self> {
+        None
+    }
+
+    fn from_bool(value: bool) -> Option<Self> {
+        Some(value)
+    }
+}
+
+impl M39Value for String {
+    fn from_i64(_value: i64) -> Option<Self> {
+        None
+    }
+
+    fn from_text(value: &str) -> Option<Self> {
+        (!value.is_empty()).then(|| value.to_string())
+    }
+
+    fn from_bool(_value: bool) -> Option<Self> {
+        None
+    }
+}
+
+/// Declares one M39 family: `Option<T>` per route, its `PATHS` and `resolve`.
+macro_rules! m39_family {
+    ($(#[$meta:meta])* $name:ident, [$(($field:ident, $path:literal, $ty:ty)),* $(,)?]) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Default, PartialEq, Eq)]
+        pub struct $name {
+            $(
+                #[doc = concat!("`", $path, "` — `None` = absent in this session.")]
+                pub $field: Option<$ty>,
+            )*
+        }
+
+        impl $name {
+            /// Every route of the family, in declaration order.
+            pub const PATHS: &'static [&'static str] = &[$($path),*];
+
+            /// Resolves one declared route.
+            ///
+            /// `None` = the route does not belong to this family;
+            /// `Some(None)` = declared but absent; `Some(Some(text))` = value.
+            pub fn resolve(&self, path: &str) -> Option<Option<String>> {
+                Some(match path {
+                    $($path => self.$field.as_ref().map(|value| value.to_string()),)*
+                    _ => return None,
+                })
+            }
+
+            /// Writes one integer-shaped route of the family.
+            ///
+            /// `false` = the route is not in this family **or** its type is
+            /// not integer-shaped **or** `value` does not fit it. Never
+            /// clamps ([`M39Value`]).
+            pub fn set_i64(&mut self, path: &str, value: i64) -> bool {
+                match path {
+                    $(
+                        $path => match <$ty as $crate::read_models::M39Value>::from_i64(value) {
+                            Some(value) => {
+                                self.$field = Some(value);
+                                true
+                            }
+                            None => false,
+                        },
+                    )*
+                    _ => false,
+                }
+            }
+
+            /// Writes one text-shaped route of the family (`false` = not in
+            /// this family, not text-shaped, or `""`).
+            pub fn set_text(&mut self, path: &str, value: &str) -> bool {
+                match path {
+                    $(
+                        $path => match <$ty as $crate::read_models::M39Value>::from_text(value) {
+                            Some(value) => {
+                                self.$field = Some(value);
+                                true
+                            }
+                            None => false,
+                        },
+                    )*
+                    _ => false,
+                }
+            }
+
+            /// Writes one flag-shaped route of the family (`false` = not in
+            /// this family or not flag-shaped).
+            pub fn set_bool(&mut self, path: &str, value: bool) -> bool {
+                match path {
+                    $(
+                        $path => match <$ty as $crate::read_models::M39Value>::from_bool(value) {
+                            Some(value) => {
+                                self.$field = Some(value);
+                                true
+                            }
+                            None => false,
+                        },
+                    )*
+                    _ => false,
+                }
+            }
+        }
+    };
+}
+
+m39_family!(
+    /// Block A — menú, opciones, guardar/cargar, mensajes, entrada, controles,
+    /// vídeo (21 routes).
+    M39MenuModels,
+    [
+        (menu_items, "m39.menu.items", u16),
+        (menu_selected, "m39.menu.selected", u16),
+        (menu_selected_name, "m39.menu.selected.name", String),
+        (menu_depth, "m39.menu.depth", u8),
+        (settings_scale, "m39.settings.scale", u16),
+        (settings_language, "m39.settings.language", String),
+        (settings_applied, "m39.settings.applied", bool),
+        (saves_count, "m39.saves.count", u16),
+        (saves_selected_slot, "m39.saves.selected.slot", u16),
+        (saves_selected_name, "m39.saves.selected.name", String),
+        (saves_loaded_name, "m39.saves.loaded.name", String),
+        (messages_count, "m39.messages.count", u16),
+        (messages_selected_prefix, "m39.messages.selected.prefix", String),
+        (messages_selected_text, "m39.messages.selected.text", String),
+        (messages_decision, "m39.messages.decision", String),
+        (input_prompt, "m39.input.prompt", String),
+        (input_value, "m39.input.value", String),
+        (input_max_len, "m39.input.max_len", u16),
+        (controls_binding, "m39.controls.binding", String),
+        (controls_conflicts, "m39.controls.conflicts", u16),
+        (video_frames, "m39.video.frames", u16),
+    ]
+);
+
+m39_family!(
+    /// Block C — inventario, hoja de personaje (14 routes).
+    M39InventoryModels,
+    [
+        (inv_slots, "m39.inv.slots", u16),
+        (inv_used_slots, "m39.inv.used_slots", u16),
+        (inv_weight_g, "m39.inv.weight_g", i64),
+        (inv_max_weight_g, "m39.inv.max_weight_g", i64),
+        (inv_equipped_weapon, "m39.inv.equipped.weapon", String),
+        (inv_equipped_armor, "m39.inv.equipped.armor", String),
+        (inv_equipped_offhand, "m39.inv.equipped.offhand", String),
+        (inv_selected_name, "m39.inv.selected.name", String),
+        (inv_action, "m39.inv.action", String),
+        (inv_reject_reason, "m39.inv.reject_reason", String),
+        (inv_gold, "m39.inv.gold", i64),
+        (sheet_slots_filled, "m39.sheet.slots_filled", u16),
+        (sheet_level, "m39.sheet.level", u16),
+        (sheet_encumbrance_band, "m39.sheet.encumbrance_band", String),
+    ]
+);
+
+m39_family!(
+    /// Block D — comercio, banca, taberna, descanso, reparación (16 routes).
+    M39CommerceModels,
+    [
+        (trade_display_price, "m39.trade.display_price", i64),
+        (trade_charged_price, "m39.trade.charged_price", i64),
+        (trade_total_display, "m39.trade.total_display", i64),
+        (trade_total_charged, "m39.trade.total_charged", i64),
+        (trade_rows, "m39.trade.rows", u16),
+        (bank_balance, "m39.bank.balance", i64),
+        (bank_loan_owed, "m39.bank.loan_owed", i64),
+        (bank_purchase_price, "m39.bank.purchase_price", i64),
+        (bank_action, "m39.bank.action", String),
+        (inn_room_price, "m39.inn.room_price", i64),
+        (rest_hours, "m39.rest.hours", u16),
+        (rest_cost, "m39.rest.cost", i64),
+        (repair_condition, "m39.repair.condition", u16),
+        (repair_cost, "m39.repair.cost", i64),
+        (merchant_service, "m39.merchant.service", String),
+        (merchant_charged, "m39.merchant.charged", i64),
+    ]
+);
+
+m39_family!(
+    /// Block E — libros de magia, creadores, objetos mágicos (12 routes).
+    M39MagicModels,
+    [
+        (spellbook_count, "m39.spellbook.count", u16),
+        (spellbook_selected_name, "m39.spellbook.selected.name", String),
+        (spellbook_selected_cost, "m39.spellbook.selected.cost", u16),
+        (spellmaker_elements, "m39.spellmaker.elements", u16),
+        (spellmaker_composed_cost, "m39.spellmaker.composed_cost", u16),
+        (spellmaker_persisted, "m39.spellmaker.persisted", bool),
+        (itemmaker_cost, "m39.itemmaker.cost", i64),
+        (itemmaker_persisted, "m39.itemmaker.persisted", bool),
+        (potionmaker_cost, "m39.potionmaker.cost", i64),
+        (potionmaker_persisted, "m39.potionmaker.persisted", bool),
+        (magicitem_charges, "m39.magicitem.charges", u16),
+        (spellicon_selected, "m39.spellicon.selected", u16),
+    ]
+);
+
+m39_family!(
+    /// Block F — diario, notas, libro, historial (10 routes).
+    M39JournalModels,
+    [
+        (journal_entries, "m39.journal.entries", u16),
+        (journal_selected_text, "m39.journal.selected.text", String),
+        (journal_line_chars, "m39.journal.line_chars", u16),
+        (journal_line_limit, "m39.journal.line_limit", u16),
+        (journal_prefixes, "m39.journal.prefixes", u16),
+        (notes_count, "m39.notes.count", u16),
+        (notes_persisted, "m39.notes.persisted", bool),
+        (book_pages, "m39.book.pages", u16),
+        (book_page_index, "m39.book.page_index", u16),
+        (history_entries, "m39.history.entries", u16),
+    ]
+);
+
+m39_family!(
+    /// Block G — automap, viaje, transporte, teletransporte, tiempo
+    /// (11 routes).
+    M39TravelModels,
+    [
+        (automap_chunks, "m39.automap.chunks", u16),
+        (automap_markers, "m39.automap.markers", u16),
+        (automap_dungeon_blocks, "m39.automap.dungeon_blocks", u16),
+        (travel_regions, "m39.travel.regions", u16),
+        (travel_selected_region, "m39.travel.selected_region", String),
+        (travel_cost_days, "m39.travel.cost_days", u16),
+        (travel_cost_gold, "m39.travel.cost_gold", i64),
+        (transport_fare, "m39.transport.fare", i64),
+        (transport_time_hours, "m39.transport.time_hours", u16),
+        (teleport_destination, "m39.teleport.destination", String),
+        (time_day, "m39.time.day", u16),
+    ]
+);
+
+m39_family!(
+    /// Block H — conversación, servicios, encargos, corte, Daedra, coven
+    /// (12 routes).
+    M39SocialModels,
+    [
+        (talk_topics, "m39.talk.topics", u16),
+        (talk_selected_topic, "m39.talk.selected.topic", String),
+        (talk_answer, "m39.talk.answer", String),
+        (talk_faction, "m39.talk.faction", String),
+        (service_kind, "m39.service.kind", String),
+        (service_charged, "m39.service.charged", i64),
+        (service_executed, "m39.service.executed", bool),
+        (quest_offers, "m39.quest.offers", u16),
+        (quest_decision, "m39.quest.decision", String),
+        (court_ruling, "m39.court.ruling", String),
+        (daedra_summoned, "m39.daedra.summoned", String),
+        (coven_service, "m39.coven.service", String),
+    ]
+);
+
+/// The seven M39 route families plus the session flag.
+///
+/// Order of the route space is A, C, D, E, F, G, H — the same order as
+/// [`crate::read_models`]'s `READ_MODEL_PATHS` suffix in
+/// `parser-bevy-bridge::ui_compat::text`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct M39Models {
+    /// Whether a live UI session exists. `false` (the default) makes every
+    /// declared route resolve to [`M39_NO_SESSION`].
+    pub session: bool,
+    /// A — menú/opciones/guardar-cargar/mensajes/entrada/controles/vídeo.
+    pub a: M39MenuModels,
+    /// C — inventario y hoja.
+    pub c: M39InventoryModels,
+    /// D — comercio/banca/taberna/descanso/reparación.
+    pub d: M39CommerceModels,
+    /// E — magia.
+    pub e: M39MagicModels,
+    /// F — diario/notas/libro/historial.
+    pub f: M39JournalModels,
+    /// G — automap/viaje/transporte/tiempo.
+    pub g: M39TravelModels,
+    /// H — conversación/servicios/encargos/corte/cultos.
+    pub h: M39SocialModels,
+}
+
+impl M39Models {
+    /// Every declared M39 route in block order (A, C, D, E, F, G, H) — 96.
+    pub fn paths() -> Vec<&'static str> {
+        let mut paths = Vec::new();
+        for family in [
+            M39MenuModels::PATHS,
+            M39InventoryModels::PATHS,
+            M39CommerceModels::PATHS,
+            M39MagicModels::PATHS,
+            M39JournalModels::PATHS,
+            M39TravelModels::PATHS,
+            M39SocialModels::PATHS,
+        ] {
+            paths.extend_from_slice(family);
+        }
+        paths
+    }
+
+    /// Typed lookup: `None` = not a declared M39 route, `Some(None)` =
+    /// declared but absent, `Some(Some(text))` = value.
+    pub fn value(&self, path: &str) -> Option<Option<String>> {
+        self.a
+            .resolve(path)
+            .or_else(|| self.c.resolve(path))
+            .or_else(|| self.d.resolve(path))
+            .or_else(|| self.e.resolve(path))
+            .or_else(|| self.f.resolve(path))
+            .or_else(|| self.g.resolve(path))
+            .or_else(|| self.h.resolve(path))
+    }
+
+    /// Resolves one declared route to its text, applying the two markers.
+    ///
+    /// `None` is reserved for a route this family does not declare, so a
+    /// declared-but-missing datum can never be confused with an unknown path.
+    pub fn resolve(&self, path: &str) -> Option<String> {
+        let value = self.value(path)?;
+        if !self.session {
+            return Some(M39_NO_SESSION.to_string());
+        }
+        Some(value.unwrap_or_else(|| M39_ABSENT.to_string()))
+    }
+
+    /// Writes one integer-shaped route of any family.
+    ///
+    /// `false` = undeclared route, non-integer route, or a value that does not
+    /// fit the route's own type. Nothing is clamped (plan §3.6): the caller
+    /// must reject, never truncate.
+    pub fn set_i64(&mut self, path: &str, value: i64) -> bool {
+        self.a.set_i64(path, value)
+            || self.c.set_i64(path, value)
+            || self.d.set_i64(path, value)
+            || self.e.set_i64(path, value)
+            || self.f.set_i64(path, value)
+            || self.g.set_i64(path, value)
+            || self.h.set_i64(path, value)
+    }
+
+    /// Writes one text-shaped route of any family (`false` = undeclared route,
+    /// non-text route, or empty text).
+    pub fn set_text(&mut self, path: &str, value: &str) -> bool {
+        self.a.set_text(path, value)
+            || self.c.set_text(path, value)
+            || self.d.set_text(path, value)
+            || self.e.set_text(path, value)
+            || self.f.set_text(path, value)
+            || self.g.set_text(path, value)
+            || self.h.set_text(path, value)
+    }
+
+    /// Writes one flag-shaped route of any family (`false` = undeclared route
+    /// or non-flag route).
+    pub fn set_bool(&mut self, path: &str, value: bool) -> bool {
+        self.a.set_bool(path, value)
+            || self.c.set_bool(path, value)
+            || self.d.set_bool(path, value)
+            || self.e.set_bool(path, value)
+            || self.f.set_bool(path, value)
+            || self.g.set_bool(path, value)
+            || self.h.set_bool(path, value)
+    }
+}
+
+#[cfg(test)]
+mod m39_tests {
+    use super::*;
+
+    #[test]
+    fn m39_declares_96_routes_in_block_order() {
+        let paths = M39Models::paths();
+        assert_eq!(paths.len(), 96);
+        assert_eq!(M39MenuModels::PATHS.len(), 21);
+        assert_eq!(M39InventoryModels::PATHS.len(), 14);
+        assert_eq!(M39CommerceModels::PATHS.len(), 16);
+        assert_eq!(M39MagicModels::PATHS.len(), 12);
+        assert_eq!(M39JournalModels::PATHS.len(), 10);
+        assert_eq!(M39TravelModels::PATHS.len(), 11);
+        assert_eq!(M39SocialModels::PATHS.len(), 12);
+        // Block order: every route's prefix belongs to a UI block and the
+        // blocks appear in A, C, D, E, F, G, H order; every route is unique.
+        let mut seen = std::collections::BTreeSet::new();
+        let mut last = 0usize;
+        for path in &paths {
+            assert!(seen.insert(*path), "duplicate route {path}");
+            let mut segments = path.split('.');
+            assert_eq!(segments.next(), Some("m39"), "{path} is not an m39 route");
+            let prefix = segments.next().expect("m39.<prefix>");
+            let block = block_of(prefix)
+                .unwrap_or_else(|| panic!("{path}: prefix {prefix} belongs to no block"));
+            let index = M39_BLOCK_ORDER
+                .iter()
+                .position(|candidate| *candidate == block)
+                .expect("declared block");
+            assert!(index >= last, "{path} breaks the A,C,D,E,F,G,H order");
+            last = index;
+        }
+    }
+
+    /// The seven route families in [`M39Models::paths`] order.
+    const M39_BLOCK_ORDER: [char; 7] = ['A', 'C', 'D', 'E', 'F', 'G', 'H'];
+
+    /// UI block of one `m39.<prefix>` route (plan §2 partition / §5 routes).
+    fn block_of(prefix: &str) -> Option<char> {
+        Some(match prefix {
+            "menu" | "settings" | "saves" | "messages" | "input" | "controls" | "video" => 'A',
+            "inv" | "sheet" => 'C',
+            "trade" | "bank" | "inn" | "rest" | "repair" | "merchant" => 'D',
+            "spellbook" | "spellmaker" | "itemmaker" | "potionmaker" | "magicitem"
+            | "spellicon" => 'E',
+            "journal" | "notes" | "book" | "history" => 'F',
+            "automap" | "travel" | "transport" | "teleport" | "time" => 'G',
+            "talk" | "service" | "quest" | "court" | "daedra" | "coven" => 'H',
+            _ => return None,
+        })
+    }
+
+    #[test]
+    fn m39_markers_are_not_numeric_and_resolve_never_empty() {
+        // No session: every declared route says so.
+        let no_session = M39Models::default();
+        for path in M39Models::paths() {
+            assert_eq!(no_session.resolve(path).as_deref(), Some(M39_NO_SESSION));
+        }
+        // Session without data: every route is ABSENT, never 0 or "".
+        let empty_session = M39Models {
+            session: true,
+            ..M39Models::default()
+        };
+        for path in M39Models::paths() {
+            let text = empty_session.resolve(path).expect("declared");
+            assert_eq!(text, M39_ABSENT);
+            assert!(!text.trim().is_empty());
+            assert!(text.parse::<i64>().is_err(), "{path} resolved numeric");
+        }
+        // An undeclared route stays undeclared in both states.
+        assert_eq!(no_session.resolve("m39.nope"), None);
+        assert_eq!(empty_session.value("m39.nope"), None);
+    }
+
+    #[test]
+    fn m39_values_follow_the_fields() {
+        let models = M39Models {
+            session: true,
+            a: M39MenuModels {
+                menu_items: Some(5),
+                menu_selected: Some(2),
+                menu_selected_name: Some("DaggerfallPauseOptionsWindow".to_string()),
+                settings_applied: Some(false),
+                ..M39MenuModels::default()
+            },
+            c: M39InventoryModels {
+                inv_weight_g: Some(12_500),
+                ..M39InventoryModels::default()
+            },
+            ..M39Models::default()
+        };
+        assert_eq!(models.resolve("m39.menu.items").as_deref(), Some("5"));
+        assert_eq!(models.resolve("m39.menu.selected").as_deref(), Some("2"));
+        assert_eq!(
+            models.resolve("m39.menu.selected.name").as_deref(),
+            Some("DaggerfallPauseOptionsWindow")
+        );
+        assert_eq!(models.resolve("m39.settings.applied").as_deref(), Some("false"));
+        assert_eq!(models.resolve("m39.inv.weight_g").as_deref(), Some("12500"));
+        assert_eq!(models.resolve("m39.saves.count").as_deref(), Some(M39_ABSENT));
+    }
+
+    #[test]
+    fn m39_setters_round_trip_every_declared_route() {
+        // Every one of the 96 routes accepts exactly one setter shape and
+        // `resolve` hands the written value back verbatim.
+        for path in M39Models::paths() {
+            let mut models = M39Models {
+                session: true,
+                ..M39Models::default()
+            };
+            let text = models.set_text(path, "probe");
+            let flag = models.set_bool(path, true);
+            let number = models.set_i64(path, 7);
+            let accepted =
+                usize::from(text) + usize::from(flag) + usize::from(number);
+            assert_eq!(accepted, 1, "{path} accepts {accepted} setter shapes");
+            let expected = if text {
+                "probe"
+            } else if flag {
+                "true"
+            } else {
+                "7"
+            };
+            assert_eq!(models.resolve(path).as_deref(), Some(expected), "{path}");
+        }
+    }
+
+    #[test]
+    fn m39_setters_refuse_out_of_range_types_and_empty_text() {
+        let mut models = M39Models {
+            session: true,
+            ..M39Models::default()
+        };
+        // `u8` route: 256 does not fit and must not wrap to 0 (no clamp).
+        assert!(!models.set_i64("m39.menu.depth", 256));
+        assert!(!models.set_i64("m39.menu.depth", -1));
+        assert_eq!(models.resolve("m39.menu.depth").as_deref(), Some(M39_ABSENT));
+        assert!(models.set_i64("m39.menu.depth", 255));
+        assert_eq!(models.resolve("m39.menu.depth").as_deref(), Some("255"));
+        // `u16` route: 65_536 does not fit, an `i64` route takes any `i64`.
+        assert!(!models.set_i64("m39.menu.items", 65_536));
+        assert!(models.set_i64("m39.inv.weight_g", i64::MAX));
+        assert_eq!(
+            models.resolve("m39.inv.weight_g").as_deref(),
+            Some(i64::MAX.to_string().as_str())
+        );
+        // Shape mismatches.
+        assert!(!models.set_text("m39.menu.items", "5"));
+        assert!(!models.set_bool("m39.menu.items", true));
+        assert!(!models.set_i64("m39.menu.selected.name", 5));
+        // `String` refuses the empty text (never a datum that looks absent).
+        assert!(!models.set_text("m39.menu.selected.name", ""));
+        assert!(models.set_text("m39.menu.selected.name", "DaggerfallStartWindow"));
+        assert_eq!(
+            models.resolve("m39.menu.selected.name").as_deref(),
+            Some("DaggerfallStartWindow")
+        );
+        // Flags take only flags.
+        assert!(models.set_bool("m39.settings.applied", true));
+        assert_eq!(models.resolve("m39.settings.applied").as_deref(), Some("true"));
+        assert!(!models.set_i64("m39.settings.applied", 1));
+        // Undeclared route: every setter refuses.
+        assert!(!models.set_i64("m39.nope", 1));
+        assert!(!models.set_text("m39.nope", "x"));
+        assert!(!models.set_bool("m39.nope", true));
     }
 }

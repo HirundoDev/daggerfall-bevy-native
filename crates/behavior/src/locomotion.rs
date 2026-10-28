@@ -51,6 +51,19 @@ pub const FALL_DAMAGE_HP_PER_METRE: f32 = 5.0;
 /// because the target world is heightfield + horizontal grid (delta §6).
 pub const ANTI_BUMP_FACTOR: f32 = 20.75;
 
+/// Maximum height drop the grounded step absorbs without arming a fall, m.
+///
+/// `[INFERENCE]` — heightfield analogue of the Unity
+/// `CharacterController.stepOffset` (engine default 0.3 m; the DFU prefab does
+/// not override it in source), and the accident that moves the terrain out from
+/// under the feet. DFU never reads a step offset: it reads
+/// `grounded = (collisionFlags & CollisionFlags.Below) != 0`
+/// (`PlayerMotor.cs:278`) and, when that flag is gone, arms `CheckInitFall`
+/// (`PlayerMotor.cs:350` → `AcrobatMotor.cs:167-177`) instead of snapping. A
+/// drop above this limit is therefore a fall, and `CheckFallingDamage`
+/// (`AcrobatMotor.cs:207-225`) bills it on landing.
+pub const STEP_DOWN_LIMIT_M: f32 = 0.3;
+
 /// Levitation speed, m/s (`LevitateMotor.cs:25`).
 pub const LEVITATE_MOVE_SPEED: f32 = 4.0;
 /// Diagonal input factor (`PlayerMotor.cs:30`, `FrictionMotor.cs:93`).
@@ -61,7 +74,11 @@ pub const DIAGONAL_FACTOR: f32 = 0.7071;
 
 /// Classic update interval, s (`GameManager.cs:42`).
 pub const CLASSIC_UPDATE_INTERVAL_S: f32 = 0.0625;
-/// Classic updates per breath point minus 1 (`PlayerEntity.cs:329`).
+/// Tally gate of the breath countdown (`PlayerEntity.cs:329`):
+/// `if (breathUpdateTally > 18) { --currentBreath; breathUpdateTally = 0; }
+/// else ++breathUpdateTally;`. The tally therefore holds 19 without draining
+/// and the **20th** classic update decrements — 19 increments plus the
+/// decrementing update itself.
 pub const BREATH_TALLY_LIMIT: u32 = 18;
 /// Classic overencumbrance weight (`LevitateMotor.cs:83`).
 pub const OVERENCUMBERED_CLASSIC_LIMIT: f32 = 250.0;
@@ -336,9 +353,11 @@ pub fn max_breath(live_endurance: i32) -> i32 {
     (live_endurance / 2).max(0)
 }
 
-/// Breath drain interval (`PlayerEntity.cs:329`, `GameManager.cs:42`).
+/// Breath drain interval (`PlayerEntity.cs:329-337`, `GameManager.cs:42`):
+/// 19 tally increments **plus** the update that resets the tally and decrements
+/// the breath = 20 classic updates = `20 · 0.0625 = 1.25 s`.
 pub fn breath_drain_interval_s() -> f32 {
-    (BREATH_TALLY_LIMIT + 1) as f32 * CLASSIC_UPDATE_INTERVAL_S
+    (BREATH_TALLY_LIMIT + 2) as f32 * CLASSIC_UPDATE_INTERVAL_S
 }
 
 /// Maximum carry weight (`FormulaHelper.cs:75-83`).
@@ -633,6 +652,44 @@ impl Locomotion {
         let submerged = world.submerged(self.position);
         let water_mode = input.levitating || (submerged && self.mode != MotionMode::Climbing);
 
+        // `PlayerEntity.cs:323-343`: the **single** copy of the breath block.
+        // Its only gate is `IsPlayerSubmerged && !IsWaterBreathing` — the motor
+        // is not part of the condition, so a submerged body drains (and drowns)
+        // while swimming, levitating, climbing or falling alike. It runs before
+        // the water engine takes over and before any early return.
+        if submerged && !body.water_breathing {
+            // `:325-328`: an exhausted breath refills **before** this update's
+            // decrement. `DeepBreath` only folds guild memberships over the
+            // value (`GuildManager.cs:385-391`), so without memberships it is
+            // the identity and the refill is `MaxBreath`
+            // (`DaggerfallEntity.cs:267`).
+            if self.breath == 0 {
+                self.breath = max_breath(body.live_endurance);
+            }
+            self.breath_tally += dt;
+            let interval = breath_drain_interval_s();
+            while self.breath_tally >= interval {
+                self.breath_tally -= interval;
+                // `:330-331`: Argonian 50 % chance of not consuming.
+                let skip = body.argonian && dice.roll() % 2 == 1;
+                if !skip {
+                    self.breath -= 1;
+                }
+            }
+            // `:339-340`: `SetHealth(0)` only when the breath is still ≤ 0
+            // after the refill — always the case while `MaxBreath` is 0, never
+            // a second time with a positive maximum. There is no clamp: the
+            // source does not write the field back.
+            if self.breath <= 0 {
+                frame.drowned = true;
+            }
+        } else {
+            // `:342-343`: `else currentBreath = 0;` — covers the dry body, the
+            // water-breathing body and the moment the immersion ends.
+            self.breath = 0;
+            self.breath_tally = 0.0;
+        }
+
         // `PlayerSpeedChanger.ApplyInputSpeedAdjustment` (`PlayerSpeedChanger.cs:106-118`):
         // the run mode is resolved **only while grounded** (`isRunning =
         // CanRun() && runningMode`); anywhere else the previous resolution is
@@ -647,7 +704,6 @@ impl Locomotion {
         // DFU PlayerMotor.cs:323 — levitating/swimming take over the engine and
         // cancel accumulated velocity.
         if water_mode {
-            let was_swimming = self.mode == MotionMode::Swimming;
             self.falling = false;
             self.slipping = false;
             self.vertical_velocity = 0.0;
@@ -658,12 +714,7 @@ impl Locomotion {
             } else {
                 MotionMode::Swimming
             };
-            if !was_swimming && self.mode == MotionMode::Swimming {
-                // `PlayerEntity.cs:327`: breath refills when the immersion starts.
-                self.breath = max_breath(body.live_endurance);
-                self.breath_tally = 0.0;
-            }
-            self.step_water(input, body, world, dice, dt, &mut frame);
+            self.step_water(input, body, world, dt, &mut frame);
             return frame;
         }
 
@@ -673,8 +724,6 @@ impl Locomotion {
             self.falling = true;
             self.fall_start_y = self.position[1];
             self.vertical_velocity = 0.0;
-            self.breath = 0;
-            self.breath_tally = 0.0;
         }
 
         if self.mode == MotionMode::Climbing {
@@ -779,9 +828,23 @@ impl Locomotion {
                 self.position[2] = boosted.pos[2];
             }
         } else {
-            // Heightfield: the eye follows the ground (step-up/down without anti-bump).
-            self.position[1] = ground_eye;
-            self.vertical_velocity = 0.0;
+            let drop = self.position[1] - ground_eye;
+            if drop > STEP_DOWN_LIMIT_M {
+                // The ground is gone from under the feet: `CollisionFlags.Below`
+                // stops being set, so `PlayerMotor.cs:350` calls
+                // `acrobatMotor.CheckInitFall` (`AcrobatMotor.cs:167-177`), which
+                // arms `falling` with the level of this moment. The landing bills
+                // `fallStartLevel - y` (`:215-223`).
+                self.mode = MotionMode::Airborne;
+                self.falling = true;
+                self.fall_start_y = self.position[1];
+                self.vertical_velocity = 0.0;
+                self.grounded_time = 0.0;
+            } else {
+                // Heightfield: the eye follows the ground (step-up/down without anti-bump).
+                self.position[1] = ground_eye;
+                self.vertical_velocity = 0.0;
+            }
         }
     }
 
@@ -859,7 +922,6 @@ impl Locomotion {
         input: &MoveInput,
         body: &PlayerBody,
         world: &dyn LocomotionWorld,
-        dice: &mut Dice100,
         dt: f32,
         frame: &mut Frame,
     ) {
@@ -924,36 +986,9 @@ impl Locomotion {
         }
         self.position[1] = new_y;
 
-        if self.mode == MotionMode::Swimming && !body.water_breathing {
-            // `PlayerEntity.cs:325-328`: the block opens by refilling an
-            // exhausted breath with `GuildManager.DeepBreath(MaxBreath)`, i.e.
-            // **before** the decrement of this same update. `DeepBreath` only
-            // folds guild memberships over the value (`GuildManager.cs:385-391`),
-            // so without memberships it is the identity and the refill is
-            // `MaxBreath` — the same `max_breath(body.live_endurance)`
-            // (`DaggerfallEntity.cs:267`) written when the immersion starts
-            // (`PlayerEntity.cs:327`).
-            if self.breath == 0 {
-                self.breath = max_breath(body.live_endurance);
-            }
-            self.breath_tally += dt;
-            let interval = breath_drain_interval_s();
-            while self.breath_tally >= interval {
-                self.breath_tally -= interval;
-                // `PlayerEntity.cs:330-331`: Argonian 50 % chance of not consuming.
-                let skip = body.argonian && dice.roll() % 2 == 1;
-                if !skip {
-                    self.breath -= 1;
-                }
-            }
-            // `PlayerEntity.cs:339-340`: `SetHealth(0)` only when the breath is
-            // still ≤ 0 after the refill — always the case while `MaxBreath` is
-            // 0, never a second time with a positive maximum. There is no clamp:
-            // the source does not write the field back.
-            if self.breath <= 0 {
-                frame.drowned = true;
-            }
-        }
+        // The breath block is **not** here: `PlayerEntity.cs:323-343` gates it on
+        // the immersion alone, not on the motor, so it lives once in
+        // [`Self::step`] before the water engine takes over.
     }
 
     fn step_climbing(
@@ -1061,6 +1096,8 @@ mod tests {
     /// Deterministic synthetic world: flat ground, optional wall and optional water.
     struct FlatWorld {
         ground: f32,
+        /// Heightfield ledge: `ledge_height` on the `x < 0` half.
+        ledge_height: Option<f32>,
         wall_x: Option<f32>,
         water_y: Option<f32>,
         solids: Vec<([f32; 3], f32)>,
@@ -1070,6 +1107,7 @@ mod tests {
         fn flat() -> Self {
             Self {
                 ground: 0.0,
+                ledge_height: None,
                 wall_x: None,
                 water_y: None,
                 solids: Vec::new(),
@@ -1078,8 +1116,11 @@ mod tests {
     }
 
     impl LocomotionWorld for FlatWorld {
-        fn ground_height(&self, _x: f32, _z: f32) -> f32 {
-            self.ground
+        fn ground_height(&self, x: f32, _z: f32) -> f32 {
+            match self.ledge_height {
+                Some(height) if x < 0.0 => height,
+                _ => self.ground,
+            }
         }
         fn step(&self, from: [f32; 3], delta: [f32; 3], radius: f32) -> StepOutcome {
             let target = [from[0] + delta[0], from[1] + delta[1], from[2] + delta[2]];
@@ -1243,8 +1284,10 @@ mod tests {
     #[test]
     fn golden_breath() {
         assert_eq!(max_breath(50), 25);
-        approx(breath_drain_interval_s(), 1.1875, 1e-6);
-        approx(25.0 * breath_drain_interval_s(), 29.6875, 1e-5);
+        // `PlayerEntity.cs:329-337`: 19 tally increments + the decrementing
+        // update = 20 classic updates = 1.25 s.
+        approx(breath_drain_interval_s(), 1.25, 1e-6);
+        approx(25.0 * breath_drain_interval_s(), 31.25, 1e-5);
     }
 
     #[test]
@@ -1587,6 +1630,108 @@ mod tests {
         assert!(!hard, "and it is not a hard fall either");
     }
 
+    /// Walks from `x = -1` to `x ≥ 0` across a ledge of `height` metres and
+    /// returns (fall armed at, damage billed, hard fall, final mode, final eye y).
+    fn walk_off_ledge(height: f32) -> (Option<f32>, i32, bool, MotionMode, f32) {
+        let world = FlatWorld {
+            ledge_height: Some(height),
+            ..FlatWorld::flat()
+        };
+        let body = PlayerBody::default();
+        let mut dice = Dice100::new(11);
+        let mut locomotion = Locomotion::new([-1.0, height + 1.6, 0.0], 1.6, 0.3);
+        let input = MoveInput {
+            forward: 1.0,
+            yaw: -std::f32::consts::FRAC_PI_2,
+            ..Default::default()
+        };
+        let mut armed = None;
+        let mut damage = 0;
+        let mut hard = false;
+        for _ in 0..600 {
+            let frame = locomotion.step(&input, &body, &world, &mut dice, 1.0 / 60.0);
+            if armed.is_none() && frame.mode == MotionMode::Airborne {
+                armed = Some(locomotion.fall_start_y);
+            }
+            damage += frame.fall_damage;
+            hard |= frame.hard_fall;
+            if armed.is_some() && frame.mode == MotionMode::Grounded {
+                break;
+            }
+        }
+        (armed, damage, hard, locomotion.mode, locomotion.position[1])
+    }
+
+    #[test]
+    fn ledge_step_down_arms_the_fall_and_bills_the_descent() {
+        // `PlayerMotor.cs:337-353`: when the ground disappears from under the
+        // feet (`:278`, `CollisionFlags.Below` false) DFU arms
+        // `CheckInitFall` (`AcrobatMotor.cs:167-177`) instead of snapping to the
+        // new floor; `CheckFallingDamage` (`:207-225`) then bills
+        // `fallStartLevel - y` = (int)(5·(d−5)) for d = 10 m ⇒ 25.
+        let (armed, damage, hard, mode, eye_y) = walk_off_ledge(10.0);
+        let start = armed.expect("losing the ledge arms CheckInitFall");
+        let drop = start - 1.6;
+        approx(drop, 10.0, 1e-3);
+        assert_eq!(mode, MotionMode::Grounded, "the fall reaches the ground");
+        approx(eye_y, 1.6, 1e-4);
+        assert_eq!(damage, 25, "d = 10 m ⇒ (int)(5·(10−5)) = 25");
+        assert_eq!(damage, fall_outcome(drop).as_damage());
+        assert!(!hard, "damage replaces the hard-fall alert (`:219-223`)");
+    }
+
+    #[test]
+    fn small_step_down_never_arms_a_fall() {
+        // Under the step-down limit the heightfield snaps as before: no fall,
+        // no damage, no hard-fall alert, still grounded.
+        let (armed, damage, hard, mode, eye_y) = walk_off_ledge(0.2);
+        assert!(armed.is_none(), "a 0.2 m step is not a fall");
+        assert_eq!(mode, MotionMode::Grounded, "the body never leaves the ground");
+        approx(eye_y, 1.6, 1e-4);
+        assert_eq!(damage, 0);
+        assert!(!hard);
+    }
+
+    #[test]
+    fn submerged_levitation_drowns_like_swimming() {
+        // `PlayerEntity.cs:323`: the breath block's only gate is
+        // `IsPlayerSubmerged && !IsWaterBreathing` — the motor is irrelevant, so
+        // a levitating submerged body drains and drowns. `MaxBreath` 0 drowns on
+        // the first submerged tick (`:339-340`).
+        let world = FlatWorld {
+            water_y: Some(20.0),
+            ..FlatWorld::flat()
+        };
+        let fragile = PlayerBody {
+            live_endurance: 0,
+            ..PlayerBody::default()
+        };
+        let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], 1.6, 0.3);
+        let mut dice = Dice100::new(41);
+        let input = MoveInput {
+            levitating: true,
+            ..Default::default()
+        };
+        let frame = locomotion.step(&input, &fragile, &world, &mut dice, 1.0 / 60.0);
+        assert_eq!(locomotion.mode, MotionMode::Levitating);
+        assert!(frame.drowned, "levitating does not exempt the breath block");
+
+        // The water-breathing body never drains and the field is written to 0
+        // (`:342-343`), which is the DFU value, not `MaxBreath`.
+        let breather = PlayerBody {
+            water_breathing: true,
+            ..PlayerBody::default()
+        };
+        let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], 1.6, 0.3);
+        let mut dice = Dice100::new(43);
+        let mut drowned = false;
+        for _ in 0..180 {
+            drowned |= locomotion.step(&input, &breather, &world, &mut dice, 1.0 / 60.0).drowned;
+        }
+        assert_eq!(locomotion.breath, 0, "`:342-343` writes 0 with the effect on");
+        assert!(!drowned);
+    }
+
     #[test]
     fn swimming_advances_breath_and_sinks_when_overencumbered() {
         let world = FlatWorld {
@@ -1649,7 +1794,7 @@ mod tests {
             forward: 1.0,
             ..Default::default()
         };
-        // `dt` == the drain interval (exactly representable: 19·0.0625 = 1.1875),
+        // `dt` == the drain interval (exactly representable: 20·0.0625 = 1.25),
         // so every step consumes exactly one breath point.
         let interval = breath_drain_interval_s();
         let mut dice = Dice100::new(73);

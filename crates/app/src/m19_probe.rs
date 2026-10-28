@@ -41,7 +41,8 @@ use daggerfall_behavior::locomotion::{
     StepOutcome, DIAGONAL_FACTOR,
 };
 use daggerfall_behavior::magic::{
-    effect_by_key, EffectDice, EffectEntry, EffectSettings, EffectTarget, MagicState,
+    calculate_total_effect_costs, effect_by_key, EffectDice, EffectEntry, EffectSettings,
+    EffectTarget, MagicState, TargetType,
 };
 use daggerfall_parser_bevy_bridge as bridge;
 
@@ -507,6 +508,10 @@ fn block_c_rows() -> Vec<Row> {
 /// (`x ≥ wall`), optional water (level `y`) and cylindrical solids.
 struct ProbeWorld {
     ground: f32,
+    /// Heightfield ledge: the `x < 0` half-space is `ledge_height`, the other
+    /// half stays at `ground`. Models a real cliff/step edge
+    /// (`PlayerMotor.cs:278`: `grounded = (collisionFlags & CollisionFlags.Below) != 0`).
+    ledge_height: Option<f32>,
     wall_x: Option<f32>,
     /// `true` if the wall is climbable (`wall_ahead` reports it).
     wall_scalable: bool,
@@ -519,6 +524,7 @@ impl ProbeWorld {
     fn flat() -> Self {
         Self {
             ground: 0.0,
+            ledge_height: None,
             wall_x: None,
             wall_scalable: true,
             water_y: None,
@@ -558,6 +564,15 @@ impl ProbeWorld {
         }
     }
 
+    /// Cliff/step edge at `x = 0`: `ledge_height` on the `x < 0` half, ground
+    /// level 0 on the `x ≥ 0` half.
+    fn with_ledge(ledge_height: f32) -> Self {
+        Self {
+            ledge_height: Some(ledge_height),
+            ..Self::flat()
+        }
+    }
+
     /// INV-L99-5 invariant for the synthetic world: the point (x, z) touches
     /// neither wall nor solid and stays inside the enclosure. The Y axis is
     /// heightfield/water (no ceilings), so it takes no part in the test.
@@ -582,8 +597,11 @@ impl ProbeWorld {
 }
 
 impl LocomotionWorld for ProbeWorld {
-    fn ground_height(&self, _x: f32, _z: f32) -> f32 {
-        self.ground
+    fn ground_height(&self, x: f32, _z: f32) -> f32 {
+        match self.ledge_height {
+            Some(height) if x < 0.0 => height,
+            _ => self.ground,
+        }
     }
 
     fn step(&self, from: [f32; 3], delta: [f32; 3], radius: f32) -> StepOutcome {
@@ -884,7 +902,7 @@ fn synthetic_rows() -> Vec<Row> {
     }
     rows.push(golden_row(
         "b_respiracion_3s",
-        first_breath == 25 && locomotion.breath == 23 && (breath_drain_interval_s() - 1.1875).abs() <= 1e-6,
+        first_breath == 25 && locomotion.breath == 23 && (breath_drain_interval_s() - 1.25).abs() <= 1e-6,
         format!(
             "breath 25→{} after 3 s submerged (drain every {:.4} s) · max_breath(50)={}",
             locomotion.breath,
@@ -1196,7 +1214,10 @@ fn cast_reachability_rows() -> Vec<Row> {
         ),
     ));
 
-    // E3: WaterBreathing → `PlayerBody.water_breathing` → breath does not drain.
+    // E3: WaterBreathing → `PlayerBody.water_breathing` → the breath block is
+    // skipped, so the `else` writes 0 (`PlayerEntity.cs:342-343`) and nobody
+    // drowns. The DFU value is **0**, not `MaxBreath`: the source zeroes the
+    // field on every update where the breath block does not run.
     let cast = cast_movement_effects("WaterBreathing");
     let water = ProbeWorld::underwater(20.0);
     let swimmer = PlayerBody {
@@ -1210,21 +1231,22 @@ fn cast_reachability_rows() -> Vec<Row> {
         forward: 1.0,
         ..Default::default()
     };
+    let mut drowned = false;
     for _ in 0..180 {
-        locomotion.step(&forward, &swimmer, &water, &mut dice, DT);
+        drowned |= locomotion.step(&forward, &swimmer, &water, &mut dice, DT).drowned;
     }
     rows.push(golden_row(
         "e_respirar_cast",
         cast.water_breathing
             && locomotion.mode == MotionMode::Swimming
-            && locomotion.breath == max_breath(50),
+            && locomotion.breath == 0
+            && !drowned,
         format!(
-            "cast.movement_effects.water_breathing={} (WaterBreathing, M23) → PlayerBody.water_breathing={} · mode={} · breath={}/{} after 3 s submerged",
+            "cast.movement_effects.water_breathing={} (WaterBreathing, M23) → PlayerBody.water_breathing={} · mode={} · breath={} (DFU 0) drowned={drowned} after 3 s submerged",
             cast.water_breathing,
             swimmer.water_breathing,
             locomotion.mode.label(),
-            locomotion.breath,
-            max_breath(50)
+            locomotion.breath
         ),
     ));
 
@@ -1376,6 +1398,335 @@ fn cast_reachability_rows() -> Vec<Row> {
     rows
 }
 
+// ── block F · M19 MAJOR re-measurement (R1-R12) ──────────────────────────
+
+/// Distance climbed while holding on before the continue check fires
+/// (`CONTINUE_CLIMBING_SKILL_CHECK_FREQUENCY · SYSTEM_TIMER_UPDATES_DIVISOR`).
+/// Replays the engine's own `climb_and_slip` fixture: a scalable wall at
+/// `x = 1.0`, the body already gripping, luck 0 (continue 52 %, regain 20 %,
+/// `FormulaHelper.cs:293-316`) and the seed whose first continue check fails.
+fn climb_and_slip(
+    world: &ProbeWorld,
+    start_y: f32,
+) -> (Option<f32>, i32, bool, bool) {
+    let body = PlayerBody {
+        live_luck: 0,
+        ..PlayerBody::default()
+    };
+    let mut dice = Dice100::new(3);
+    let mut locomotion = Locomotion::new([0.6, start_y, 0.0], EYE, RADIUS);
+    // Already holding the wall (`slipping_bills_the_fall_on_grounding`): this
+    // measures the continue check, the slip and the landing.
+    locomotion.mode = MotionMode::Climbing;
+    let input = MoveInput {
+        forward: 1.0,
+        yaw: -std::f32::consts::FRAC_PI_2,
+        ..Default::default()
+    };
+    let mut armed = None;
+    let mut damage = 0i32;
+    let mut hard = false;
+    for _ in 0..600 {
+        let frame = locomotion.step(&input, &body, world, &mut dice, DT);
+        if armed.is_none() && locomotion.slipping {
+            // `ClimbingMotor.cs:760-764` → `CheckInitFall` (`AcrobatMotor.cs:167-177`).
+            armed = Some(locomotion.fall_start_y);
+        }
+        damage += frame.fall_damage;
+        hard |= frame.hard_fall;
+        if frame.mode == MotionMode::Grounded {
+            break;
+        }
+    }
+    (
+        armed,
+        damage,
+        hard,
+        locomotion.mode == MotionMode::Grounded && !locomotion.falling,
+    )
+}
+
+/// Block F: the three M19 MAJOR re-measured through the engine, plus the
+/// instrument rows that were missing. Every row names its input and its output;
+/// `docs/sintergic/l5-mission/evidence/m19-locomotion-CR-44034827/repro-table.md`
+/// carries the before/after column and the DFU `ruta:línea`.
+fn m19_major_rows() -> Vec<Row> {
+    let mut rows = Vec::with_capacity(12);
+    let water = ProbeWorld::underwater(20.0);
+    let flat = ProbeWorld::flat();
+    let body = PlayerBody::default();
+    let forward = MoveInput {
+        forward: 1.0,
+        ..Default::default()
+    };
+    // 20 classic updates (`PlayerEntity.cs:329-337`): `breathUpdateTally > 18`
+    // is false for ticks 1..19 and true on tick 20, which decrements and resets.
+    let dfu_interval = 20.0 * 0.0625_f32;
+
+    // R1: submerged 1.20 s (72 frames) ⇒ the first decrement has not happened.
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x101);
+    for _ in 0..72 {
+        locomotion.step(&forward, &body, &water, &mut dice, DT);
+    }
+    rows.push(golden_row(
+        "b_ahogo_tick_1_20",
+        locomotion.breath == max_breath(50),
+        format!(
+            "input: submerged 1.20 s (72 frames), endurance 50 (MaxBreath {}), no WaterBreathing · output: breath={} (DFU {} — first drain at 1.25 s = 20 classic updates, 19 tally increments + the decrementing update)",
+            max_breath(50),
+            locomotion.breath,
+            max_breath(50)
+        ),
+    ));
+
+    // R2: the instant of the first decrement, quantised to the frame grid, plus
+    // the breath at 1.30 s.
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x102);
+    let mut first_drain = 0usize;
+    let mut previous = locomotion.breath;
+    for frame in 1..=78 {
+        locomotion.step(&forward, &body, &water, &mut dice, DT);
+        if first_drain == 0 && locomotion.breath < previous {
+            first_drain = frame;
+        }
+        previous = locomotion.breath;
+    }
+    let first_s = first_drain as f32 * DT;
+    rows.push(golden_row(
+        "b_ahogo_tick_1_30",
+        first_drain > 0
+            && (first_s - dfu_interval).abs() <= DT + 1e-6
+            && locomotion.breath == max_breath(50) - 1,
+        format!(
+            "input: submerged from 0 to 1.30 s, endurance 50 · output: first drain on frame {first_drain} = {first_s:.4} s (DFU {dfu_interval} s; the dt=1/60 grid quantises it to ±{DT:.4} s) · breath after 1.30 s = {} (DFU {})",
+            locomotion.breath,
+            max_breath(50) - 1
+        ),
+    ));
+
+    // R3: DFU tests only `IsPlayerSubmerged && !IsWaterBreathing`
+    // (`PlayerEntity.cs:323`); the motor is irrelevant, so levitating submerged
+    // still drowns.
+    let fragile = PlayerBody {
+        live_endurance: 0,
+        ..PlayerBody::default()
+    };
+    let levitating = MoveInput {
+        levitating: true,
+        ..Default::default()
+    };
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x103);
+    let mut drowned = false;
+    for _ in 0..30 {
+        drowned |= locomotion.step(&levitating, &fragile, &water, &mut dice, DT).drowned;
+    }
+    rows.push(golden_row(
+        "b_ahogo_levitar_sumergido",
+        drowned && locomotion.mode == MotionMode::Levitating,
+        format!(
+            "input: submerged 0.5 s with input.levitating=true, endurance 0 (MaxBreath {}), no WaterBreathing · output: mode={} drowned={} (DFU true — the breath block ignores the motor, PlayerEntity.cs:323)",
+            max_breath(0),
+            locomotion.mode.label(),
+            drowned
+        ),
+    ));
+
+    // R4: negative case — walking on the shore never drains.
+    let mut locomotion = Locomotion::new([0.0, EYE, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x104);
+    let mut drowned = false;
+    for _ in 0..180 {
+        drowned |= locomotion.step(&forward, &body, &flat, &mut dice, DT).drowned;
+    }
+    rows.push(golden_row(
+        "b_ahogo_orilla_no_drena",
+        !drowned && locomotion.breath == 0,
+        format!(
+            "input: dry ground, 3 s walking, breath starts at 0 · output: breath={} drowned={} (DFU 0/false — PlayerEntity.cs:342-343)",
+            locomotion.breath, drowned
+        ),
+    ));
+
+    // R5: 3 s submerged (25→23) and one step onto land resets the breath.
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x105);
+    for _ in 0..180 {
+        locomotion.step(&forward, &body, &water, &mut dice, DT);
+    }
+    let submerged_breath = locomotion.breath;
+    let ashore = locomotion.step(&forward, &body, &flat, &mut dice, DT);
+    rows.push(golden_row(
+        "b_ahogo_salida_reset",
+        submerged_breath == max_breath(50) - 2
+            && locomotion.breath == 0
+            && !ashore.drowned,
+        format!(
+            "input: 3 s submerged (breath {submerged_breath}) then 1 step on dry ground · output: breath={} drowned={} (DFU 0/false)",
+            locomotion.breath, ashore.drowned
+        ),
+    ));
+
+    // R6: MaxBreath 0 drowns on the first submerged tick.
+    let mut locomotion = Locomotion::new([0.0, 0.0, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x106);
+    let first = locomotion.step(&forward, &fragile, &water, &mut dice, DT);
+    rows.push(golden_row(
+        "b_ahogo_maxbreath0",
+        first.drowned,
+        format!(
+            "input: submerged 1 frame, endurance 0 (MaxBreath {}) · output: drowned={} (DFU true — PlayerEntity.cs:339-340)",
+            max_breath(0),
+            first.drowned
+        ),
+    ));
+
+    // R8/R9: the slipping climb bills the descent — the row the gate lacked.
+    // The expectation is the DFU C# literal `(int)(5·(d−5))` evaluated inline
+    // (`AcrobatMotor.cs:219-223` → `PlayerHealth.cs:51-52`), **not**
+    // `fall_outcome`, so a mutation of the production constants makes the row
+    // red instead of dragging its expectation along (CR-44034827 MAJOR-F1).
+    let wall = ProbeWorld::with_wall(1.0);
+    let (armed, damage, hard, landed) = climb_and_slip(&wall, 9.0);
+    let drop = armed.map(|start| start - EYE);
+    rows.push(golden_row(
+        "b_resbalon_dano_caida",
+        landed
+            && drop.is_some_and(|d| d > 5.0)
+            && damage == 18
+            && damage == ((5.0 * (drop.unwrap_or(0.0) - 5.0)) as i32).max(0)
+            && !hard,
+        format!(
+            "input: wall x=1.0, start y=9.0, mode=Climbing, luck 0, seed 3 (first continue check fails) · output: slip armed at y={:.4} · d={:.4} m · fall_damage={} (DFU (int)(5·(d−5))={}) hard_fall={hard}",
+            armed.unwrap_or(0.0),
+            drop.unwrap_or(0.0),
+            damage,
+            ((5.0 * (drop.unwrap_or(0.0) - 5.0)) as i32).max(0)
+        ),
+    ));
+    let (armed, damage, hard, landed) = climb_and_slip(&wall, 3.5);
+    let drop = armed.map(|start| start - EYE);
+    rows.push(golden_row(
+        "b_caida_minima_sin_dano",
+        landed
+            && drop.is_some_and(|d| d > 2.5 && d <= 5.0)
+            && damage == 0
+            && hard,
+        format!(
+            "input: same slip from y=3.5 · output: d={:.4} m · fall_damage={damage} (DFU 0) hard_fall={hard} (DFU true — AcrobatMotor.cs:221-222)",
+            drop.unwrap_or(0.0)
+        ),
+    ));
+
+    // R10/R11: losing the ground under the feet arms the fall
+    // (`PlayerMotor.cs:337-353` + `AcrobatMotor.cs:167-177`).
+    let cliff = ProbeWorld::with_ledge(10.0);
+    let mut locomotion = Locomotion::new([-1.0, 10.0 + EYE, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x10A);
+    let walk_east = MoveInput {
+        forward: 1.0,
+        yaw: -std::f32::consts::FRAC_PI_2,
+        ..Default::default()
+    };
+    let mut armed = None;
+    let mut damage = 0i32;
+    let mut hard = false;
+    let mut landed = false;
+    for _ in 0..600 {
+        let frame = locomotion.step(&walk_east, &body, &cliff, &mut dice, DT);
+        if armed.is_none() && frame.mode == MotionMode::Airborne {
+            armed = Some(locomotion.fall_start_y);
+        }
+        if armed.is_some() && frame.mode == MotionMode::Grounded {
+            damage += frame.fall_damage;
+            hard |= frame.hard_fall;
+            landed = true;
+            break;
+        }
+        damage += frame.fall_damage;
+        hard |= frame.hard_fall;
+    }
+    let drop = armed.map(|start| start - EYE);
+    rows.push(golden_row(
+        "b_descenso_borde_dano",
+        landed
+            && drop.is_some_and(|d| (d - 10.0).abs() <= 1e-3)
+            && damage == 25
+            && !hard,
+        format!(
+            "input: ledge 10 m at x=0, walk from x=−1 to x=+1 (forward=1, yaw −π/2) · output: fall armed={} · d={:.4} m · fall_damage={} (DFU 25) hard_fall={hard}",
+            armed.is_some(),
+            drop.unwrap_or(0.0),
+            damage
+        ),
+    ));
+
+    let step = ProbeWorld::with_ledge(0.2);
+    let mut locomotion = Locomotion::new([-1.0, 0.2 + EYE, 0.0], EYE, RADIUS);
+    let mut dice = Dice100::new(SEED ^ 0x10B);
+    let mut damage = 0i32;
+    let mut hard = false;
+    let mut airborne = false;
+    for _ in 0..600 {
+        let frame = locomotion.step(&walk_east, &body, &step, &mut dice, DT);
+        damage += frame.fall_damage;
+        hard |= frame.hard_fall;
+        airborne |= frame.mode == MotionMode::Airborne;
+    }
+    rows.push(golden_row(
+        "b_descenso_escalon_pequeno",
+        !airborne
+            && damage == 0
+            && !hard
+            && locomotion.mode == MotionMode::Grounded
+            && (locomotion.position[1] - EYE).abs() <= 1e-4,
+        format!(
+            "input: 0.2 m step down at x=0, walk from x=−1 to x=+1 · output: airborne={airborne} fall_damage={damage} hard_fall={hard} mode={} eye_y={:.4} (DFU: a step under the step-down limit never arms a fall)",
+            locomotion.mode.label(),
+            locomotion.position[1]
+        ),
+    ));
+
+    // R12: the spell that grants water walking costs spell points and the pool
+    // is debited exactly that (`FormulaHelper.cs:2206` CalculateTotalEffectCosts,
+    // the same path E6 uses to set the flag).
+    let entries = [EffectEntry {
+        props: effect_by_key("WaterWalking").expect("reference template"),
+        settings: EffectSettings {
+            duration_base: 1,
+            duration_plus: 1,
+            duration_per_level: 1,
+            ..EffectSettings::default()
+        },
+    }];
+    let cost = calculate_total_effect_costs(&entries, TargetType::CasterOnly, false, &|_| 50);
+    let mut target = EffectTarget::new(100, 100, [50; 8]);
+    let pool_before = target.spell_points;
+    let mut magic = MagicState::default();
+    magic.cast_effects(&entries, 1, &mut target, &mut CastDice);
+    let effects = target.movement_effects();
+    target.spell_points -= cost.spell_points;
+    let pool_after = target.spell_points;
+    rows.push(golden_row(
+        "e_agua_caminar_gasto",
+        effects.water_walking
+            && cost.spell_points > 0
+            && pool_before - pool_after == cost.spell_points
+            && pool_after >= 0,
+        format!(
+            "input: WaterWalking (1,1,1) CasterOnly cast at skill 50 · output: water_walking={} cost={} sp/{} g · pool {pool_before}→{pool_after} (debited {})",
+            effects.water_walking,
+            cost.spell_points,
+            cost.gold,
+            pool_before - pool_after
+        ),
+    ));
+
+    rows
+}
+
 /// `--probe LOCOMOTION-001` — blocks A, B, C, D (retail) and E (cast-driven).
 pub fn run_locomotion_001() -> i32 {
     println!(
@@ -1397,31 +1748,43 @@ pub fn run_locomotion_001() -> i32 {
     let e_rows = cast_reachability_rows();
     let e_ok = print_block("E · cast-driven reachability (M23 effect → M19 consumer)", &e_rows);
 
+    let f_rows = m19_major_rows();
+    let f_ok = print_block(
+        "F · M19 MAJOR re-measurement (drowning / fall damage incl. slip / water walking)",
+        &f_rows,
+    );
+
     let d_rows = block_d_rows();
     let Some(d_rows) = d_rows else {
         println!("EXIT=2");
         println!(
-            "VERDICT: PROBE-LOCOMOTION-001 NO DATA - ARENA2 not accessible (block D not executed; A/B/C/E green)"
+            "VERDICT: PROBE-LOCOMOTION-001 NO DATA - ARENA2 not accessible (block D not executed; A/B/C/E/F green)"
         );
         return 2;
     };
     let d_ok = print_block("D · retail demo integration (real spawn, 1.5 s)", &d_rows);
 
-    let all_ok = a_ok && b_ok && c_ok && d_ok && e_ok;
+    let all_ok = a_ok && b_ok && c_ok && d_ok && e_ok && f_ok;
     let code = i32::from(!all_ok);
-    let checks = a_rows.len() + b_rows.len() + c_rows.len() + d_rows.len() + e_rows.len();
+    let checks = a_rows.len()
+        + b_rows.len()
+        + c_rows.len()
+        + d_rows.len()
+        + e_rows.len()
+        + f_rows.len();
     println!(
-        "\nSUMMARY: A={} B={} C={} D={} E={} · checks {checks}",
+        "\nSUMMARY: A={} B={} C={} D={} E={} F={} · checks {checks}",
         if a_ok { "OK" } else { "FAIL" },
         if b_ok { "OK" } else { "FAIL" },
         if c_ok { "OK" } else { "FAIL" },
         if d_ok { "OK" } else { "FAIL" },
         if e_ok { "OK" } else { "FAIL" },
+        if f_ok { "OK" } else { "FAIL" },
     );
     println!("EXIT={code}");
     if all_ok {
         println!(
-            "VERDICT: PROBE-LOCOMOTION-001 PASS - {checks} checks (A formulas + B engine + C stealth + D demo + E cast-driven levitate/breath/slow-fall/water-walking) · 0 penetrations · 0 panics"
+            "VERDICT: PROBE-LOCOMOTION-001 PASS - {checks} checks (A formulas + B engine + C stealth + D demo + E cast-driven levitate/breath/slow-fall/water-walking + F drowning/fall/water-walking MAJOR re-measurement) · 0 penetrations · 0 panics"
         );
     } else {
         println!("VERDICT: PROBE-LOCOMOTION-001 FAIL - see [FAIL] rows");
@@ -1500,5 +1863,18 @@ mod tests {
             assert!(row.ok, "{} FAIL: {}", row.id, row.detail);
         }
         assert_eq!(first.len(), 16, "16 runtime measurements of block B");
+    }
+
+    /// (iv) Block F: the three M19 MAJORs (drowning / fall damage incl. the slip
+    /// / water walking) re-measured green, and deterministic ×2.
+    #[test]
+    fn m19_major_rows_pass() {
+        let first = m19_major_rows();
+        let second = m19_major_rows();
+        assert_eq!(first, second, "same input → same report (deterministic F)");
+        for row in &first {
+            assert!(row.ok, "{} FAIL: {}", row.id, row.detail);
+        }
+        assert_eq!(first.len(), 11, "R1-R6 + R8-R12 (R7 lives in block E)");
     }
 }

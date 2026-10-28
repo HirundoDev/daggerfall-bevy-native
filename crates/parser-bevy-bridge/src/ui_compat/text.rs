@@ -2,7 +2,7 @@
 //!
 //! **The rule:** a rendered string is one of three things and nothing else —
 //! a `TEXT.RSC` record ([`TextSource::Rsc`]), a **declared** read-model path
-//! ([`TextSource::ReadModel`], the ten paths of [`READ_MODEL_PATHS`]) or a
+//! ([`TextSource::ReadModel`], the declared paths of [`READ_MODEL_PATHS`]) or a
 //! literal compiled into the layer ([`TextSource::Literal`]). There is no
 //! fallback: an unknown path is an error, not the path echoed back; a missing
 //! record is an error, not an empty string; and an empty result is an error,
@@ -22,10 +22,12 @@ use super::error::{UiCompatError, RULE_NO_ENV, RULE_NO_RSC_BYTES};
 ///
 /// Frozen data: the HUD and the character panel of `perception::read_models`
 /// (the ten M37 paths, byte for byte) plus the two M38/UI-2 families —
-/// `createchar.*` (36) and `config.*` (11) — for **57** declared paths.
+/// `createchar.*` (36) and `config.*` (11) — and the seven M39/UI-3 families
+/// `m39.*` (A21 C14 D16 E12 F10 G11 H12) — for **153** declared paths.
+/// The 57 pre-M39 paths keep their order and content byte for byte.
 /// A path outside this list is [`UiCompatError::unknown_path`] — adding one is
 /// a contract change, not a string in a caller.
-pub const READ_MODEL_PATHS: [&str; 57] = [
+pub const READ_MODEL_PATHS: [&str; 153] = [
     // M37 — session HUD and panel (10).
     "hud.health",
     "hud.max_health",
@@ -86,6 +88,110 @@ pub const READ_MODEL_PATHS: [&str; 57] = [
     "config.motionblur.amount",
     "config.retromode.mode",
     "config.vignette.amount",
+    // M39/UI-3 — A: menú, opciones, guardar/cargar, mensajes, entrada,
+    // controles, vídeo (21).
+    "m39.menu.items",
+    "m39.menu.selected",
+    "m39.menu.selected.name",
+    "m39.menu.depth",
+    "m39.settings.scale",
+    "m39.settings.language",
+    "m39.settings.applied",
+    "m39.saves.count",
+    "m39.saves.selected.slot",
+    "m39.saves.selected.name",
+    "m39.saves.loaded.name",
+    "m39.messages.count",
+    "m39.messages.selected.prefix",
+    "m39.messages.selected.text",
+    "m39.messages.decision",
+    "m39.input.prompt",
+    "m39.input.value",
+    "m39.input.max_len",
+    "m39.controls.binding",
+    "m39.controls.conflicts",
+    "m39.video.frames",
+    // M39/UI-3 — C: inventario y hoja (14).
+    "m39.inv.slots",
+    "m39.inv.used_slots",
+    "m39.inv.weight_g",
+    "m39.inv.max_weight_g",
+    "m39.inv.equipped.weapon",
+    "m39.inv.equipped.armor",
+    "m39.inv.equipped.offhand",
+    "m39.inv.selected.name",
+    "m39.inv.action",
+    "m39.inv.reject_reason",
+    "m39.inv.gold",
+    "m39.sheet.slots_filled",
+    "m39.sheet.level",
+    "m39.sheet.encumbrance_band",
+    // M39/UI-3 — D: comercio, banca, taberna, descanso, reparación (16).
+    "m39.trade.display_price",
+    "m39.trade.charged_price",
+    "m39.trade.total_display",
+    "m39.trade.total_charged",
+    "m39.trade.rows",
+    "m39.bank.balance",
+    "m39.bank.loan_owed",
+    "m39.bank.purchase_price",
+    "m39.bank.action",
+    "m39.inn.room_price",
+    "m39.rest.hours",
+    "m39.rest.cost",
+    "m39.repair.condition",
+    "m39.repair.cost",
+    "m39.merchant.service",
+    "m39.merchant.charged",
+    // M39/UI-3 — E: magia (12).
+    "m39.spellbook.count",
+    "m39.spellbook.selected.name",
+    "m39.spellbook.selected.cost",
+    "m39.spellmaker.elements",
+    "m39.spellmaker.composed_cost",
+    "m39.spellmaker.persisted",
+    "m39.itemmaker.cost",
+    "m39.itemmaker.persisted",
+    "m39.potionmaker.cost",
+    "m39.potionmaker.persisted",
+    "m39.magicitem.charges",
+    "m39.spellicon.selected",
+    // M39/UI-3 — F: diario, notas, libro, historial (10).
+    "m39.journal.entries",
+    "m39.journal.selected.text",
+    "m39.journal.line_chars",
+    "m39.journal.line_limit",
+    "m39.journal.prefixes",
+    "m39.notes.count",
+    "m39.notes.persisted",
+    "m39.book.pages",
+    "m39.book.page_index",
+    "m39.history.entries",
+    // M39/UI-3 — G: automap, viaje, transporte, tiempo (11).
+    "m39.automap.chunks",
+    "m39.automap.markers",
+    "m39.automap.dungeon_blocks",
+    "m39.travel.regions",
+    "m39.travel.selected_region",
+    "m39.travel.cost_days",
+    "m39.travel.cost_gold",
+    "m39.transport.fare",
+    "m39.transport.time_hours",
+    "m39.teleport.destination",
+    "m39.time.day",
+    // M39/UI-3 — H: conversación, servicios, encargos, corte, cultos (12).
+    "m39.talk.topics",
+    "m39.talk.selected.topic",
+    "m39.talk.answer",
+    "m39.talk.faction",
+    "m39.service.kind",
+    "m39.service.charged",
+    "m39.service.executed",
+    "m39.quest.offers",
+    "m39.quest.decision",
+    "m39.court.ruling",
+    "m39.daedra.summoned",
+    "m39.coven.service",
 ];
 
 /// Where a string comes from.
@@ -309,18 +415,19 @@ mod tests {
         );
     }
 
-    /// D-1 — the declared list is **57** paths: the ten M37 paths plus the 36
-    /// `createchar.*` and the 11 `config.*` of M38/UI-2.
+    /// D-1 — the declared list is **153** paths: the ten M37 paths, the 36
+    /// `createchar.*` and 11 `config.*` of M38/UI-2, and the 96 `m39.*` of
+    /// M39/UI-3 (A21 C14 D16 E12 F10 G11 H12).
     ///
     /// Violation caught: a family added to the read models but not to the layer
     /// (the path would be `unknown_path` at runtime), a path declared twice
-    /// (the count would still be 57 with a family short by one) and a family
-    /// silently dropped back to the M37 ten.
+    /// (the count would still be 153 with a family short by one), an M39 route
+    /// out of block order, and a family silently dropped back to the M37 ten.
     #[test]
-    fn falsifier_d1_path_list_is_57_with_the_36_11_split() {
-        use daggerfall_perception::read_models::{ConfigModels, CreateCharModels};
+    fn falsifier_d1_path_list_is_153_with_the_36_11_96_split() {
+        use daggerfall_perception::read_models::{ConfigModels, CreateCharModels, M39Models};
 
-        assert_eq!(READ_MODEL_PATHS.len(), 57);
+        assert_eq!(READ_MODEL_PATHS.len(), 153);
         let createchar = READ_MODEL_PATHS
             .iter()
             .filter(|path| path.starts_with("createchar."))
@@ -329,12 +436,19 @@ mod tests {
             .iter()
             .filter(|path| path.starts_with("config."))
             .count();
-        let session = READ_MODEL_PATHS.len() - createchar - config;
+        let m39 = READ_MODEL_PATHS
+            .iter()
+            .filter(|path| path.starts_with("m39."))
+            .count();
+        let session = READ_MODEL_PATHS.len() - createchar - config - m39;
         assert_eq!(
-            (session, createchar, config),
-            (10, 36, 11),
-            "declared split must be 10 session + 36 createchar + 11 config"
+            (session, createchar, config, m39),
+            (10, 36, 11, 96),
+            "declared split must be 10 session + 36 createchar + 11 config + 96 m39"
         );
+        // The M39 suffix is the family declaration, in family order.
+        let suffix = &READ_MODEL_PATHS[READ_MODEL_PATHS.len() - m39..];
+        assert_eq!(suffix, M39Models::paths().as_slice());
         // The unique set is exactly the families' own declaration (0 drift
         // between the layer and `perception::read_models`).
         let declared: std::collections::BTreeSet<&str> = READ_MODEL_PATHS.into_iter().collect();
@@ -343,6 +457,9 @@ mod tests {
             assert!(declared.contains(path), "{path} missing from the layer");
         }
         for path in ConfigModels::PATHS {
+            assert!(declared.contains(path), "{path} missing from the layer");
+        }
+        for path in M39Models::paths() {
             assert!(declared.contains(path), "{path} missing from the layer");
         }
         for path in [

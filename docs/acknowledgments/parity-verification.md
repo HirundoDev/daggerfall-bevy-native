@@ -73,4 +73,7 @@ no remote.
 
 Passing probes do not mean the game is finished or visually identical. No probe can sign off
 "it looks like 1996": that judgement belongs to the owner in a side-by-side review against the
-original. Until it is signed, M18 stays owner-pending and no `M18` tag exists.
+original. M18's **acceptance signature is recorded on 2026-10-26 by delegation** — 8 PASS · 9
+NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL, tag NINGUNO — and the **ORIGINAL side (Daggerfall 1.07.213 in
+DOSBox) is not certified**: comparing the engine rows against the original remains the owner's own
+act. What stays open is that comparison and the tag, not the signature.

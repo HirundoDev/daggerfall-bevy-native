@@ -678,13 +678,13 @@ mod tests {
 
     /// A1 derived kind — the mask window (144..=158) is never a plain sprite.
     ///
-    /// Violation caught: a declared kind. `MASK00I0.IMG` is HUD-family, so only
+    /// Violation caught: a declared kind. `MASK99I0.IMG` is HUD-family, so only
     /// the asset window distinguishes it.
     #[test]
     fn derived_kind_comes_from_the_asset() {
         let assets = bank();
         let mask = place(
-            &SurfaceSpec::owned("MASK00I0.IMG", UiRect::new(0, 0, 64, 64), SurfaceSource::Whole),
+            &SurfaceSpec::owned("MASK99I0.IMG", UiRect::new(0, 0, 64, 64), SurfaceSource::Whole),
             &assets,
         )
         .expect("mask");

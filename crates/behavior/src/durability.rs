@@ -1,19 +1,35 @@
 //! Durability and repair — SPEC M21 §4.
 //!
-//! Every constant and formula is transcribed from Daggerfall Unity
-//! `@0038a1e61999ad2c73fb1f33b706cae9a88ec66f` (MIT):
+//! Every constant and formula is transcribed from Daggerfall Unity, pinned at
+//! `Interkarma/daggerfall-unity@2343305d1d83ccc0de57a81e3b1e61188a997e34`
+//! (`reference/dfu-spec/CLASSIFICATION.md` §1; MIT); local mirror
+//! `reference/dfu-spec/Assets/Scripts/Game/Formulas/FormulaHelper.cs`, sha256
+//! `b7ba3b2dfdf3e10826b6c5532d593e35125731afac5fd2524ddae6c1c3a2a09d`:
 //!
-//! - wear per physical hit: `FormulaHelper.cs:1130-1137`
-//! - breakage: `DaggerfallUnityItem.cs:1170-1182`
-//! - repair cost: `FormulaHelper.cs:1868-1906`
-//! - repair time: `FormulaHelper.cs:1908-1917`, `DaggerfallDateTime.cs:42`
-//! - left-for-repair state: `ItemRepairData.cs:54-93`
+//! - wear per physical hit: `FormulaHelper.cs:1123-1138` (amount `:1130`,
+//!   20 % re-roll `:1131-1132`, applied `:1135`/`:1137`)
+//! - shop cost: `FormulaHelper.cs:1884-1899` — clamp `:1890-1893`, regional
+//!   `:1895`, quality multiplier `:1896`, return `:1898`
+//! - repair cost: `FormulaHelper.cs:1901-1922` (`:1911-1914` value + clamp,
+//!   `:1916` calls `CalculateCost`, `:1919` guild discount, `:1921` return)
+//! - repair time: `FormulaHelper.cs:1924-1933` (`:1930-1932`),
+//!   `DaggerfallDateTime.cs:42`
+//! - breakage / left-for-repair state: `DaggerfallUnityItem.cs:1170-1182`
+//!   (`LowerCondition`) and `ItemRepairData.cs:54-93` — **context not verified
+//!   locally**: neither file is part of the local sparse mirror
+//!   (`CLASSIFICATION.md` §7), so their line ranges cite upstream behaviour
+//!   only; 0 constant, 0 arithmetic and 0 probe value in this module derives
+//!   from them (the engine reproduces subtract → clamp at 0 → break).
 //!
 //! **Frontier (not invented here):** `ApplyRegionalPriceAdjustment`
-//! (`FormulaHelper.cs:2010-2029`) is the identity in this engine — regional
-//! prices are M30 (economy); the guild discount (`guild.ReducedRepairCost`,
-//! `FormulaHelper.cs:1902`) is M27. Neither is modelled, neither is faked.
-//! The wear roll uses the caller's explicit [`Dice100`]: 0 global state.
+//! (`FormulaHelper.cs:2026-2045`) is the identity in this engine — the
+//! identity branch is the source's own (`:2036-2039`, no current location);
+//! the priced branch (`:2041-2044`, `cost * RegionData.PriceAdjustment / 1000`
+//! floored at 1) needs retail save data absent from this repo, so it is
+//! **NOT-COMPARABLE** and stays unmodelled (regional prices are M30 economy).
+//! The guild discount (`guild.ReducedRepairCost`, `FormulaHelper.cs:1919`) is
+//! M27. Neither is modelled, neither is faked. The wear roll uses the caller's
+//! explicit [`Dice100`]: 0 global state.
 
 use crate::locomotion::Dice100;
 
@@ -29,7 +45,7 @@ pub const MIN_REPAIR_SECONDS: i64 = 86_400;
 /// (`FormulaHelper.cs:1130`: `(10 * damage + 50) / 100`).
 ///
 /// Negative damage deals no wear (the caller only applies wear when
-/// `damage > 0`, `FormulaHelper.cs:1089`).
+/// `damage > 0`, `FormulaHelper.cs:1090`).
 pub fn wear_amount(damage: i32) -> i32 {
     if damage < 0 {
         return 0;
@@ -83,9 +99,17 @@ pub fn apply_wear(current: &mut i32, damage: i32, dice: &mut Dice100) -> WearOut
     }
 }
 
-/// Shop-specific cost multiplier (`FormulaHelper.cs:1868-1884`):
-/// `c = max(c, 1)`; `c = ApplyRegionalPriceAdjustment(c)` (identity here);
-/// `c = 2 * (c * (quality - 10) / 100 + c)`, integer truncation.
+/// Shop-specific cost multiplier — DFU `CalculateCost(baseValue, shopQuality,
+/// conditionPercentage = -1)` (`FormulaHelper.cs:1884-1899`):
+/// `c = baseValue`, `c = max(c, 1)` (`:1890-1893`);
+/// `c = ApplyRegionalPriceAdjustment(c)` (`:1895`, identity here — the source's
+/// own no-location branch `:2036-2039`); `c = 2 * (c * (quality - 10) / 100 + c)`
+/// (`:1896`), integer truncation toward zero; return `:1898`.
+///
+/// **`conditionPercentage` is declared and never read** in the body: `:1884`
+/// takes it and `:1888` forwards it to the override only. The engine models
+/// the non-override path and therefore takes no condition argument — an
+/// explicit NOT-COMPARABLE, not an omission.
 ///
 /// The intermediate product is evaluated in `i64` and clamped to `i32` so an
 /// absurd input cannot panic in debug builds; every retail-scale input hits
@@ -97,9 +121,11 @@ pub fn calculate_cost(cost: i32, quality: i32) -> i32 {
     adjusted.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
 }
 
-/// Repair cost (`FormulaHelper.cs:1885-1906`):
-/// `0` when already repaired; `c = 10 * value / 100`, `c = max(c, 1)`, then
-/// [`calculate_cost`] with the shop quality (0-20).
+/// Repair cost — DFU `CalculateItemRepairCost` (`FormulaHelper.cs:1901-1922`):
+/// `0` when already repaired (`:1908-1909`); `c = 10 * value / 100`,
+/// `c = max(c, 1)` (`:1911-1914`); then the shelf stage
+/// `c = CalculateCost(c, quality)` (`:1916`); guild discount `:1919` (M27,
+/// unmodelled); return `:1921`.
 pub fn repair_cost(value: i32, condition: i32, max_condition: i32, quality: i32) -> i32 {
     if condition == max_condition {
         return 0;
@@ -109,8 +135,9 @@ pub fn repair_cost(value: i32, condition: i32, max_condition: i32, quality: i32)
 }
 
 /// Repair time in seconds for `damage` missing condition points (D-M21-1):
-/// `damage * 86400 / 1000`, truncated, floored at one day
-/// (`FormulaHelper.cs:1908-1917`).
+/// `damage * 86400 / 1000`, truncated, floored at one day —
+/// `CalculateItemRepairTime` (`FormulaHelper.cs:1924-1933`: damage `:1930`,
+/// product `:1931`, floor `:1932`).
 ///
 /// `i64` arithmetic is a **declared delta**, not a transcription:
 /// `damage * 86400` overflows `int32` above `damage = 24855` and C#'s
@@ -120,7 +147,7 @@ pub fn repair_time_seconds_for_damage(damage: i64) -> i64 {
     (damage.saturating_mul(MIN_REPAIR_SECONDS) / 1000).max(MIN_REPAIR_SECONDS)
 }
 
-/// Repair time for a condition pair (`FormulaHelper.cs:1911-1916`):
+/// Repair time for a condition pair (`FormulaHelper.cs:1930-1932`):
 /// `damage = max - condition`, then [`repair_time_seconds_for_damage`].
 pub fn repair_time_seconds(condition: i32, max_condition: i32) -> i64 {
     repair_time_seconds_for_damage(i64::from(max_condition) - i64::from(condition))
@@ -296,7 +323,7 @@ mod tests {
     #[test]
     fn repaired_items_cost_nothing() {
         assert_eq!(repair_cost(45, 50, 50, 10), 0, "GV-DUR-15");
-        // `FormulaHelper.cs:1891-1892` compares `condition == max`, not `>=`: an
+        // `FormulaHelper.cs:1908-1909` compares `condition == max`, not `>=`: an
         // over-max condition still prices like any unrepaired item (4 → 8 gp).
         assert_eq!(repair_cost(45, 51, 50, 10), 8, "condition > max is priced");
     }
@@ -326,7 +353,7 @@ mod tests {
         //
         // Spec erratum (declared in the M21 lane yield): GV-DUR-17 quotes
         // `2_831_155_200`, which is `32768 * 86400` *before* the `/1000`
-        // division of `FormulaHelper.cs:1915`. The formula's real result is
+        // division of `FormulaHelper.cs:1931`. The formula's real result is
         // 2_831_155 s. The engine follows the formula; the probe must use the
         // corrected value.
         assert_eq!(repair_time_seconds_for_damage(32_768), 2_831_155);

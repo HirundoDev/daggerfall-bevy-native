@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Regression probe for the Spanish-stopword gate of export-public.py.
+"""Regression probe for the public-export gates (Spanish stopwords, publication origin,
+exact-path test exclusion, pass-E internal-reference metric).
 
 Reproduces the abort the exporter suffered on any tree whose prose tripped the
 stopword detector: inside the detector loop `hits` (the dict that accumulates
@@ -12,8 +13,8 @@ The gate measures human prose only, with the extraction and word list owned by
 identifiers such as `y_rotation`, `i32_le` or `z1`, which are homographs of
 Spanish function words.
 
-Three hermetic scenarios, each on a throwaway git repository (the exporter only
-reads `git HEAD` of the repo that owns the script):
+Scenarios, each on a throwaway git repository (the exporter only reads `git HEAD`
+of the repo that owns the script):
 
   spanish      the exporter must finish and report FAIL, with the check
                `spanish_stopwords_absent` carrying `file:line:phrase`, while every
@@ -36,6 +37,19 @@ not a licence to publish, so the exporter must also see a declared release commi
                     the real M18 tag is never created here) must let the export run and
                     report `declared_by == tag:M0-2026-10-21`.
 
+The exact-path exclusion policy and the internal-reference metric (pass E) are probed
+by running `verify-export.py` on the fixture export:
+
+  exact-exclusion  a test file listed by its exact path in exclude.txt must be dropped
+                   while a sibling test file under the same `tests/` directory is
+                   exported: no generic `tests/` rule may appear.
+  refs-functional  a functional internal reference that is not tolerated by
+                   `internal-refs-allowlist.txt` must FAIL pass E *with the number*
+                   (the aggregate verdict may not pass while E fails), and the metric
+                   line must still be printed.
+  refs-prose       the same tokens in Markdown prose are non-functional: pass E must
+                   PASS, report functional = 0, and print the counts.
+
 Usage:
   python3 tools/public-export/test-export-public.py [--keep]
 
@@ -48,6 +62,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 EXPORT = HERE / "export-public.py"
 EXCLUDE = HERE / "exclude.txt"
+VERIFY = HERE / "verify-export.py"
 LANG_GATE = "scripts/ci/language-check.py"
 
 # Minimal source tree the exporter demands: README.md and LICENSE are read
@@ -93,6 +108,26 @@ IDENTIFIER_FILES = {
 # before its SCAN_SKIP cut, so a literal address here would fail the gate.
 PROBE_EMAIL = "probe" + "@" + "example.invalid"
 
+# --- exact-path exclusion fixture (CR-5c3261ee) ------------------------------
+# One test file the real exclude.txt drops by its exact path, plus a sibling under the
+# same `tests/` directory that must survive: a generic `tests/` rule would drop both.
+EXCLUDED_TEST = "crates/content-api/tests/schema_published.rs"
+KEPT_TEST = "crates/content-api/tests/survives_tests_rule.rs"
+EXCLUSION_FILES = {
+    EXCLUDED_TEST: "//! Fixture for the exact-path exclusion probe.\n#[test]\nfn needs_internal_docs() {}\n",
+    KEPT_TEST: "//! Fixture: only an exact-path rule may drop a test file.\n#[test]\nfn survives() {}\n",
+}
+# --- pass-E fixture (CR-5c3261ee) -------------------------------------------
+FUNCTIONAL_REF_FILE = "src/reader.rs"
+# Functional by policy: a path constant in `.rs` outside a comment.
+FUNCTIONAL_REF = 'pub const DOC: &str = "docs/sintergic/content-api/CONTENT-API-v1.md";\n'
+PROSE_REF_FILE = "docs/acknowledgments/refs.md"
+# Non-functional by policy: Markdown prose.
+PROSE_REF = ("The internal engineering record under `docs/sintergic/` never travels in the "
+             "export.\n")
+ALLOWLIST_HEADER = ("# Fixture tolerance rows: `path:line<TAB>reason`. "
+                    "No wildcards.\n")
+
 
 def git(root, *args):
     cmd = ["git", "-c", "user.name=probe", "-c", "user.email=" + PROBE_EMAIL,
@@ -103,12 +138,14 @@ def git(root, *args):
     return res.stdout
 
 
-def make_repo(root, spanish, identifiers=False):
+def make_repo(root, spanish, identifiers=False, extra=None, allow_rows=()):
     files = dict(BASE_FILES)
     if spanish:
         files[SPANISH_FILE] = "\n".join(SPANISH_LINES) + "\n"
     if identifiers:
         files.update(IDENTIFIER_FILES)
+    if extra:
+        files.update(extra)
     for rel, text in files.items():
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -117,8 +154,12 @@ def make_repo(root, spanish, identifiers=False):
     # exclude.txt from there: the fixture gets a byte-identical copy of both.
     tool_dir = root / "tools" / "public-export"
     tool_dir.mkdir(parents=True, exist_ok=True)
-    for src in (EXPORT, EXCLUDE):
+    for src in (EXPORT, EXCLUDE, VERIFY):
         (tool_dir / src.name).write_bytes(src.read_bytes())
+    # Pass E reads its tolerance rows from the tool directory: the fixture gets its own
+    # (empty by default), never the repository's — those rows name real paths.
+    (tool_dir / "internal-refs-allowlist.txt").write_text(
+        ALLOWLIST_HEADER + "".join(r + "\n" for r in allow_rows), encoding="utf-8")
     # The exporter reuses the CI gate's prose extraction; the fixture keeps the same
     # relative path so the import resolves exactly as it does in this repository.
     lang_src = HERE.parents[1] / "scripts" / "ci" / "language-check.py"
@@ -141,19 +182,24 @@ def exported_paths(out):
                   if p.is_file() and ".git" not in p.relative_to(out).parts)
 
 
-def run_scenario(name, spanish, keep, identifiers=False, release="override", tag=None):
+def run_scenario(name, spanish, keep, identifiers=False, release="override", tag=None,
+                 extra=None, allow_rows=(), verify=False):
     """Export a fixture; returns (report, returncode, stderr, exported set, HEAD set).
 
     `release` selects the publication-origin mode (B7): `override` passes the fixture
     HEAD through `--release-commit`, `tag` marks it with a milestone tag instead,
     `none` declares nothing and `stale` names a commit that is not HEAD. The last two
     must abort before writing, so they return `report = None`.
+
+    With `verify=True` the exported tree is also run through `verify-export.py` (full
+    pass C, no `--skip-c`) and the verifier report plus its stdout are stored in the
+    returned report under `verify_report` / `verify_stdout` / `verify_exit`.
     """
     root = Path(tempfile.mkdtemp(prefix="export-probe-%s-" % name))
     try:
         repo = root / "repo"
         repo.mkdir()
-        make_repo(repo, spanish, identifiers)
+        make_repo(repo, spanish, identifiers, extra, allow_rows)
         head = git(repo, "rev-parse", "HEAD").strip()
         if tag:
             git(repo, "tag", tag)
@@ -178,6 +224,18 @@ def run_scenario(name, spanish, keep, identifiers=False, release="override", tag
             raise AssertionError("[%s] exporter produced no report (exit %d):\n%s"
                                  % (name, res.returncode, tail))
         report = json.loads(report_path.read_text(encoding="utf-8"))
+        if verify:
+            vreport = root / "verify.json"
+            vres = subprocess.run(
+                [sys.executable, str(repo / "tools" / "public-export" / "verify-export.py"),
+                 "--export", str(out), "--report", str(vreport)],
+                cwd=repo, capture_output=True, text=True, timeout=900)
+            expect(vreport.exists(),
+                   "[%s] verifier produced no report (exit %d):\n%s"
+                   % (name, vres.returncode, (vres.stderr or vres.stdout)[-600:]))
+            report["verify_report"] = json.loads(vreport.read_text(encoding="utf-8"))
+            report["verify_stdout"] = vres.stdout
+            report["verify_exit"] = vres.returncode
         return (report, res.returncode, res.stderr, exported_paths(out), head_paths(repo))
     finally:
         if keep:
@@ -271,6 +329,109 @@ def check_release_tag(report):
            "[release-tag] declared_by %r" % (report["release"],))
 
 
+INTERNAL_TOKENS = ("docs/sintergic/", ".sintergic/", ".omp/", ".opencode/", "promotion-ledger")
+
+
+def tool_rows():
+    """Tolerance rows for the scaffolding the fixture copies verbatim.
+
+    The exporter and the verifier must name the internal prefixes they scan, so those lines
+    are functional references by the documented rule. The fixture declares them instead of
+    pretending they are absent. The rule is restated here, independently of the verifier: a
+    `#` comment starts at its first `#` and a token before it is code. If this drifts from
+    `verify-export.py`, the fixture fails loudly and both sides get fixed.
+    """
+    rows = []
+    for src, rel in ((EXPORT, "tools/public-export/export-public.py"),
+                     (VERIFY, "tools/public-export/verify-export.py"),
+                     (HERE.parent.parent / LANG_GATE, LANG_GATE)):
+        for num, line in enumerate(src.read_text(encoding="utf-8").splitlines(), 1):
+            cut = line.find("#")
+            code = line if cut < 0 else line[:cut]
+            if any(tok in code for tok in INTERNAL_TOKENS):
+                rows.append("%s:%d\tfixture scaffolding: the tool names the token it scans"
+                            % (rel, num))
+    return rows
+
+
+def check_exact_exclusion(report, exported):
+    """One exact path is dropped; its sibling under the same `tests/` directory survives."""
+    expect(report["verify_exit"] == 0,
+           "[exact-exclusion] verifier exit %r, expected 0 (A/B/C/D/E PASS):\n%s"
+           % (report["verify_exit"], report["verify_stdout"][-1200:]))
+    expect(EXCLUDED_TEST not in exported,
+           "[exact-exclusion] %s was exported; the exact-path rule did not apply"
+           % EXCLUDED_TEST)
+    expect(KEPT_TEST in exported,
+           "[exact-exclusion] %s is missing: a rule broader than its exact path dropped a "
+           "sibling test" % KEPT_TEST)
+    expect(report["files_dropped"] == 1,
+           "[exact-exclusion] files_dropped=%r, expected 1" % (report["files_dropped"],))
+    expect(report["dropped_by_rule"] == [EXCLUDED_TEST],
+           "[exact-exclusion] dropped_by_rule=%r, expected [%r]"
+           % (report["dropped_by_rule"], EXCLUDED_TEST))
+    v = report["verify_report"]
+    expect(v["verdict"] == "PASS", "[exact-exclusion] aggregate verdict %r" % v["verdict"])
+    e = v["E_internal_refs"]
+    # `tool_rows()` is exactly the scaffolding that must be tolerated, nothing else.
+    expect(e["verdict"] == "PASS" and e["unallowlisted"] == [] and
+           e["allowlisted"] == e["functional"] == len(tool_rows()),
+           "[exact-exclusion] pass E %r, expected PASS with every functional reference "
+           "allowlisted and nothing else" % (e,))
+
+
+def check_refs_functional(report):
+    """A functional reference that is not allowlisted must fail E with the number."""
+    v = report["verify_report"]
+    e = v["E_internal_refs"]
+    expect(e["verdict"] == "FAIL", "[refs-functional] pass E verdict %r, expected FAIL"
+           % e["verdict"])
+    scaffold = len(tool_rows())
+    expect(e["functional"] == scaffold + 1,
+           "[refs-functional] functional=%r, expected the scaffolding (%d) plus the fixture "
+           "reference" % (e["functional"], scaffold))
+    expect(e["allowlisted"] == scaffold,
+           "[refs-functional] allowlisted=%r, expected %d" % (e["allowlisted"], scaffold))
+    expect([(r["path"], r["line"]) for r in e["unallowlisted"]] == [(FUNCTIONAL_REF_FILE, 1)],
+           "[refs-functional] unallowlisted=%r" % (e["unallowlisted"],))
+    expect(v["verdict"] == "FAIL" and report["verify_exit"] != 0,
+           "[refs-functional] aggregate verdict %r / exit %r must fail while E fails"
+           % (v["verdict"], report["verify_exit"]))
+    for k in ("A_tree", "B_gitobjects", "C_regeneration", "D_file_by_file"):
+        expect(v[k]["verdict"] == "PASS",
+               "[refs-functional] %s must still PASS, got %r" % (k, v[k]["verdict"]))
+    out = report["verify_stdout"]
+    expect("E_internal_refs: files=" in out and "functional=%d" % (scaffold + 1) in out,
+           "[refs-functional] the metric line is missing from stdout:\n%s" % out[-800:])
+    expect("functional reference(s) not allowlisted" in out and
+           "%s:%d" % (FUNCTIONAL_REF_FILE, 1) in out,
+           "[refs-functional] FAIL message does not carry the reference:\n%s" % out[-800:])
+
+
+def check_refs_prose(report):
+    """The same tokens in Markdown prose are non-functional: count them, do not fail."""
+    v = report["verify_report"]
+    e = v["E_internal_refs"]
+    expect(e["verdict"] == "PASS", "[refs-prose] pass E verdict %r:\n%s"
+           % (e["verdict"], report["verify_stdout"][-800:]))
+    scaffold = len(tool_rows())
+    prose = [it for it in e["items"] if it["path"] == PROSE_REF_FILE]
+    expect(prose and not any(it["functional"] for it in prose),
+           "[refs-prose] the prose line was classified functional: %r" % (prose,))
+    expect(e["functional"] == scaffold,
+           "[refs-prose] functional=%r, expected only the %d scaffolding rows"
+           % (e["functional"], scaffold))
+    expect(e["non_functional"] >= 1 and e["lines"] >= 1,
+           "[refs-prose] non_functional=%r lines=%r, expected the prose line to be counted"
+           % (e["non_functional"], e["lines"]))
+    expect(report["verify_exit"] == 0 and v["verdict"] == "PASS",
+           "[refs-prose] aggregate verdict %r / exit %r, expected PASS"
+           % (v["verdict"], report["verify_exit"]))
+    out = report["verify_stdout"]
+    expect("E_internal_refs: files=" in out and "functional=%d" % scaffold in out,
+           "[refs-prose] the metric line is missing from stdout:\n%s" % out[-800:])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true", help="keep the fixtures and exported trees")
@@ -304,7 +465,35 @@ def main():
     check_identifiers(report, code, stderr)
     print("PASS identifiers: PASS verdict, 0 of %d prose files flagged"
           % report["checks"]["spanish_stopwords_absent"]["scanned"])
-    print("OK: export-public.py stopword + publication-origin gates behave as specified")
+
+    # --- exact-path test exclusion (no generic `tests/` rule) --------------------
+    report, code, stderr, exported, head = run_scenario(
+        "exact-exclusion", False, a.keep, extra=EXCLUSION_FILES, allow_rows=tool_rows(),
+        verify=True)
+    check_exact_exclusion(report, exported)
+    print("PASS exact-exclusion: %s dropped by its exact path, %s exported, A/B/C/D/E PASS"
+          % (EXCLUDED_TEST, KEPT_TEST))
+
+    # --- pass E: functional reference without a tolerance row -------------------
+    report, code, stderr = run_scenario(
+        "refs-functional", False, a.keep, extra={FUNCTIONAL_REF_FILE: FUNCTIONAL_REF},
+        allow_rows=tool_rows(), verify=True)[:3]
+    check_refs_functional(report)
+    e = report["verify_report"]["E_internal_refs"]
+    print("PASS refs-functional: E FAIL with %d functional / %d allowlisted / %d "
+          "non-functional, aggregate FAIL" % (e["functional"], e["allowlisted"],
+                                              e["non_functional"]))
+
+    # --- pass E: the same tokens as prose are counted, not failed ---------------
+    report, code, stderr = run_scenario(
+        "refs-prose", False, a.keep, extra={PROSE_REF_FILE: PROSE_REF},
+        allow_rows=tool_rows(), verify=True)[:3]
+    check_refs_prose(report)
+    e = report["verify_report"]["E_internal_refs"]
+    print("PASS refs-prose: E PASS with %d functional / %d non-functional / %d lines, "
+          "A/B/C/D/E PASS" % (e["functional"], e["non_functional"], e["lines"]))
+    print("OK: export-public.py stopword + publication-origin gates and verify-export.py "
+          "A-E passes behave as specified")
 
 
 if __name__ == "__main__":

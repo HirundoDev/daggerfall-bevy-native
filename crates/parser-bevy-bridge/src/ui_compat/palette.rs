@@ -8,6 +8,12 @@
 //! foreign colour, so it is a [`UiCompatError::Palette`] (`PaletteViolation`),
 //! not a warning.
 //!
+//! **The default guard:** a `(1, 255)` window is what a substituted default
+//! looks like, so [`palette_identity`] rejects it **unless** the asset carries
+//! a recorded measurement that produces exactly that window. `PICK03I0.IMG`
+//! measures `1..=255` on its own bytes (49 px at index 255), so the guard
+//! protects against defaults and never against a measured asset.
+//!
 //! **Measured ink table** (retail `PAL.PAL`, 776 B = 8 B header + 768 B colour
 //! table, read-only from `ARENA2` on 2026-10-27):
 //!
@@ -21,7 +27,9 @@
 //! Index 127 is the same index [`crate::ui_spec::DEFAULT_INK`] uses, which is
 //! why the primary role reuses it instead of introducing a second constant.
 
-use daggerfall_parser_rs::image::{asset_index_range_resolved, PaletteFamily};
+use daggerfall_parser_rs::image::{
+    asset_index_range_derived, asset_index_range_resolved, PaletteFamily,
+};
 
 use super::error::{
     UiCompatError, RULE_PALETTE_ASSET, RULE_PALETTE_DERIVED, RULE_PALETTE_FLAT, RULE_PALETTE_INK,
@@ -128,9 +136,15 @@ impl PaletteIdentity {
 ///
 /// The reported `range` is [`asset_index_range_resolved`] — the range the
 /// parser derives from the asset itself (family rule plus the measured
-/// per-asset derivations). A `(1, 255)` window is rejected outright: no
-/// derivation produces it, so seeing it means somebody substituted a default
-/// for the derivation (§3.2 rule 1).
+/// per-asset derivations). A `(1, 255)` window **without** a recorded
+/// measurement is rejected outright ([`RULE_PALETTE_DERIVED`]): no family rule
+/// produces it, so seeing it means somebody substituted a default for the
+/// derivation (§3.2 rule 1). The same window **with** a measurement is the
+/// measured reality of that asset — `PICK03I0.IMG` paints index 255 (49 px on
+/// its own bytes, `PalFile[255] = (16, 30, 25)`, a real colour) and its
+/// recorded derivation is exactly `1..=255` — so it is legitimate and the
+/// surface is accepted. The guard protects against defaults, not against
+/// measurements.
 pub fn palette_identity(
     asset: &str,
     assets: &UiAssets,
@@ -140,15 +154,28 @@ pub fn palette_identity(
         .ok_or(UiCompatError::Palette(RULE_PALETTE_ASSET))?;
     let derived = asset_index_range_resolved(asset);
     let range = (*derived.start(), *derived.end());
-    if range == (1, 255) {
-        return Err(UiCompatError::Palette(RULE_PALETTE_DERIVED));
-    }
+    reject_substituted_default(asset, range)?;
     Ok(PaletteIdentity {
         asset: entry.name.clone(),
         family: entry.family,
         hash: entry.palette_hash,
         range,
     })
+}
+
+/// Guards the window against a **substituted default** (§3.2 rule 1).
+///
+/// `(1, 255)` is what a blanket default looks like when the derivation is
+/// skipped, so it is rejected — **unless** the asset carries a recorded
+/// measurement that produces exactly that window
+/// ([`asset_index_range_derived`], the [`daggerfall_parser_rs::image::ASSET_RANGE_DERIVATIONS`]
+/// table). The invariant is therefore `(1, 255)` without a derivation ⇒
+/// default, not `(1, 255)` ⇒ default: `PICK03I0.IMG` measures that window.
+fn reject_substituted_default(asset: &str, range: (u8, u8)) -> Result<(), UiCompatError> {
+    if range == (1, 255) && asset_index_range_derived(asset).is_none() {
+        return Err(UiCompatError::Palette(RULE_PALETTE_DERIVED));
+    }
+    Ok(())
 }
 
 /// Resolves the palette index a role writes **on this surface**.
@@ -185,8 +212,7 @@ mod tests {
     use crate::ui_spec::UiRect;
     use daggerfall_parser_rs::image::PaletteFamily;
 
-    fn surface(asset: &str) -> SurfaceNode {
-        let assets = bank();
+    fn surface_in(assets: &UiAssets, asset: &str) -> SurfaceNode {
         let image = assets.image(asset).expect("bank asset");
         let spec = SurfaceSpec {
             asset: asset.to_string(),
@@ -194,21 +220,25 @@ mod tests {
             source: SurfaceSource::Whole,
             ownership: SurfaceOwnership::Owned,
         };
-        place(&spec, &assets).expect("surface")
+        place(&spec, assets).expect("surface")
+    }
+
+    fn surface(asset: &str) -> SurfaceNode {
+        surface_in(&bank(), asset)
     }
 
     /// A2 rule 1 — the reported window is the asset-derived one, not a family
     /// default and not a global `1..=255`.
     ///
     /// Violation caught: reporting `family_index_range(entry.family)` (or a
-    /// constant) instead of `asset_index_range_resolved(asset)`. `MASK00I0.IMG`
+    /// constant) instead of `asset_index_range_resolved(asset)`. `MASK99I0.IMG`
     /// belongs to the HUD family (0..=254) but its own window is 144..=158, and
     /// `MAP100I0.IMG` carries a measured derivation (16..=254) narrower than a
     /// blanket default.
     #[test]
     fn falsifier_a2_range_is_asset_derived() {
         let assets = bank();
-        let mask = palette_identity("MASK00I0.IMG", &assets).expect("mask identity");
+        let mask = palette_identity("MASK99I0.IMG", &assets).expect("mask identity");
         assert_eq!(mask.family, PaletteFamily::Hud);
         assert_eq!(mask.range, (144, 158));
         assert_ne!(mask.range, (0, 254));
@@ -231,6 +261,42 @@ mod tests {
         assert_ne!(main.hash, map.hash);
     }
 
+    /// A2 rule 1 — a `(1, 255)` window is a **substituted default** unless the
+    /// asset carries a recorded measurement that produces it.
+    ///
+    /// Violation caught in both directions: rejecting the *measured*
+    /// `PICK03I0.IMG` window (`1..=255` — its own bytes paint index 255, 49 px
+    /// of a real `PAL.PAL` colour) because it looks like the blanket default,
+    /// and accepting a `(1, 255)` window for an asset with **no** measurement
+    /// at all, which is exactly the default the rule forbids.
+    #[test]
+    fn falsifier_a2_default_window_needs_a_measured_derivation() {
+        let assets = bank()
+            .with_image("PICK03I0.IMG", image(320, 200, 1))
+            .expect("pick screen");
+
+        // Measured: the derivation is the asset's own span, ceiling included.
+        let pick = palette_identity("PICK03I0.IMG", &assets).expect("measured pick identity");
+        assert_eq!(pick.family, PaletteFamily::Hud);
+        assert_eq!(pick.range, (1, 255));
+        assert_ne!(pick.range, (0, 254), "the Hud ceiling is not this asset's window");
+        let pick_surface = surface_in(&assets, "PICK03I0.IMG");
+        assert_eq!(ink_for(&pick_surface, InkRole::Primary), Ok(PRIMARY_INK));
+        assert_eq!(PRIMARY_INK, 127);
+        assert_eq!(ink_contrast(&pick_surface, PRIMARY_INK), 126);
+
+        // Unmeasured: the same window is a substituted default and is rejected.
+        assert_eq!(
+            reject_substituted_default("MAIN00I0.IMG", (1, 255)),
+            Err(UiCompatError::Palette(RULE_PALETTE_DERIVED))
+        );
+        // The asset with a measurement may not be rejected by the same guard …
+        assert_eq!(reject_substituted_default("PICK03I0.IMG", (1, 255)), Ok(()));
+        // … and no other window is touched by it.
+        assert_eq!(reject_substituted_default("MAIN00I0.IMG", (0, 254)), Ok(()));
+        assert_eq!(reject_substituted_default("MASK99I0.IMG", (144, 158)), Ok(()));
+    }
+
     /// A2 rule 2 — an ink outside the asset window is a `PaletteViolation`.
     ///
     /// Violation caught: accepting the role's index because it is inside the
@@ -239,7 +305,7 @@ mod tests {
     /// the same roles succeed on a HUD sprite.
     #[test]
     fn falsifier_a2_ink_outside_asset_window_is_violation() {
-        let mask = surface("MASK00I0.IMG");
+        let mask = surface("MASK99I0.IMG");
         for role in InkRole::all() {
             assert_eq!(
                 ink_for(&mask, role),

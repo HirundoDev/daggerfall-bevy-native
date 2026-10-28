@@ -1253,20 +1253,23 @@ pub fn asset_index_range(name: &str) -> std::ops::RangeInclusive<u8> {
     family_index_range(family_for_asset(name))
 }
 
-/// **Measured per-asset index-range derivations** (M18 B3-c).
+/// **Measured per-asset index-range derivations** (M18 B3-c, M39 A2).
 ///
-/// A handful of retail assets carry palette indices **below** the family
-/// floor of [`family_index_range`]. Those two rows were derived by measuring
-/// the asset's own bytes (`observed_index_range`), never by widening the family
-/// rule:
+/// A handful of retail assets paint palette indices **outside** the window of
+/// [`family_index_range`]: most below its floor, `PICK03I0` above its ceiling.
+/// Every row was derived by measuring the asset's own bytes
+/// (`observed_index_range`), never by widening the family rule:
 ///
-/// | Asset | Bytes | Span of the non-zero indices | Painted pixels `< 63` |
-/// |:---|:---|---:|---:|
-/// | `MAP100I0.IMG` | 64 000 B (raw 320×200 `RCI`, no `ImgFile` header) | `16..=254` | 8 475 |
-/// | `TRAV0I00.IMG` | 64 000 B (raw 320×200 `RCI`, no `ImgFile` header) | `33..=254` | 2 628 |
+/// | Asset | Family rule | Bytes | Span of the non-zero indices | Measurement |
+/// |:---|:---|:---|---:|:---|
+/// | `MAP100I0.IMG` | `Map` `63..=254` | 64 000 B (raw 320×200 `RCI`, no `ImgFile` header) | `16..=254` | 8 475 painted px `< 63` |
+/// | `TRAV0I00.IMG` | `Map` `63..=254` | 64 000 B (raw 320×200 `RCI`, no `ImgFile` header) | `33..=254` | 2 628 painted px `< 63` |
+/// | `PICK03I0.IMG` | `Hud` `0..=254` | 64 768 B (raw 320×200 `RCI` + 768 B `PalFile`) | `1..=255` | 49 px at index 255 (x∈[4,314], y∈[114,162]); `PalFile[255]` = `(16,30,25)` |
 ///
 /// (`MAP100I0` also carries 4 624 transparent pixels — index 0 — so a count
-/// `≤ 62` that includes them reads 13 099; only the 8 475 painted ones matter.)
+/// `≤ 62` that includes them reads 13 099; only the 8 475 painted ones matter.
+/// `PICK03I0` carries 145 transparent pixels and 20 535 painted `< 63`, so the
+/// same count including index 0 reads 20 680.)
 ///
 /// **Why the family rule does not cover them:** `PaletteFamily::Map` is
 /// `63..=254` — the span measured on the `FMAP*` region maps, which is where
@@ -1277,11 +1280,39 @@ pub fn asset_index_range(name: &str) -> std::ops::RangeInclusive<u8> {
 /// silently: an asset that is not listed here and paints outside its declared
 /// range still raises `PaletteViolation`.
 ///
-/// The palette family of these two assets stays `Map` (`FMAP_PAL.COL`): the
+/// `PICK03I0` fails at the **other** edge: `PaletteFamily::Hud` stops at 254
+/// because that is where the `PAL.PAL` histogram of the panel set stops, and
+/// the pick screen's bytes prove it legally writes the palette's last index
+/// (`255`, inside the 256-entry `PalFile`, whose `PAL.PAL` colour `(16,30,25)`
+/// is a real dark green and not a sentinel). The ceiling — not the palette —
+/// was the wrong part of the rule for that asset, and the row records exactly
+/// the span the bytes show (`1..=255`), so a `Hud` asset without a measurement
+/// that paints 255 is still a violation.
+///
+/// The palette family of the `Map` rows stays `Map` (`FMAP_PAL.COL`): the
 /// measured colours of the indices they use agree with `PAL.PAL` (the two
 /// palettes share those entries), so the index range — not the palette — was
-/// the wrong part of the rule.
-pub const ASSET_RANGE_DERIVATIONS: [(&str, u8, u8, &str); 2] = [
+/// the wrong part of the rule. `PICK03I0` keeps `Hud` (`PAL.PAL`), which is the
+/// palette it actually uses.
+///
+/// **The `MASK` prefix rule is likewise per asset, not per family.** It comes
+/// from the paper-doll cut-outs, and it holds for exactly one retail file:
+///
+/// | Asset | Bytes | Span of the non-zero indices | Painted px inside `144..=158` |
+/// |:---|---:|---:|---:|
+/// | `MASK01I0.IMG` | 3 200 B | `144..=158` | 3 200 / 3 200 |
+/// | `MASK00I0.IMG` | 64 000 B (raw 320×200 `RCI`) | `12..=254` | 609 / 64 000 |
+/// | `MASK02I0.IMG` | 64 000 B (raw 320×200 `RCI`) | `12..=246` | 845 / 64 000 |
+/// | `MASK04I0.IMG` | 3 200 B | `36..=247` | 2 190 / 3 200 |
+/// | `MASK05I0.IMG` | 64 000 B (raw 320×200 `RCI`) | `12..=218` | 0 / 64 000 |
+/// | `MASK06I0.IMG` | 64 000 B (raw 320×200 `RCI`) | `1..=254` | 120 / 63 995 |
+///
+/// The other five are menu backgrounds of the `Hud` family (`0..=254`), so the
+/// prefix rule would reject their own bytes. Only the two assets the M39
+/// contract paints as full screens get an entry here; the prefix rule keeps
+/// governing every unlisted `MASK*` asset, and widening it beyond the
+/// measurement would be exactly the silent relaxation this table forbids.
+pub const ASSET_RANGE_DERIVATIONS: [(&str, u8, u8, &str); 5] = [
     (
         "MAP100I0",
         16,
@@ -1293,6 +1324,24 @@ pub const ASSET_RANGE_DERIVATIONS: [(&str, u8, u8, &str); 2] = [
         33,
         254,
         "raw 320x200 RCI (64000 B, no ImgFile header): non-zero span 33..=254, 2628 painted px < 63 (measured 2026-10-23)",
+    ),
+    (
+        "MASK00I0",
+        12,
+        254,
+        "raw 320x200 RCI (64000 B, no ImgFile header): non-zero span 12..=254, 62685 painted px < 144 (measured 2026-10-27); menu background of the Hud family (0..=254), not a paper-doll cut-out",
+    ),
+    (
+        "MASK05I0",
+        12,
+        218,
+        "raw 320x200 RCI (64000 B, no ImgFile header): non-zero span 12..=218, 63971 painted px < 144 (measured 2026-10-27); menu background of the Hud family (0..=254), not a paper-doll cut-out",
+    ),
+    (
+        "PICK03I0",
+        1,
+        255,
+        "RCI 320x200 palettized (64000 B pixels + 768 B PalFile): non-zero span 1..=255, 49 px at index 255 (x 4..=314, y 114..=162) and PalFile[255]=(16,30,25) is a real colour, not a sentinel; 145 transparent px and 20535 painted px < 63 (measured 2026-10-27)",
     ),
 ];
 
@@ -1692,11 +1741,18 @@ mod tests {
         assert_eq!(asset_index_range_resolved("AMAP00I0.IMG"), 63..=254);
         assert_eq!(asset_index_range_resolved("MASK01I0.IMG"), 144..=158);
         assert_eq!(asset_index_range_resolved("MAIN00I0.IMG"), 0..=254);
+        // `PICK03I0` is the row measured **above** its family ceiling: the Hud
+        // rule (0..=254) rejects its own bytes (index 255), so the entry
+        // exists and the family rule itself is untouched.
+        assert_eq!(family_for_asset("PICK03I0.IMG"), PaletteFamily::Hud);
+        assert_eq!(asset_index_range("PICK03I0.IMG"), 0..=254);
+        assert_eq!(asset_index_range_resolved("PICK03I0.IMG"), 1..=255);
+        assert!(!asset_index_range("PICK03I0.IMG").contains(&255));
         // Every derivation starts below the `Map` floor and stays inside the
         // complete UI palette range (`Hud`, 0..=254) — the palette authority of
         // these screens (`TRAV0I00` resolves Hud by its name, `MAP100I0` Map).
         let map_floor = *family_index_range(PaletteFamily::Map).start();
-        for (asset, low, high, _) in ASSET_RANGE_DERIVATIONS {
+        for (asset, low, high, evidence) in ASSET_RANGE_DERIVATIONS {
             assert!(
                 matches!(
                     family_for_asset(asset),
@@ -1705,9 +1761,18 @@ mod tests {
                 "{asset}: unexpected family"
             );
             assert!(low < map_floor, "{asset}: derivation must reach below 63");
-            assert_eq!(high, 254, "{asset}: derivation must end at the last index");
+            // The row is the measured span, so its top is the asset's own last
+            // painted index (`MAP*`/`TRAV0I00` reach 254, `MASK05I0` stops at
+            // 218, `PICK03I0` reaches the palette's last index) — never a
+            // widened ceiling. 255 is the only index outside the Hud band a
+            // measurement may claim: it is the last entry of the `PalFile`.
             let hud = family_index_range(PaletteFamily::Hud);
-            assert!(hud.contains(&low) && hud.contains(&high));
+            assert!(
+                hud.contains(&high) || high == u8::MAX,
+                "{asset}: derivation ceiling {high} is neither inside the UI palette nor the last palette index"
+            );
+            assert!(high > low, "{asset}: derivation must span more than one index");
+            assert!(!evidence.is_empty(), "{asset}: derivation carries no measurement");
         }
     }
 
@@ -1725,6 +1790,64 @@ mod tests {
         assert!(!asset_index_range("FMAP0I17.IMG").contains(span.start()));
         // … and the recorded derivation is exactly the measured span.
         assert_eq!(low..=high, 16..=254);
+    }
+
+    /// Read-only `ARENA2` of the user's retail install (`$DAGGERFALL_ARENA2`,
+    /// `$DF_ARENA2`, `$DF_APP_ROOT/ARENA2`, then the canonical autodetection).
+    fn retail_arena2() -> Option<std::path::PathBuf> {
+        for var in ["DAGGERFALL_ARENA2", "DF_ARENA2"] {
+            if let Ok(dir) = std::env::var(var) {
+                if !dir.trim().is_empty() {
+                    return Some(std::path::PathBuf::from(dir));
+                }
+            }
+        }
+        if let Ok(root) = std::env::var("DF_APP_ROOT") {
+            return Some(std::path::PathBuf::from(root).join("ARENA2"));
+        }
+        std::env::var("HOME")
+            .ok()
+            .map(|home| std::path::PathBuf::from(home).join("Games/Daggerfall/app/ARENA2"))
+    }
+
+    /// **Retail measurement of the M39 A2 fix:** `PICK03I0.IMG` paints the
+    /// palette's last index, so its recorded derivation is the span its own
+    /// bytes show (`1..=255`) and the `Hud` ceiling (`0..=254`) does not apply.
+    ///
+    /// Skips (with a message) when the read-only `ARENA2` tree is absent, as
+    /// every other runtime probe of the repo does; 0 retail bytes in git.
+    #[test]
+    fn pick03i0_retail_span_matches_its_derivation() {
+        let Some(dir) = retail_arena2() else {
+            eprintln!("SKIP pick03i0_retail_span_matches_its_derivation: no ARENA2");
+            return;
+        };
+        let path = dir.join("PICK03I0.IMG");
+        let Ok(bytes) = std::fs::read(&path) else {
+            eprintln!(
+                "SKIP pick03i0_retail_span_matches_its_derivation: {} absent",
+                path.display()
+            );
+            return;
+        };
+        assert_eq!(
+            bytes.len(),
+            RCI_DIMENSIONS[0].0 as usize * RCI_DIMENSIONS[0].1 as usize + PAL_FILE_LEN,
+            "retail PICK03I0.IMG is 64 000 B of 320×200 pixels plus its 768 B PalFile"
+        );
+        let image = decode_img_file(&bytes).expect("PICK03I0.IMG decodes as a raw palettized RCI");
+        assert_eq!(
+            observed_index_range(&image),
+            Some(1..=255),
+            "the asset's own non-zero span is what the derivation records"
+        );
+        assert_eq!(asset_index_range_resolved("PICK03I0.IMG"), 1..=255);
+        let at_last = image.pixels.iter().filter(|index| **index == u8::MAX).count();
+        assert!(
+            at_last > 0,
+            "index 255 is painted ({at_last} px), so the family ceiling must not reject it"
+        );
+        assert!(image.embedded_palette.is_some(), "the trailing 768 B PalFile is embedded");
     }
 }
 

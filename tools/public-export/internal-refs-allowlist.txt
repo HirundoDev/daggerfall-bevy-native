@@ -1,0 +1,61 @@
+# Tolerance rows for verify-export.py pass E (internal references), ORDER CR-5c3261ee.
+#
+# Format: `path:line<TAB>reason`. One row per line of the EXPORTED tree whose mention of an
+# internal path (`docs/sintergic/`, `.sintergic/`, `.omp/`, `.opencode/`, `promotion-ledger`)
+# counts as functional: a path constant, an `include_str!`, a `fs::read*`, a `Path::new`, a
+# `join(...)`, a `startswith(...)` prefix or a scanner pattern. Prose in `.md`, comments and the
+# exclusion/tolerance data files do not need a row.
+#
+# No wildcards. A row whose line disappears, moves or stops being functional is a stale row and
+# fails pass E, so this file cannot silently widen. A functional line without a row fails pass E
+# with the number of offending references. Pass E is not skippable.
+#
+# Every row below names a path that lives only in the main workspace: the exported tree carries
+# the reference, never the record. What each reference does at runtime — and whether it degrades
+# or aborts — is declared in docs/acknowledgments/export-limits.md.
+#
+# --- evidence strings printed by the probes (text, never opened) ----------------------------
+crates/app/src/dungeon_probe.rs:252	Probe evidence line (`contract=...` inside a println!); the path is printed, never opened.
+crates/app/src/m18_window.rs:689	MUSIC_EVIDENCE_DIR: the windowed demo writes its rendered song there; a `create_dir_all` failure degrades to a printed line, no panic.
+crates/app/src/m34_automap.rs:526	Probe evidence line (`contract=...` inside a println!); the path is printed, never opened.
+crates/parser-bevy-bridge/tests/person_flats_inventory.rs:155	Doc comment in an exported test file; the whole `tests/` file counts as functional by policy, but the line is prose and never opened.
+# --- promotion gate: main-owned records the gate reads by design ---------------------------
+crates/promotion-gate/src/allowlist.rs:12	C1_DIR: the gate audits the SIDE workspace's `.sintergic/registries/paths`; the main registry never ships.
+crates/promotion-gate/src/baseline.rs:35	BASELINE_FILE: main-owned baseline declaration read by the gate; absent from the export.
+crates/promotion-gate/src/baseline.rs:159	Test fixture inside `#[cfg(test)]`: creates a throwaway `<tmp>/docs/sintergic/promotion-gate` directory.
+crates/promotion-gate/src/contract.rs:44	RELEASES_DIR: main-owned release records read by the gate; absent from the export.
+crates/promotion-gate/src/contract.rs:486	Doc comment inside `#[cfg(test)]`; names the release-record path, never reads it.
+crates/promotion-gate/src/gate.rs:29	DEFAULT_LEDGER: append-only promotion ledger of the main workspace; absent from the export.
+crates/promotion-gate/src/main.rs:22	`--help` text of the CLI (default ledger path); a usage string, not a read.
+crates/promotion-gate/src/main.rs:27	`--help` text of the CLI (normative contract pointer); a usage string, not a read.
+crates/promotion-gate/src/verdict.rs:443	Test fixture inside `#[cfg(test)]`: ledger path inside a temporary directory.
+# --- CI guards: they name the internal record in order to exempt or classify it ------------
+scripts/ci/language-check.py:38	Docstring listing the declared exemptions; prose, no filesystem access.
+scripts/ci/language-check.py:75	EXEMPT_PREFIX: the language gate skips that prefix instead of reading it.
+scripts/ci/language-check.py:371	Printed exemption summary; text only.
+scripts/ci/test-language-check.sh:122	Fixture written under `$TMP` to prove the exemption; nothing under the export is touched.
+scripts/ci/trademark-check.sh:70	`case` pattern: internal paths are exempt from the trademark guardrail.
+scripts/ci/trademark-check.sh:81	`case` pattern: labels internal governance paths in the report.
+# --- local operator scripts: inputs and outputs of the main workspace ----------------------
+scripts/closure-gate.py:6	Docstring naming the closure rule; prose, no access.
+scripts/closure-gate.py:27	DEFAULT_REGISTER: closure register the gate reads and rewrites; absent from the export.
+scripts/npc-flats-capture.py:592	Default `--out` evidence directory of the capture driver; absent from the export.
+scripts/ui-audit-001.py:46	TSV input the UI audit reads; absent from the export.
+scripts/ui-audit-001.py:47	CENSUS_DOC input the UI audit reads; absent from the export.
+scripts/ui-audit-001.py:48	M17_SPEC input the UI audit reads; absent from the export.
+scripts/ui-audit-001.py:50	AUDIT_DOC output the UI audit writes; absent from the export.
+scripts/ui-audit-001.py:52	ROADMAP_DOC input the UI audit reads; absent from the export.
+scripts/ui-base-001.py:15	Docstring describing the gitignored evidence directory; prose, no access.
+scripts/ui-config-001.py:17	Docstring describing the gitignored evidence directory; prose, no access.
+scripts/ui-create-001.py:17	Docstring describing the gitignored evidence directory; prose, no access.
+scripts/ui-input-001.py:15	Docstring describing the gitignored evidence directory; prose, no access.
+scripts/ui-jugable-001.py:13	Docstring describing the gitignored evidence directory; prose, no access.
+scripts/verify-m18-owner-pack.py:15	GATE: the owner-pack verifier reads the M18 gate evidence; absent from the export.
+# --- the export tooling itself: it must name what it excludes or counts --------------------
+tools/public-export/export-public.py:86	H1_PNG: the rule that keeps the retired retail capture out of the export; compared, never read.
+tools/public-export/verify-export.py:212	Pass B: internal prefixes that must never reach a git object; comparison only.
+tools/public-export/verify-export.py:290	Pass D: internal prefixes are a forbidden category; comparison only.
+tools/public-export/verify-export.py:405	Pass E: the token list this verifier counts; pattern data.
+tools/public-export/test-export-public.py:123	Fixture data: the probe writes this constant into a throwaway repository; nothing in this tree is opened.
+tools/public-export/test-export-public.py:126	Fixture data: prose the probe writes into a throwaway repository to prove the non-functional classification.
+tools/public-export/test-export-public.py:332	The probe's own token list (a restatement of the verifier's); comparison only.

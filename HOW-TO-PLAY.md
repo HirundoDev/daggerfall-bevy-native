@@ -1,13 +1,17 @@
 # How to play and how to probe
 
-This guide is for the **`v0.1.0-alpha`** build: how to start it, what the keys actually do, how to
+This guide is for the **`v0.3.0-alpha`** build: how to start it, what the keys actually do, how to
 read a behaviour probe, and what is knowingly broken. Every binding below is read from the code that
 consumes it (file names are given), not from memory; nothing here is a promise of parity with the
 original game.
 
 > **Status, honest:** this is a pre-release. The engine runs end to end and every claim is backed by
-> an executable probe, but the owner-signed side-by-side review of M18 is still pending, so the
-> alpha carries no `M18` tag and makes **no claim of visual parity**. See
+> an executable probe. M18 — the global acceptance gate — is **`DONE` at technical level and
+> `PARTIAL-TAG-PENDING`**: its **acceptance signature was recorded on 2026-10-26 by delegation**
+> (8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL), the one row still pending is `T-RELEASE-TAG`,
+> and the tag is **none**. The ORIGINAL side
+> (Daggerfall 1.07.213 in DOSBox) is **not certified**, and that comparison is still the owner's own
+> act, so the alpha carries no `M18` tag and makes **no claim of visual parity**. See
 > [Status: what is actually done](docs/acknowledgments/status.md).
 
 ## 1. Requirements
@@ -46,9 +50,12 @@ It opens on the **main-menu panel** (the 1996 title screen composition, an overl
 `Enter` transitions `MENU` to `PLAYING` (measured capture `01-enter-playing` in the owner pack); until
 then the world is frozen (0 world frames, 0 clock minutes).
 
-> The published `v0.1.0-alpha` artifact predates the M18 B1/B2/B3 parity fixes. In that artifact the
-demo starts directly in the world, without the menu overlay and without the `,` / `.` / `T` bindings
-listed below; this tree is the newer, still-unsigned state.
+> The published `v0.3.0-alpha` artifact is cut from an earlier tree than this one: it carries the M18
+> B1/B2/B3 parity fixes (the menu overlay and the `,` / `.` / `T` bindings below), but not the
+> playable-window fixes landed since. M39 is **`DONE` at gate level** — its 3 gate rows close on
+> `ui-jugable-001` **9/9 PASS ×2** and AXIS A5 `focus-rows=153` **×2** (HEAD `5803297`), with
+> coverage **0.857** and **K7** open — but it is not signed and carries no tag, so neither state is
+> owner-accepted.
 
 Other entry points, same launcher:
 
@@ -165,7 +172,7 @@ One command per row; the last column is the decisive line you should see. Full s
 
 | Probe | What it measures | Expected decisive line |
 |---|---|---|
-| `ALL-001` | the unified Anti-Screen suite: **37 probes, M2-M29** | `VERDICT: ANTI-SCREEN SUITE PASS (37/37 probes, exit 0)` |
+| `ALL-001` | the unified Anti-Screen suite: **40 entries across M2–M34** — the `[SuiteEntry; 40]` table in `crates/app/src/m6_probe.rs` | `VERDICT: ANTI-SCREEN SUITE PASS (40/40 probes, exit 0)` |
 | `VIEW-001` | 3D viewer over one `ARCH3D.BSA` block, collision coherence | `VERDICT: PROBE-VIEW-001 PASS` |
 | `CITY-001` | M3 city street walkable end to end, solid blocks, 0 crossings | `VERDICT: PROBE-CITY-001 PASS` |
 | `INTERIOR-001` | street to interior through the door, time cycle, real `.RDB` | `VERDICT: PROBE-INTERIOR-001 PASS` |
@@ -191,11 +198,18 @@ One command per row; the last column is the decisive line you should see. Full s
 | `MAGIC-001` | `SPELLS.STD`, spell cost and casting | `VERDICT: PROBE-MAGIC-001 PASS` |
 | `AUDIO-001` | `MIDI.BSA` songs and `DAGGER.SND` sound clips, production playback path | `VERDICT: PROBE-AUDIO-001 PASS` |
 
-The suite covers 37 probes across M2-M29 (the members include the ones above plus `STEALTH-001`,
+The suite covers 40 entries across M2–M34 — the `[SuiteEntry; 40]` table in
+`crates/app/src/m6_probe.rs`, also stated in
+[How parity is verified](docs/acknowledgments/parity-verification.md) (the members include the ones above plus `STEALTH-001`,
 `STATS-001`, `SKILLS-001`, `ITEM-001`, `ENCHANT-001`, `MONSTER-001`, `NPC-AI-001`, `GUILD-001`,
 `CRIME-001`, `LAW-001`, `EXEC-001`, `LIFECYCLE-001` and `JOURNAL-001`); `ALL-001` prints the current
-list and total. Nothing outside that public set is runnable here: the private M33 work in progress and
-the later milestones are not part of this alpha.
+list and total. The organs after M29 run as standalone probes inside the same binary, with the same
+`--probe` flag: `SHOP-001`, `ECONOMY-001`, `BANK-001` (M30), `TRAVEL-001`, `WEATHER-001`,
+`CALENDAR-001` (M31), `CONDITION-001`, `VAMPIRE-001`, `REST-001`, `DEATH-STATE-001` (M32),
+`SAVE-ALL-001`, `SAVE-MIGRATION-001`, `SAVEGAME-READ-001`, `SAVEGAME-WRITE-001`, `M33-DEMO-001` (M33),
+plus `SPINE-001`, `BIOME-001` and `SPRITE-001`. Each prints its own `VERDICT:` line. The UI gates of
+M37 and M38 are not probes: they are scripts — `scripts/ui-base-001.py`, `scripts/ui-input-001.py` and
+`scripts/ui-create-001.py`, `scripts/ui-config-001.py`, the last two covering the 27 M38 surfaces.
 
 `ALL-001` needs the retail data too: without `ARENA2` its members fail and the suite exits `1`.
 
@@ -233,7 +247,7 @@ no UI code.
 - **No nature sprites and no day/night cycle.** Vegetation and the visible night sky were measured by
   the M35 annex probes — `SPRITE-001` 11/11 and `BIOME-001` 25 passed / 0 failed / 1 NA on the declared
   gap `GAP-TAX-11` — and are still not part of this window; the scene lighting does not follow the
-  clock yet.
+  clock yet. M35 is **`PARTIAL`**: that declared gap is deferred to **M44**.
 - **No damage numbers on screen.** Combat retaliation is resolved and logged (`M22 VE`), and the HUD
   shows HP, but the hit number is not drawn over the target.
 - **Mouse look cannot be scripted.** The demo reads raw mouse motion; synthetic X11 input does not
@@ -242,18 +256,37 @@ no UI code.
 
 ## 7. What is not in this alpha
 
-`v0.1.0-alpha`, no parity claim. The public probe suite is **37 probes, M2-M29**. M18 is
-**code-complete for its B1/B2/B3 parity work but unsigned**: the owner signature is pending, one
-acceptance row (CS-09) has an open decision, and two further rows (CS-05 vegetation, CS-11 night) were
-measured by the M35 annex - biomes, vegetation and night sky for the already-closed acceptance set,
-**not** all buildings, cities or quests - and remain pending the owner's side-by-side. So no `M18` tag
-exists.
+`v0.3.0-alpha`, no parity claim. The public probe suite is **`ALL-001`'s 40 entries across M2–M34** -
+the 37 of M2–M29 plus the three demo probes M34 added - and the organs of M30–M33 ship their own probes
+in the same binary (see section 5); the count is the `[SuiteEntry; 40]` table in
+`crates/app/src/m6_probe.rs`, also stated in
+[How parity is verified](docs/acknowledgments/parity-verification.md). M18's **acceptance signature is
+recorded on 2026-10-26 by delegation**: the 21 acceptance rows are signed **8 PASS · 9 NC-ACEPTA ·
+4 NOT-COMPARABLE · 0 FAIL**, where `NC-ACEPTA` is acceptance with a declared non-conformity and
+`NOT-COMPARABLE` a declared class, not a downgraded pass. Two further rows (CS-05 vegetation, CS-11
+night) were measured by the M35 annex - biomes, vegetation and night sky for the already-closed
+acceptance set, **not** all buildings, cities or quests - and the ORIGINAL side (Daggerfall 1.07.213 in
+DOSBox) is **not certified**: comparing the engine rows against the original is still the owner's own
+act, and the tag is a separate later act too. So no `M18` tag exists.
 
-The private M33 save/load work in progress is **not part of this alpha and not runnable from this
-tree's public surface**. M34 closed at technical level on 2026-10-26 and the M35 annex was delivered
-the same day; both are unsigned, with no milestone tag. The UI plan has closed its first two gates the
-same way on 2026-10-27 - M36 the audit, M37 the seven-axis layer - and neither produced a playable
-interface. No date is promised for any of them.
+The M33 total savegame is **implemented at technical level** in this alpha (closure 2026-10-26):
+savegame v2, the v1→v2 migration and the classic `SAVEGAME` read/write, measured by `SAVE-ALL-001`
+(24/24 byte-identical round trips, five corruption mutations rejected), `SAVE-MIGRATION-001`,
+`SAVEGAME-READ-001`, `SAVEGAME-WRITE-001` and `M33-DEMO-001`. It is not surfaced in the running window.
+M34 closed at technical level on 2026-10-26 — **`PARTIAL-TECHNICAL-CLOSURE`** — with one named row
+still open, **`AUDIO-RT-001-DEVICE`**: `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`, the
+binary built without the `audio` feature), so its two-process measure covers only the degraded branch
+and the device branch of the audio is the owner's decision. `UI-FULL-001`, which is also M40's gate,
+counts the **34** non-playable surfaces as `N/A-engine` entries of its own census and measures only
+the **51** playable windows (**51/51**): its `PASS` neither depends on those 34 nor certifies them,
+and it certifies nothing about the device branch. M35 was delivered the same day and is **`PARTIAL`**,
+with `GAP-TAX-11` deferred to **M44**. The UI plan closed its first three gates at gate level on
+2026-10-27 - M36 the audit, M37 the seven-axis layer, M38 the 27 creation/configuration surfaces - and
+M39, the 51 interactive windows, is **`DONE` at gate level** as well: `ui-jugable-001` 9/9 PASS ×2 and
+AXIS A5 `focus-rows=153` ×2 at HEAD `5803297`, coverage **0.857** with **K7** open. Its runner and
+probe are in the tree since `85979b9`. None of these is signed and none carries a tag, and only M39's
+windows are playable at all, not yet in the running demo window. M40–M48 are **`AUSENTE`** (no code,
+no dispatch, no tag). No date is promised for any of them.
 
 ## 8. Where to look next
 

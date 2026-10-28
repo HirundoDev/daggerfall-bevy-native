@@ -2,9 +2,23 @@
 //! DFU *clean-room* trade price + executable core of
 //! **PROBE-FORMULA-001** (INV-L99-3 "causal formulas", VSIM §4 row 4).
 //!
-//! **Source (Mode A, clean-room):** `reference/dfu-spec/Assets/Scripts/Game/
-//! Formulas/FormulaHelper.cs` → `CalculateTradePrice(int cost, int
-//! shopQuality, bool selling)` (MIT, corpus on disk — delta/note M5 §N2).
+//! **Source (Mode A, clean-room):** Daggerfall Unity pinned at
+//! `Interkarma/daggerfall-unity@2343305d1d83ccc0de57a81e3b1e61188a997e34`
+//! (`reference/dfu-spec/CLASSIFICATION.md` §1; MIT), local mirror
+//! `reference/dfu-spec/Assets/Scripts/Game/Formulas/FormulaHelper.cs`, sha256
+//! `b7ba3b2dfdf3e10826b6c5532d593e35125731afac5fd2524ddae6c1c3a2a09d`:
+//!
+//! - `CalculateTradePrice(int cost, int shopQuality, bool selling)`
+//!   — `FormulaHelper.cs:1976-2004` (override `:1979-1980`; merchant levels
+//!   `:1983-1984`; sell branch `:1990-1995`; buy branch `:1996-2001`;
+//!   `return amount` `:2003`).
+//! - `cost` is the **shelf cost**, i.e. `CalculateCost(item.value, shopQuality)`
+//!   — `FormulaHelper.cs:1884-1899` (clamp `:1890-1893`, regional `:1895`,
+//!   `2 * (c * (q - 10) / 100 + c)` `:1896`, return `:1898`). Behaviour lives in
+//!   `behavior::durability::calculate_cost`; this crate stays a pure leaf and
+//!   the **app** composes the two stages (`m5_probe::dfu_buy_price` /
+//!   `dfu_sell_price`, and the 40-vector pipeline gate).
+//!
 //! **Exact integer** port of the C# arithmetic (`i32`, shifts `<<`/`>>`,
 //! division toward zero — same operands as C# over the documented domain):
 //! 0 floating point (NFR NUMERIC-never-FLOAT), 0 chance (the function rolls
@@ -59,9 +73,14 @@ pub struct FormulaVector {
 
 /// DFU parity golden vectors (11 vectors: buy/sell + domain edges: quality
 /// 0/20, stats 0/100, cost 0). Independent transcription of
-/// `FormulaHelper.cs:1960-1988` (verified against upstream `0038a1e6`,
-/// 2026-10-23; the earlier `:1976-2001` citation did not match v1.1.1 —
-/// SPEC-M30 §9).
+/// `FormulaHelper.cs:1976-2004` on the pinned mirror (`2343305d…`, sha256
+/// `b7ba3b2d…`) — the earlier header named the older snapshot `0038a1e6…` and
+/// a `:1960-1988` range that starts before the function's real first line.
+///
+/// Cross-checked 2026-10-27 by an **independent Python oracle** that re-derives
+/// every `expected` from the inputs alone (C# truncation-toward-zero):
+/// 11/11 reproduced, 0 divergence — evidence
+/// `docs/sintergic/l5-mission/m5-calculate-cost-evidence-CR-112b1058/`.
 pub const GOLDEN_VECTORS: &[FormulaVector] = &[
     FormulaVector { cost: 100, shop_quality: 10, selling: false, player_mercantile: 50, player_personality: 50, expected: 56 },
     FormulaVector { cost: 100, shop_quality: 10, selling: true, player_mercantile: 50, player_personality: 50, expected: 50 },
@@ -76,7 +95,17 @@ pub const GOLDEN_VECTORS: &[FormulaVector] = &[
     FormulaVector { cost: 60, shop_quality: 12, selling: true, player_mercantile: 80, player_personality: 45, expected: 31 },
 ];
 
-/// DFU `CalculateTradePrice` — exact integer port (clean-room, Mode A).
+/// DFU `CalculateTradePrice` — exact integer port (clean-room, Mode A) of
+/// `FormulaHelper.cs:1976-2004`.
+///
+/// Terms and their lines: merchant levels `:1983-1984`
+/// (`5 * (shopQuality - 10) + 50`, identical for mercantile and personality) ·
+/// sell branch `:1990-1995` (`dm = ((100-ml)<<8)/200 + 128` ×
+/// `(merc<<8)/200 + 128 >> 8`; `amount = ((179*dm>>8) + (51*dp>>8)) * cost >> 8`)
+/// · buy branch `:1996-2001` (`dm = (ml<<8)/200 + 128` ×
+/// `((100-merc)<<8)/200 + 128 >> 8`; `dp` likewise then `<< 6`;
+/// `amount = ((192*dm>>8) + (dp>>8)) * cost >> 8`) · `return amount` `:2003`.
+/// `cost` here is the shelf stage `CalculateCost` output (`:1884-1899`).
 ///
 /// Verified C#↔Rust precedence parity: `*`/`/` > `>>`/`<<` in both languages
 /// (parenthesized explicitly here for readability); C# arithmetic `>>` = Rust

@@ -351,6 +351,20 @@ mod m34_audio_probe;
 mod m34_ui_probe;
 mod m37_ui1_probe;
 mod m38_ui2_probe;
+// M39/UI-3 — the 51 `Playable` windows (plan §4 frozen interface) and their
+// executable gate `PROBE-UI-JUGABLE-001` (plan §4.1).
+mod m39_state;
+mod m39_block_a;
+// Block B exposes accessors (`window`, `ordinal`, `tick`, `painted`,
+// `last_delta`, `changed`) that only its unit tests read; the probe consumes
+// `interact`/`evidence`, so the lint stays muted here — and only here.
+#[allow(dead_code)]
+mod m39_block_b;
+mod m39_block_cd;
+mod m39_block_ef;
+mod m39_block_gh;
+mod m39_surfaces;
+mod m39_jugable_probe;
 mod m34_video_probe;
 mod m34_light_probe;
 mod m35_biome_probe;
@@ -578,6 +592,12 @@ fn main() {
             // 640x480 BMP per surface. Both EXIT=2 without ARENA2.
             Some("PROBE-UI-CREATE-001") => m38_ui2_probe::run_create(),
             Some("PROBE-UI-CONFIG-001") => m38_ui2_probe::run_config(),
+            // M39/UI-3 (plan §4.1, CR-7bf61244): PROBE-UI-JUGABLE-001 — the 51
+            // `Playable` surfaces measured (nodes/glyphs/focus/opaque/digest),
+            // interacted through their real block functions, gated as 8 blocks
+            // + 7 axes, one BMP per surface and a double-process digest.
+            // EXIT=2 without ARENA2.
+            Some("PROBE-UI-JUGABLE-001") => m39_jugable_probe::run(),
             // M18 B3-a (CS-13/CS-14): street population + visible city guard.
             Some("POPULATION-001") => m18_b3a::run_population_001(),
             // M18 B3-b (CS-15/CS-16): retail dialogue + journal overlays.

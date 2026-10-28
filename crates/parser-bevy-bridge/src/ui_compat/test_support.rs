@@ -73,7 +73,7 @@ pub(crate) fn bank() -> UiAssets {
         .with_image("MAIN00I0.IMG", image(320, 46, 1))
         .expect("main strip");
     assets = assets
-        .with_image("MASK00I0.IMG", image(64, 64, 150))
+        .with_image("MASK99I0.IMG", image(64, 64, 150))
         .expect("mask");
     assets = assets
         .with_image("MAP100I0.IMG", image(320, 200, 20))

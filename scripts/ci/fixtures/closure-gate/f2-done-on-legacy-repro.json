@@ -1,0 +1,21 @@
+{
+  "name": "f2-done-on-legacy-repro",
+  "why": "DONE backed by single-process rows and no annotated tag must be rejected.",
+  "expected_error": "DONE-ON-LEGACY-REPRO",
+  "mutations": [
+    {
+      "milestone": "M40",
+      "set": {"verdict": "DONE", "acceptance": "PENDING", "legacy_closure": false},
+      "rows": [
+        {
+          "id": "UI-FULL-001",
+          "gate": "complete-UI gate",
+          "status": "PASS",
+          "repro": "legacy-single",
+          "runs": 1,
+          "evidence": "docs/acknowledgments/roadmap-m18-m48.md"
+        }
+      ]
+    }
+  ]
+}

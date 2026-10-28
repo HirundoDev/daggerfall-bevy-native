@@ -1,0 +1,9 @@
+{
+  "name": "f3-prose-contradiction",
+  "why": "Public prose claiming DONE for a milestone the register calls AUSENTE must be rejected.",
+  "expected_error": "PROSE-DONE-VS-REGISTER",
+  "mutations": [
+    {"milestone": "M40", "set": {"verdict": "AUSENTE", "acceptance": "N-A"}},
+    {"prose_surface": ["scripts/ci/fixtures/closure-gate/f3-prose.md"]}
+  ]
+}

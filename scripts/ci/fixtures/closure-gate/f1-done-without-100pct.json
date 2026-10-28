@@ -1,0 +1,22 @@
+{
+  "name": "f1-done-without-100pct",
+  "why": "A milestone declared DONE while one of its gate rows is PARTIAL must be rejected.",
+  "expected_error": "DONE-WITHOUT-100PCT",
+  "mutations": [
+    {
+      "milestone": "M40",
+      "set": {"verdict": "DONE", "acceptance": "PENDING"},
+      "rows": [
+        {
+          "id": "UI-FULL-001",
+          "gate": "complete-UI gate",
+          "status": "PARTIAL",
+          "repro": "two-process",
+          "runs": 2,
+          "digest_evidence": "docs/acknowledgments/roadmap-m18-m48.md",
+          "evidence": "docs/acknowledgments/roadmap-m18-m48.md"
+        }
+      ]
+    }
+  ]
+}
