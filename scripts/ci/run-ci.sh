@@ -18,9 +18,9 @@ DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 fail=0
 
 echo "== PHASE 1 CI (anti-asset / anti-trademark / English-only) · CR-bbd5db82 =="
-"$DIR/content-scan.sh" || fail=1
-"$DIR/trademark-check.sh" || fail=1
-"$DIR/language-check.sh" || fail=1
+bash "$DIR/content-scan.sh" || fail=1
+bash "$DIR/trademark-check.sh" || fail=1
+bash "$DIR/language-check.sh" || fail=1
 
 if [ "$fail" -eq 0 ]; then
   echo "ci: PASS (3/3 checks)"

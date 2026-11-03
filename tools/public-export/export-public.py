@@ -176,6 +176,25 @@ def release_declaration(head, override):
              % (head[:12], branch or "detached", ", ".join(tags) or "none"))
 
 
+def head_exec_paths():
+    """Paths whose HEAD index entry is executable (mode 100755).
+
+    The export copies blobs with `write_bytes`, which drops the mode, and a public clone then
+    cannot run `./scripts/guard/install-hooks.sh` or the CI runner's own sub-scripts. The mode is
+    read from the source index, not from the working tree, so a stray `chmod` cannot leak.
+    """
+    raw = subprocess.run(["git", "-C", str(REPO), "ls-tree", "-r", "-z", "HEAD"],
+                         capture_output=True, check=True).stdout
+    out = set()
+    for entry in raw.split(b"\0"):
+        if not entry:
+            continue
+        meta, _, path = entry.partition(b"\t")
+        if meta.split()[0] == b"100755":
+            out.add(path.decode())
+    return out
+
+
 def head_blobs(paths):
     """Exact HEAD content for each path (a single git invocation)."""
     if not paths:
@@ -362,10 +381,13 @@ def main():
             keep.append(f)
 
     blobs = head_blobs(keep)
+    executable = head_exec_paths()
     for f in keep:
         dst = out / f
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(blobs[f])
+        if f in executable:
+            os.chmod(dst, 0o755)
 
     # --- Declared public surface (affects the export only, never the source repo) ---
     renamed = []

@@ -42,7 +42,7 @@ those closures contain.
 
 | Milestone | Scope | Evidence at closure |
 |---|---|---|
-| **M0** | Naming/legal guardrails, position gates, CI content + trademark scans | `scripts/ci/run-ci.sh` → PASS (2/2) |
+| **M0** | Naming/legal guardrails, position gates, CI content + trademark scans | `scripts/ci/run-ci.sh` → PASS (3/3 checks: content, trademark, English-only) |
 | **M1** | 3D block viewer: `ARCH3D.BSA` → Bevy mesh, window feature, PathChecker | Real block rendered from retail data |
 | **M2** | First-person camera and grid collision | **DONE** and tagged `M2-2026-10-19` — `PROBE-VIEW-001` PASS; repaired after the campaign re-audit, final QA **0.98** (`docs/sintergic/l5-mission/final-qa-M2M5M19-CR-380233e5.md`) |
 | **M3** | Navigable city streets, deterministic layout, sky | `PROBE-CITY-001` PASS |

@@ -14,6 +14,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The exportable surface is English-only.** Every file the public export ships was translated to
+  English, prose and comments alike; the public docs (`docs/NIGHT-RUN-GUARDRAILS.md`,
+  `docs/AGENT-CONTRACT.md`, `docs/ALCANCE-POST-M44.md`) were translated in full. Printed instrument
+  literals stay verbatim in the language they are printed in, because they are strings the gates emit,
+  not prose: `GUARD-EXCEPCION`, `GUARD-DEFERIDO`, `AUSENTE`, `CAMBIADO`, `NUEVO`, `RESUMEN`,
+  `SIN EVIDENCIA`, `0 toques a instrumentos`, `ventana medida:`.
+- **One file stays declared, not translated:** `scripts/shell-002.py` (90 hits, class
+  `frozen-by-design`) — its lines are pinned verbatim by the M-SHELL phase 2 gate and by the export
+  contract that quotes them, so translating them would break the pins it exists to prove. It is
+  mirrored by `SPANISH_ALLOW` in `tools/public-export/export-public.py` and reported, never hidden.
+- **`scripts/ci/language-baseline.txt` retired 300 rows** (680 of allowance) once their files reached
+  zero hits. A row that outlives its debt is an allowance that never shrinks; the table now declares
+  the one frozen file and nothing else. The `framework-sync` corpus needs no row because it leaves the
+  surface by name in `tools/public-export/exclude.txt`.
+
+### Fixed
+
+- **`scripts/ci/language-check.py` counted a shell `/*` case pattern as a C block comment.** The
+  block-comment branch ran before the `#` branch for every extension, so a `case` arm like `/*) ;;`
+  opened a phantom block that swallowed the rest of the script (three false positives, measured
+  2026-11-03). Block comments are now scoped to the C-style extensions (`BLOCK_COMMENT_EXT`). The
+  count went *up* when the phantom block disappeared, because fifteen real comment blocks it had
+  merged reappeared: the fix removes false positives, it does not add leniency.
+- **`trademark-check.sh` reached 0 gating hits.** `scripts/menu-window-001.py` listed the retail
+  title while describing what the probe does *not* inspect; the citation added nothing to the
+  statement and put a third-party mark on the exportable surface, so it was removed.
+
+Measured on the exported tree (477 files): `content-scan.sh` PASS, `trademark-check.sh` PASS
+(0 gating, 3 advisory), `language-check.sh` PASS (`hits: 90`, `baselined: 90`, `new_hits: 0`), and the
+export gate reports `spanish_stopwords_absent: pass` with `declared_frozen: ["scripts/shell-002.py"]`.
+
 ## [0.4.0-alpha] - 2026-11-02
 
 The first pre-release after `v0.3.0-alpha` that changes behaviour instead of only the record: a
