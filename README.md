@@ -19,8 +19,11 @@ keep outside this repository. See [Data, legal and trademarks](docs/acknowledgme
 > fixed — including the third-party mark its CI reported and the fix that landed **above** it, both
 > recorded in the CHANGELOG. `v0.3.1-alpha`, tagged on 2026-10-27 at `858e8f6`, is the documentation correction, and
 > `v0.3.2-alpha` (tagged 2026-10-27) is the immutable cut of it. The closure record carries the state, and it is the only authority quoted
-> here — the record is not part of this export, and `scripts/closure-gate.py` reproduces it with `VERDICT: PASS` (0 prose↔register contradictions,
-> falsifiers 3/3 red): M0–M17 **DONE**
+> here — the record is not part of this export, so neither is it. `scripts/closure-gate.py`
+> reproduces it **against that record**, which this clone does not have: run here it stops at its first
+> read (`closure-gate: cannot read register`), and [`export-limits.md`](docs/acknowledgments/export-limits.md)
+> records that mode of failure. What the record itself says — `VERDICT: PASS`, 0 prose↔register
+> contradictions, falsifiers 3/3 red — is quoted, not a check a reader can re-run: M0–M17 **DONE**
 > and tagged; M18 **`PARTIAL-TAG-PENDING`**; M19–M33 **DONE** at gate level; M34
 > **`PARTIAL-TECHNICAL-CLOSURE`** with the named row `AUDIO-RT-001-DEVICE`; M35
 > **`PARTIAL`** with `GAP-TAX-11` deferred to M44; M36–M40 **DONE** at gate level; M41–M44 **DONE**
