@@ -3,21 +3,48 @@
 # Format: `path:line<TAB>reason`. One row per line of the EXPORTED tree whose mention of an
 # internal path (`docs/sintergic/`, `.sintergic/`, `.omp/`, `.opencode/`, `promotion-ledger`)
 # counts as functional: a path constant, an `include_str!`, a `fs::read*`, a `Path::new`, a
-# `join(...)`, a `startswith(...)` prefix or a scanner pattern. Prose in `.md`, comments and the
-# exclusion/tolerance data files do not need a row.
+# `join(...)`, a `startswith(...)` prefix or a scanner pattern. Prose in `.md`, comments, Python
+# docstrings (the spans `ast` reports, which is also what `scripts/ci/language-check.py` reads as
+# prose) and the exclusion/tolerance data files do not need a row.
 #
 # No wildcards. A row whose line disappears, moves or stops being functional is a stale row and
 # fails pass E, so this file cannot silently widen. A functional line without a row fails pass E
 # with the number of offending references. Pass E is not skippable.
 #
 # Every row below names a path that lives only in the main workspace: the exported tree carries
-# the reference, never the record. What each reference does at runtime — and whether it degrades
-# or aborts — is declared in docs/acknowledgments/export-limits.md.
-#
+# the reference, never the record. Each reason states what the line does, in one of three kinds:
+#   cited    the path is printed or compared; nothing opens it.
+#   read     the path is opened at runtime; the record is absent from the export, so the reason
+#            says whether the instrument degrades, reports the absence, or aborts.
+#   written  a run materialises the internal path inside the tree.
+# `docs/acknowledgments/export-limits.md` §2 narrates the promotion-gate, windowed-demo and
+# operator-script cases in full.
+
 # --- evidence strings printed by the probes (text, never opened) ----------------------------
 crates/app/src/dungeon_probe.rs:252	Probe evidence line (`contract=...` inside a println!); the path is printed, never opened.
 crates/app/src/m18_window.rs:885	MUSIC_EVIDENCE_DIR: the windowed demo writes its rendered song there; a `create_dir_all` failure degrades to a printed line, no panic.
 crates/app/src/m34_automap.rs:526	Probe evidence line (`contract=...` inside a println!); the path is printed, never opened.
+crates/app/src/m41_craft_probe.rs:100	SRC_SPEC_BASES: citation printed in a crafted row's `src` column (spec bases table); never opened.
+crates/app/src/m41_craft_probe.rs:102	SRC_SPEC_ARTIFACT_BUDGET: citation printed in a row's `src` column (artifact budget); never opened.
+crates/app/src/m41_craft_probe.rs:104	SRC_SPEC_VARIANTS: citation printed in a row's `src` column (variant table); never opened.
+crates/app/src/m41_craft_probe.rs:106	SRC_SPEC_MIX: citation printed in a row's `src` column (mix rules); never opened.
+crates/app/src/m41_craft_probe.rs:108	SRC_SPEC_CLASS_FILTER: citation printed in a row's `src` column (class filter); never opened.
+crates/app/src/m41_craft_probe.rs:110	SRC_SPEC_MIX_TABLE: citation printed in a row's `src` column (mix table); never opened.
+crates/app/src/m41_magic_probe.rs:511	Contract citation returned as the declared residual of HealCaster; printed in the row detail, never opened.
+crates/app/src/m41_magic_probe.rs:517	Contract citation returned as the declared residual of HealthLimiter; printed, never opened.
+crates/app/src/m41_magic_probe.rs:574	Contract citation in the `dead: no observable mutation` fallback detail; printed, never opened.
+crates/app/src/m41_magic_probe.rs:654	A2 census row's `src` citation; printed, never opened.
+crates/app/src/m41_magic_probe.rs:661	A3 variant row's `src` citation; printed, never opened.
+crates/app/src/m41_magic_probe.rs:682	A6 coverage row's `src` citation; printed, never opened.
+crates/app/src/m41_magic_probe.rs:689	A7 reconciliation row's `src` citation; printed, never opened.
+crates/app/src/m41_stats_probe.rs:106	SPEC_CHARACTER: prefix of every `spec()` citation the probe composes at run time; printed, never opened.
+crates/app/src/m41_stats_probe.rs:120	SRC_FATIGUE: citation printed in the `max_fatigue` golden rows; never opened.
+crates/app/src/m41_stats_probe.rs:124	SRC_BREATH: citation printed in the `max_breath` golden rows; never opened.
+crates/app/src/m42_dialogue_probe.rs:56	SPEC_M26: printed as `spec=` in the imported-record summary; never opened.
+crates/app/src/m42_faction_probe.rs:43	SPEC_M27: printed in the report header and in the rank/service rows; never opened.
+crates/app/src/m42_law_probe.rs:59	SPEC_M28: printed as `spec=` in the law rows and in the NEGATIVE line; never opened.
+crates/app/src/m42_npc_probe.rs:56	SPEC_M26: printed in the NPC table row and in the NEGATIVE line; never opened.
+crates/app/src/m42_quest_probe.rs:56	SPEC_UESP: printed as `src=` in the UESP coverage rows; never opened.
 crates/parser-bevy-bridge/tests/person_flats_inventory.rs:155	Doc comment in an exported test file; the whole `tests/` file counts as functional by policy, but the line is prose and never opened.
 # --- promotion gate: main-owned records the gate reads by design ---------------------------
 crates/promotion-gate/src/allowlist.rs:12	C1_DIR: the gate audits the SIDE workspace's `.sintergic/registries/paths`; the main registry never ships.
@@ -30,32 +57,114 @@ crates/promotion-gate/src/main.rs:22	`--help` text of the CLI (default ledger pa
 crates/promotion-gate/src/main.rs:27	`--help` text of the CLI (normative contract pointer); a usage string, not a read.
 crates/promotion-gate/src/verdict.rs:443	Test fixture inside `#[cfg(test)]`: ledger path inside a temporary directory.
 # --- CI guards: they name the internal record in order to exempt or classify it ------------
-scripts/ci/language-check.py:38	Docstring listing the declared exemptions; prose, no filesystem access.
 scripts/ci/language-check.py:75	EXEMPT_PREFIX: the language gate skips that prefix instead of reading it.
 scripts/ci/language-check.py:376	Printed exemption summary; text only.
 scripts/ci/test-language-check.sh:122	Fixture written under `$TMP` to prove the exemption; nothing under the export is touched.
 scripts/ci/trademark-check.sh:71	`case` pattern: internal paths are exempt from the trademark guardrail.
 scripts/ci/trademark-check.sh:86	`case` pattern: labels internal governance paths in the report.
 # --- local operator scripts: inputs and outputs of the main workspace ----------------------
-scripts/closure-gate.py:6	Docstring naming the closure rule; prose, no access.
 scripts/closure-gate.py:27	DEFAULT_REGISTER: closure register the gate reads and rewrites; absent from the export.
 scripts/npc-flats-capture.py:592	Default `--out` evidence directory of the capture driver; absent from the export.
-scripts/ui-audit-001.py:46	TSV input the UI audit reads; absent from the export.
-scripts/ui-audit-001.py:47	CENSUS_DOC input the UI audit reads; absent from the export.
-scripts/ui-audit-001.py:48	M17_SPEC input the UI audit reads; absent from the export.
-scripts/ui-audit-001.py:50	AUDIT_DOC output the UI audit writes; absent from the export.
-scripts/ui-audit-001.py:52	ROADMAP_DOC input the UI audit reads; absent from the export.
-scripts/ui-base-001.py:15	Docstring describing the gitignored evidence directory; prose, no access.
-scripts/ui-config-001.py:17	Docstring describing the gitignored evidence directory; prose, no access.
-scripts/ui-create-001.py:17	Docstring describing the gitignored evidence directory; prose, no access.
-scripts/ui-input-001.py:15	Docstring describing the gitignored evidence directory; prose, no access.
-scripts/ui-jugable-001.py:13	Docstring describing the gitignored evidence directory; prose, no access.
-scripts/verify-m18-owner-pack.py:15	GATE: the owner-pack verifier reads the M18 gate evidence; absent from the export.
+scripts/ui-audit-001.py:46	Read: default TSV input of the UI audit, opened at run time; absent from the export, so the first read raises `FileNotFoundError` and the script stops.
+scripts/ui-audit-001.py:47	Read: default census document of the UI audit, opened at run time; absent from the export, so the read raises `FileNotFoundError`.
+scripts/ui-audit-001.py:48	Read: default M17 spec of the UI audit, opened at run time; absent from the export, so the read raises `FileNotFoundError`.
+scripts/ui-audit-001.py:50	Written: default audit report of the UI audit; a run materialises the internal path in the tree.
+scripts/ui-audit-001.py:52	Read: default roadmap input of the UI audit, opened at run time; absent from the export, so the read raises `FileNotFoundError`.
+scripts/verify-m18-owner-pack.py:15	GATE: the owner-pack verifier reads the M18 gate evidence; absent from the export, so `open()` raises `FileNotFoundError`.
 # --- the export tooling itself: it must name what it excludes or counts --------------------
 tools/public-export/export-public.py:99	H1_PNG: the rule that keeps the retired retail capture out of the export; compared, never read.
 tools/public-export/verify-export.py:222	Pass B: internal prefixes that must never reach a git object; comparison only.
 tools/public-export/verify-export.py:302	Pass D: internal prefixes are a forbidden category; comparison only.
-tools/public-export/verify-export.py:417	Pass E: the token list this verifier counts; pattern data.
+tools/public-export/verify-export.py:422	Pass E: the token list this verifier counts; pattern data.
 tools/public-export/test-export-public.py:123	Fixture data: the probe writes this constant into a throwaway repository; nothing in this tree is opened.
 tools/public-export/test-export-public.py:126	Fixture data: prose the probe writes into a throwaway repository to prove the non-functional classification.
-tools/public-export/test-export-public.py:332	The probe's own token list (a restatement of the verifier's); comparison only.
+tools/public-export/test-export-public.py:350	The probe's own token list (a restatement of the verifier's); comparison only.
+# --- operator gates: the contract they measure is main-owned -------------------------------
+scripts/artifact-prune.py:331	Argparse description text: names the artifact directory it prunes; a usage string, not a read.
+scripts/artifact-prune.py:333	`--root` help text: restates the default artifact directory; text only.
+scripts/closure-gate.py:51	HANDOFF_INDEX: the registry the gate reads at run time; absent from the export, so `read_text` raises `FileNotFoundError` and the gate stops instead of reporting a verdict.
+scripts/closure-gate.py:482	Selftest fixture `qa_row`, opened as `qa_evidence` to prove it mentions the CR; absent from the export, so the row reports `REGISTRY-QA-EVIDENCE-MISSING`.
+scripts/closure-gate.py:483	Selftest fixture `own`: read with `read_bytes()` to compute its declared digest; absent from the export, so the selftest aborts before the cases run.
+scripts/closure-gate.py:488	Selftest fixture for the short-CR case, opened as `qa_evidence`; absent from the export, so the row reports `REGISTRY-QA-EVIDENCE-MISSING`.
+scripts/closure-gate.py:514	Historical-row payload (`path` of the re-anchored fixture): the existence check runs at run time, so an absent record adds `REGISTRY-PATH-MISSING` to the case's codes.
+scripts/closure-gate.py:515	Historical-row payload (`qa_evidence` of the re-anchored fixture): the existence check adds `REGISTRY-QA-EVIDENCE-MISSING` when the record is absent.
+scripts/closure-gate.py:520	Historical-row payload (`path` of the cierre fixture): the existence check runs at run time; absent here, so it adds `REGISTRY-PATH-MISSING`.
+scripts/closure-gate.py:521	Historical-row payload (`qa_evidence` of the cierre fixture): checked at run time; absent here, so it adds `REGISTRY-QA-EVIDENCE-MISSING`.
+scripts/closure-gate.py:527	Historical-row payload (`path` of the coresign fixture): checked at run time; absent here, so it adds `REGISTRY-PATH-MISSING`.
+scripts/closure-gate.py:528	Historical-row payload (`qa_evidence` of the coresign fixture): checked at run time; absent here, so it adds `REGISTRY-QA-EVIDENCE-MISSING`.
+scripts/closure-gate.py:544	`contrato_sync.path`, the positive control: the gate hashes the file it names; absent from the export, so the control mints `REGISTRY-PATH-MISSING` instead of nothing.
+scripts/closure-gate.py:561	Deliberately absent negative fixture: the case demands `REGISTRY-QA-EVIDENCE-MISSING` for this path.
+scripts/closure-gate.py:659	Deliberately nonexistent path of the `candidato-path-inexistente` negative: the case demands `REGISTRY-PATH-MISSING`.
+scripts/closure-gate.py:1048	`--handoff-index` help text: names the sealed registry; a usage string, not a read.
+scripts/dun-content-001.py:71	SPEC: printed in the `SPEC` line, the summary and the JSON manifest; never opened.
+scripts/dun-elig-001.py:91	PACK is one of `SOURCES_PATHS`: hashed by `recompute_fingerprint` at run time; absent from the export, so the fingerprint returns `None` naming this path.
+scripts/dun-elig-001.py:92	BLOCK_DOC: opened by `doc_golden()` behind `is_file()`; absent here, the anti-drift row reports the document as not declaring the golden table.
+scripts/dun-geo-001.py:83	Default `--out`: the run creates the directory and writes its captures there.
+scripts/dun-geo-001.py:905	Printed evidence line (`contract=... * cells=...`); text only.
+scripts/dun-save-001.py:50	BLOCK_DOC: opened by `read_doc()` behind `is_file()`; absent here, `DocSpec.present` stays false and the declared rows are reported missing.
+scripts/dun-state-001.py:97	PACK is one of `SOURCES_PATHS`: hashed by `recompute_fingerprint` at run time; absent from the export, so the fingerprint returns `None` naming this path.
+scripts/dun-state-001.py:98	BLOCK_DOC: opened by `doc_table()` behind `is_file()`; absent here, the anti-drift row reports the document as not declaring the transition table.
+scripts/guard/lane-integrity.py:89	`--index` default: the auditor reads it from the audited revision's git blob; absent from the export, so there are no registry rows to audit.
+scripts/guard/lane-integrity.py:90	`--handoffs-dir` default: cited paths are compared against it; no directory handle is opened.
+scripts/guard/lane-integrity.py:91	`--validation-dir` default: cited paths are compared against it; no directory handle is opened.
+scripts/guard/lane-integrity.py:675	SELFTEST_HH1: written as a blob into a dangling commit; it never exists as a file on disk.
+scripts/guard/lane-integrity.py:866	Case (vi) creates this citation directory on disk inside the tree and removes it in the cleanup list.
+scripts/m43-gate-contract.py:27	DOC: the renderer creates the parent directory and writes the contract document there.
+scripts/m43-gate-contract.py:153	Template text of the rendered document: names the falsifier evidence file; text only.
+scripts/m43-gate-contract.py:159	Template text of the rendered boundary section; mentions the registry row; text only.
+scripts/m43-gate-contract.py:162	Template text of the boundary section (promotion ledger, side projects); text only.
+scripts/m43-gate-contract.py:163	Template text of the boundary section (closure register); text only.
+scripts/m43_gate_lib.py:120	Build detail returned after `flock` guards the build: describes the lock path; the lock itself is `BUILD_LOCK`, composed from parts.
+scripts/new-game-semantics.py:689	`--replay` help text naming the artifact directory; a usage string, not a read.
+scripts/shell-surfaces-parity-001.py:73	DECLARATION: opened by `load_declaration` when present; absent from the export, so the gate prints `[MISSING] declaración ausente` and ends `VERDICT: FAIL`.
+scripts/shell-surfaces-parity-001.py:74	DECISION: only `is_file()` is consulted; absent from the export, so the gate prints `decisión ausente` and ends `VERDICT: FAIL`.
+scripts/shell-surfaces-parity-001.py:166	`decl_src` is the anchor column printed on every census row; citation only.
+scripts/shell-surfaces-parity-001.py:304	Anchor citation printed on the `decision-anchor` row; never opened.
+scripts/shell-surfaces-parity-001.py:395	`header()` sources line: declares the declaration path; printed only.
+scripts/shell-surfaces-parity-001.py:396	`header()` sources line: declares the decision path; printed only.
+scripts/shell-surfaces-parity-001.py:417	Missing-declaration message appended to `problems`; text only.
+scripts/shell-surfaces-parity-001.py:419	Missing-decision message appended to `problems`; text only.
+scripts/sys-bank-001.py:39	SPEC: handed to the gate as `spec_path`, stored in the report and printed in the argparse description; never opened.
+scripts/sys-calendar-001.py:36	SPEC: handed to the gate as `spec_path`, stored in the report and printed in the argparse description; never opened.
+scripts/sys-condition-001.py:37	SPEC: handed to the gate as `spec_path`, stored in the report and printed in the argparse description; never opened.
+scripts/sys-econ-001.py:36	SPEC: handed to the gate as `spec_path`, stored in the report and printed in the argparse description; never opened.
+scripts/sys-region-001.py:44	SPEC: handed to the gate as `spec_path`, stored in the report and printed in the argparse description; never opened.
+scripts/sys-travel-001.py:38	SPEC: handed to the gate as `spec_path`, stored in the report and printed in the argparse description; never opened.
+scripts/sys-weather-001.py:49	SPEC: handed to the gate as `spec_path`, stored in the report and printed in the argparse description; never opened.
+scripts/sys-weather-001.py:54	SPEC_DOC: prefix of the golden-table citations the probe composes at run time; printed, never opened.
+scripts/sys-weather-001.py:55	M35_DOC: citation appended to the gap rows (`cite ...`); printed, never opened.
+# --- the guard kit: patterns compared, fixtures written in a throwaway repo ----------------
+scripts/guard/guard-paths.sh:22	Protected-path pattern matched against a candidate path; nothing opens it.
+scripts/guard/guard-paths.sh:23	Protected-path pattern (handoff registry) matched against a candidate path; nothing opens it.
+scripts/guard/guard-paths.sh:26	Protected-path pattern (promotion ledger) matched against a candidate path; nothing opens it.
+scripts/guard/manifest-protected.sh:65	`--help` text recommending the manifest location; a usage string, not a read.
+scripts/guard/verify-guard.sh:184	`mkdir -p` of the protected directories inside the throwaway repo `$guard_tmp/repo`; the export is never touched.
+scripts/guard/verify-guard.sh:186	Writes the stub registry inside the throwaway repo `$guard_tmp/repo`.
+scripts/guard/verify-guard.sh:187	Writes the stub closure register inside the throwaway repo `$guard_tmp/repo`.
+scripts/guard/verify-guard.sh:188	Writes the stub promotion ledger inside the throwaway repo `$guard_tmp/repo`.
+scripts/guard/verify-guard.sh:196	`baseline_paths` entry committed inside the throwaway repo `$guard_tmp/repo`.
+scripts/guard/verify-guard.sh:197	`baseline_paths` entry committed inside the throwaway repo `$guard_tmp/repo`.
+scripts/guard/verify-guard.sh:198	`baseline_paths` entry committed inside the throwaway repo `$guard_tmp/repo`.
+scripts/guard/verify-guard.sh:255	Case argument naming the throwaway repo's protected file; the hook compares the staged path.
+scripts/guard/verify-guard.sh:258	Case argument naming the throwaway repo's protected file (CR exception case).
+scripts/guard/verify-guard.sh:268	Case argument naming the throwaway repo's protected file (kit-off case).
+scripts/guard/verify-guard.sh:271	Case argument naming the throwaway repo's protected file (message without the CR).
+scripts/guard/verify-guard.sh:283	Case argument naming the throwaway repo's protected file (superstring CR negative).
+scripts/guard/verify-guard.sh:291	Case argument naming the throwaway repo's protected file (`_` boundary negative).
+scripts/guard/verify-guard.sh:299	Case argument naming the throwaway repo's protected file (`-F` message case).
+scripts/guard/verify-guard.sh:306	Case argument naming the throwaway repo's protected file (`-F` without the CR).
+scripts/guard/verify-guard.sh:319	Appends a test line to the throwaway repo's registry (two-step inherited-message case).
+scripts/guard/verify-guard.sh:320	`git add` of the throwaway repo's registry in the same case.
+scripts/guard/verify-guard.sh:334	Appends the second test line to the throwaway repo's registry.
+scripts/guard/verify-guard.sh:335	`git add` of the throwaway repo's registry for the second step.
+scripts/guard/verify-manifest.sh:92	`mkdir -p` of the protected directories inside the throwaway repo `$guard_tmp/repo`.
+scripts/guard/verify-manifest.sh:112	Writes the stub registry inside the throwaway repo `$guard_tmp/repo`.
+scripts/guard/verify-manifest.sh:116	Saves the throwaway repo's registry so the case can restore it later.
+scripts/guard/verify-manifest.sh:206	Appends a test line to the throwaway repo's registry (case c).
+scripts/guard/verify-manifest.sh:207	`git add` of the throwaway repo's registry (case c).
+scripts/guard/verify-manifest.sh:214	`contiene` argument: the auditor's output is searched for the path; string comparison only.
+scripts/guard/verify-manifest.sh:216	Recorded case label naming the path the case touched.
+scripts/guard/verify-manifest.sh:221	Recorded expectation text for case c.
+scripts/guard/verify-manifest.sh:223	Recorded detail line: whether the auditor named the path; text only.
+scripts/guard/verify-manifest.sh:232	Restores the throwaway repo's registry from the saved copy.
+scripts/guard/verify-manifest.sh:233	`git add` of the restored registry in the throwaway repo.

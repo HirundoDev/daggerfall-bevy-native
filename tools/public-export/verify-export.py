@@ -16,7 +16,7 @@ E: internal-reference metric (files, lines, functional, non-functional) with a d
    a functional reference that is not allowlisted fails the pass *with the number*.
 Exit 0 = A/B/C/D/E PASS.
 """
-import argparse, fnmatch, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
+import argparse, ast, fnmatch, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -404,13 +404,18 @@ def pass_d(root):
 # `docs/sintergic/`, `.sintergic/`, `.omp/`, `.opencode/` and `promotion-ledger` are the internal
 # paths that do NOT travel in the export. Their mentions are classified deterministically:
 #
-#   non-functional  prose in `.md`; a comment in `.rs` (`//`, `///`, `/* */`) or in
-#                   `.py`/`.sh`/`.toml` (`#`); an exclusion pattern inside `exclude.txt`; a row of
-#                   the tolerance data file; any other non-code extension (data/config).
-#   functional      a mention in `.rs`/`.py`/`.sh`/`.toml` outside a comment (a path constant,
-#                   `include_str!`, `include_bytes!`, `fs::read*`, `File::open`, `Path::new`,
-#                   `join(...)`, a `startswith(...)` prefix, a scanner pattern...), or ANY
-#                   mention in a file under `tests/` or inside a `#[cfg(test)]` item.
+#   non-functional  prose in `.md`; a Python docstring — the module, class and function docstrings
+#                   whose spans `ast` reports, which is exactly what `scripts/ci/language-check.py`
+#                   extracts and reads as prose, so one contract governs both gates; a comment in
+#                   `.rs` (`//`, `///`, `/* */`) or in `.py`/`.sh`/`.toml` (`#`); an exclusion
+#                   pattern inside `exclude.txt`; a row of the tolerance data file; any other
+#                   non-code extension (data/config).
+#   functional      a mention in `.rs`/`.py`/`.sh`/`.toml` outside a comment or a Python
+#                   docstring (a path constant, `include_str!`, `include_bytes!`, `fs::read*`,
+#                   `File::open`, `Path::new`, `join(...)`, a `startswith(...)` prefix, a scanner
+#                   pattern...), or ANY mention in a file under `tests/` or inside a
+#                   `#[cfg(test)]` item — there the whole file or item stays functional, a Python
+#                   docstring included.
 #
 # A functional mention must be tolerated by `internal-refs-allowlist.txt` (`path:line<TAB>reason`).
 # The metric is printed on every run, PASS included, so it cannot be hidden.
@@ -499,6 +504,58 @@ def hash_comment_ranges(lines):
     return out
 
 
+def docstring_nodes(tree):
+    """The value nodes of every module, class, function and async-function docstring."""
+    owners = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in ast.walk(tree):
+        if not isinstance(node, owners):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)):
+            yield first.value
+
+
+def char_column(line, byte_column):
+    """`ast` counts columns in UTF-8 bytes; the scanners here count characters."""
+    return len(line.encode("utf-8", "surrogateescape")[:byte_column]
+               .decode("utf-8", "surrogateescape"))
+
+
+def python_docstring_ranges(text, lines):
+    """Per line, the [start, end) columns covered by a Python docstring literal.
+
+    `hash_comment_ranges()` only knows `#`, so without this a docstring reads as code. The
+    language gate (`scripts/ci/language-check.py`) extracts the same spans with `ast` and reads
+    them as prose, so pass E derives them from `ast` too: one contract, one mechanism, no drift.
+
+    A file that does not parse yields no spans at all. That direction is deliberate — the
+    mentions stay functional and demand a row, instead of disappearing behind a span bug.
+    """
+    out = [[] for _ in lines]
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return out
+    for node in docstring_nodes(tree):
+        first, last = node.lineno - 1, node.end_lineno - 1
+        if not (0 <= first < len(lines) and 0 <= last < len(lines)):
+            continue
+        start = char_column(lines[first], node.col_offset)
+        end = char_column(lines[last], node.end_col_offset)
+        if first == last:
+            out[first].append((start, end))
+            continue
+        out[first].append((start, len(lines[first])))
+        for idx in range(first + 1, last):
+            out[idx].append((0, len(lines[idx])))
+        out[last].append((0, end))
+    return out
+
+
 def cfg_test_lines(lines):
     """0-based indexes of the lines living inside a `#[cfg(test)]` item."""
     out, pending, depth = set(), False, 0
@@ -537,16 +594,21 @@ def internal_ref_items(root):
             continue
         lines = text.splitlines()
         ext = os.path.splitext(rel)[1].lower()
+        is_data = rel in DATA_NONFUNCTIONAL or rel.rsplit("/", 1)[-1] == ".gitignore"
+        is_test = bool(TEST_RX.search(rel))
+        is_prose = ext == ".md"
         if ext == ".rs":
             ranges = rust_comment_ranges(lines)
         elif ext in (".py", ".sh", ".toml"):
             ranges = hash_comment_ranges(lines)
+            # A docstring is prose, the same bytes `scripts/ci/language-check.py` reads as prose.
+            # Inside `tests/` the file stays functional by policy, docstrings included.
+            if ext == ".py" and not is_test and not is_data:
+                for idx, spans in enumerate(python_docstring_ranges(text, lines)):
+                    ranges[idx].extend(spans)
         else:
             ranges = [[] for _ in lines]
         test_block = cfg_test_lines(lines) if ext == ".rs" else set()
-        is_data = rel in DATA_NONFUNCTIONAL or rel.rsplit("/", 1)[-1] == ".gitignore"
-        is_test = bool(TEST_RX.search(rel))
-        is_prose = ext == ".md"
         for idx, line in enumerate(lines):
             for m in INTERNAL_REF_RX.finditer(line):
                 col = m.start()

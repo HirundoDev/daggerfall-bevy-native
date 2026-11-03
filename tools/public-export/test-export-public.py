@@ -56,7 +56,7 @@ Usage:
 Exit 0 = every scenario behaves as specified. No network, no cargo, no writes
 outside the temporary fixtures.
 """
-import argparse, json, os, shutil, subprocess, sys, tempfile
+import argparse, ast, json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -125,6 +125,24 @@ PROSE_REF_FILE = "docs/acknowledgments/refs.md"
 # Non-functional by policy: Markdown prose.
 PROSE_REF = ("The internal engineering record under `docs/sintergic/` never travels in the "
              "export.\n")
+# --- Python docstring spans (pass E) -----------------------------------------
+DOCSTRING_FIXTURE_FILE = "scripts/docstring_spans.py"
+# Composed at run time, like PROBE_EMAIL: the probe must not carry the literal token it
+# tests for. Line 1 and line 7 are docstrings (prose by contract); line 3 is a constant
+# outside every docstring, so it stays functional and is deliberately left undeclared.
+DOCSTRING_TOKEN = "docs/" + "sintergic/"
+DOCSTRING_FIXTURE = (
+    '"""Module docstring citing ' + DOCSTRING_TOKEN + 'scaffold.md."""\n'
+    '\n'
+    'IN_CODE = "' + DOCSTRING_TOKEN + 'in-code.md"\n'
+    '\n'
+    '\n'
+    'def helper():\n'
+    '    """Function docstring citing ' + DOCSTRING_TOKEN + 'scaffold.md."""\n'
+    '    return IN_CODE\n'
+)
+DOCSTRING_PROSE_LINES = (1, 7)
+DOCSTRING_CODE_LINE = 3
 ALLOWLIST_HEADER = ("# Fixture tolerance rows: `path:line<TAB>reason`. "
                     "No wildcards.\n")
 
@@ -332,20 +350,47 @@ def check_release_tag(report):
 INTERNAL_TOKENS = ("docs/sintergic/", ".sintergic/", ".omp/", ".opencode/", "promotion-ledger")
 
 
+def python_docstring_lines(text):
+    """1-based lines covered by a module, class, function or async-function docstring.
+
+    The same spans `verify-export.py` derives with `ast`. A Python docstring is prose, so a
+    token inside one is not a functional reference and must not be declared here either —
+    declaring it would make the fixture's row stale the moment the contract is honoured.
+    """
+    out = set()
+    for node in ast.walk(ast.parse(text)):
+        owners = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        if not isinstance(node, owners):
+            continue
+        body = getattr(node, "body", [])
+        if not body:
+            continue
+        first = body[0]
+        if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)):
+            out.update(range(first.value.lineno, first.value.end_lineno + 1))
+    return out
+
+
 def tool_rows():
     """Tolerance rows for the scaffolding the fixture copies verbatim.
 
     The exporter and the verifier must name the internal prefixes they scan, so those lines
     are functional references by the documented rule. The fixture declares them instead of
     pretending they are absent. The rule is restated here, independently of the verifier: a
-    `#` comment starts at its first `#` and a token before it is code. If this drifts from
-    `verify-export.py`, the fixture fails loudly and both sides get fixed.
+    `#` comment starts at its first `#` and a Python docstring covers the spans `ast`
+    reports, so a token before the `#` and outside every docstring is code. If this drifts
+    from `verify-export.py`, the fixture fails loudly and both sides get fixed.
     """
     rows = []
     for src, rel in ((EXPORT, "tools/public-export/export-public.py"),
                      (VERIFY, "tools/public-export/verify-export.py"),
                      (HERE.parent.parent / LANG_GATE, LANG_GATE)):
-        for num, line in enumerate(src.read_text(encoding="utf-8").splitlines(), 1):
+        text = src.read_text(encoding="utf-8")
+        docstring = python_docstring_lines(text)
+        for num, line in enumerate(text.splitlines(), 1):
+            if num in docstring:
+                continue
             cut = line.find("#")
             code = line if cut < 0 else line[:cut]
             if any(tok in code for tok in INTERNAL_TOKENS):
@@ -432,6 +477,47 @@ def check_refs_prose(report):
            "[refs-prose] the metric line is missing from stdout:\n%s" % out[-800:])
 
 
+def check_docstring_spans(report):
+    """A token inside a Python docstring is prose; the same token in code still fails E.
+
+    One fixture asserts both directions. The code line is deliberately left undeclared, so it
+    must be the only unallowlisted reference: if the `ast` spans over-covered the file (whole
+    file treated as prose), that line would vanish from the count and this check would fail
+    instead of passing silently. If the spans under-covered it (docstrings read as code), the
+    two docstring lines would be demanded too, and the same check would fail.
+    """
+    v = report["verify_report"]
+    e = v["E_internal_refs"]
+    scaffold = len(tool_rows())
+    by_line = {}
+    for it in e["items"]:
+        if it["path"] == DOCSTRING_FIXTURE_FILE:
+            by_line.setdefault(it["line"], []).append(it["functional"])
+    expected = set(DOCSTRING_PROSE_LINES) | {DOCSTRING_CODE_LINE}
+    expect(set(by_line) == expected,
+           "[docstring-spans] counted lines %r, expected %r"
+           % (sorted(by_line), sorted(expected)))
+    for line in DOCSTRING_PROSE_LINES:
+        expect(not any(by_line[line]),
+               "[docstring-spans] docstring line %d was classified functional" % line)
+    expect(all(by_line[DOCSTRING_CODE_LINE]),
+           "[docstring-spans] code line %d stopped being functional: the docstring spans "
+           "cover too much" % DOCSTRING_CODE_LINE)
+    expect([(r["path"], r["line"]) for r in e["unallowlisted"]]
+           == [(DOCSTRING_FIXTURE_FILE, DOCSTRING_CODE_LINE)],
+           "[docstring-spans] unallowlisted=%r, expected exactly the code line"
+           % (e["unallowlisted"],))
+    expect(e["functional"] == scaffold + 1,
+           "[docstring-spans] functional=%r, expected the %d scaffolding rows plus the code "
+           "line" % (e["functional"], scaffold))
+    expect(e["verdict"] == "FAIL" and report["verify_exit"] != 0,
+           "[docstring-spans] E verdict %r / exit %r, expected FAIL while the code line is "
+           "undeclared" % (e["verdict"], report["verify_exit"]))
+    for k in ("A_tree", "B_gitobjects", "C_regeneration", "D_file_by_file"):
+        expect(v[k]["verdict"] == "PASS",
+               "[docstring-spans] %s must still PASS, got %r" % (k, v[k]["verdict"]))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true", help="keep the fixtures and exported trees")
@@ -492,6 +578,18 @@ def main():
     e = report["verify_report"]["E_internal_refs"]
     print("PASS refs-prose: E PASS with %d functional / %d non-functional / %d lines, "
           "A/B/C/D/E PASS" % (e["functional"], e["non_functional"], e["lines"]))
+
+    # --- pass E: a Python docstring is prose, and the code beside it is not -----
+    report, code, stderr = run_scenario(
+        "docstring-spans", False, a.keep,
+        extra={DOCSTRING_FIXTURE_FILE: DOCSTRING_FIXTURE},
+        allow_rows=tool_rows(), verify=True)[:3]
+    check_docstring_spans(report)
+    e = report["verify_report"]["E_internal_refs"]
+    print("PASS docstring-spans: %s prose at lines %s, functional at line %d, E FAIL with %d "
+          "unallowlisted"
+          % (DOCSTRING_FIXTURE_FILE, ",".join(str(n) for n in DOCSTRING_PROSE_LINES),
+             DOCSTRING_CODE_LINE, len(e["unallowlisted"])))
     print("OK: export-public.py stopword + publication-origin gates and verify-export.py "
           "A-E passes behave as specified")
 
