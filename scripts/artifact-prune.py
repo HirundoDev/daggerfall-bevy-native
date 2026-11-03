@@ -328,15 +328,15 @@ def self_test() -> int:
 
 def main(argv) -> int:
     parser = argparse.ArgumentParser(
-        description="Poda .sintergic/artifacts/shell-002 con dry-run por defecto (CR-4f8a1c93).")
+        description="Prunes .sintergic/artifacts/shell-002 with a dry run by default.")
     parser.add_argument("--root", default=str(DEFAULT_ROOT),
-                        help="directorio de artefactos (default: .sintergic/artifacts/shell-002)")
+                        help="artifact directory (default: .sintergic/artifacts/shell-002)")
     parser.add_argument("--keep", type=int, default=10,
-                        help="directorios validos mas recientes a conservar (default: 10)")
+                        help="most recent valid directories to keep (default: 10)")
     parser.add_argument("--apply", action="store_true",
-                        help="borra los PRUNE (sin este flag no se toca nada)")
+                        help="deletes the PRUNE set (without this flag nothing is touched)")
     parser.add_argument("--self-test", action="store_true",
-                        help="ejecuta los 3 falsificadores sobre arboles temporales")
+                        help="runs the 3 falsifiers over temporary trees")
     args = parser.parse_args(argv)
 
     if args.self_test:

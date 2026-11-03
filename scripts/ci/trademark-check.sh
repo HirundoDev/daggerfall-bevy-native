@@ -25,7 +25,7 @@ cd "$ROOT"
 # "crates" do NOT match; "TES"/"Tes"/"tes" do).
 PAT='Elder[[:space:]]+Scrolls|\bTES\b'
 
-echo "trademark-check: INV-L99-8 / R2 (M0 PRE-6) · CR-bbd5db82"
+echo "trademark-check: INV-L99-8 / R2 (M0 PRE-6)"
 echo "root: $ROOT"
 echo "pattern: 'Elder[[:space:]]+Scrolls' | '\\bTES\\b' (case-insensitive, word-boundary)"
 

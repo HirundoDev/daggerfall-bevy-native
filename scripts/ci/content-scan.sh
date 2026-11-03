@@ -75,7 +75,7 @@ cd "$ROOT"
 BSA_MAGIC_CANDIDATE=$'BSA[\x1a\x18\x19\x67\x68]'   # any version (filter)
 BSA_MAGIC_GATE=$'BSA\x1a'                          # TES II only (gates)
 
-echo "content-scan: BUILD-CONTENT-SCAN-001 (M0 PRE-6) · CR-bbd5db82"
+echo "content-scan: BUILD-CONTENT-SCAN-001 (M0 PRE-6)"
 echo "root: $ROOT"
 
 # ── CHECK 1 — .BSA tracked by git (negative verification F0) ──────────────

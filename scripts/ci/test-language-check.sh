@@ -137,7 +137,7 @@ cat > "$TMP/exempt/reference/dfu-spec/readme.md" <<'MD'
 El motor lee el archivo de datos del jugador y lo interpreta con cuidado.
 MD
 
-echo "test-language-check: language gate probe · CR-6f9f4742"
+echo "test-language-check: language gate probe"
 
 # ── Scenario 1: Spanish prose must fail the gate ─────────────────────────
 out_es="$(python3 "$CHECK" --root "$TMP/es" 2>&1)"

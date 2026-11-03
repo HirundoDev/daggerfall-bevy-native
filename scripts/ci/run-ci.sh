@@ -2,7 +2,7 @@
 # run-ci.sh — local runner for PHASE 1 CI (M0 PRE-6)
 #
 # Local equivalent of the .github/workflows/ci.yml workflow: the repo has no
-# remote yet (gap declared in docs/sintergic/game/release/), so the
+# remote yet (the gap is recorded in the private release record), so the
 # "first CI PASS" is materialized by running this runner on the same machine.
 # Every check ALWAYS runs (no -e) and the verdict aggregates the exit codes.
 #
@@ -17,7 +17,7 @@ set -uo pipefail
 DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 fail=0
 
-echo "== PHASE 1 CI (anti-asset / anti-trademark / English-only) · CR-bbd5db82 =="
+echo "== PHASE 1 CI (anti-asset / anti-trademark / English-only) =="
 bash "$DIR/content-scan.sh" || fail=1
 bash "$DIR/trademark-check.sh" || fail=1
 bash "$DIR/language-check.sh" || fail=1
