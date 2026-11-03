@@ -147,7 +147,8 @@ by it.
 
 - Release line corrected in the README, `HOW-TO-PLAY.md`, `status.md`, both roadmaps, the
   agent entry point and this file: **`v0.3.0-alpha` published 2026-10-27**, with `v0.3.1-alpha`
-  dated by this entry and carrying no tag. No milestone tag exists for M18 or later, and no release
+  tagged on 2026-10-27 at `858e8f6`; `v0.3.2-alpha` cuts the same content one documentation commit
+  later. No milestone tag exists for M18 or later, and no release
   claims full visual parity with the original game.
 - The public record now quotes the closure record's own matrix and verdicts
   (the record is not part of this export; it is checked by `scripts/closure-gate.py` →
