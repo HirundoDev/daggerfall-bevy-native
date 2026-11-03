@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""artifact-prune.py — run-directory pruning with a dry-run by default (CR-4f8a1c93).
+r"""artifact-prune.py — run-directory pruning with a dry-run by default (CR-4f8a1c93).
 
 `shell-002.py` creates one directory per invocation (`.sintergic/artifacts/shell-002/
 <UTC>-p<pid>`, commit 67a585a) and nothing prunes them: ~250 KB per run, forever.

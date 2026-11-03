@@ -16,7 +16,7 @@
 #
 # --- evidence strings printed by the probes (text, never opened) ----------------------------
 crates/app/src/dungeon_probe.rs:252	Probe evidence line (`contract=...` inside a println!); the path is printed, never opened.
-crates/app/src/m18_window.rs:689	MUSIC_EVIDENCE_DIR: the windowed demo writes its rendered song there; a `create_dir_all` failure degrades to a printed line, no panic.
+crates/app/src/m18_window.rs:885	MUSIC_EVIDENCE_DIR: the windowed demo writes its rendered song there; a `create_dir_all` failure degrades to a printed line, no panic.
 crates/app/src/m34_automap.rs:526	Probe evidence line (`contract=...` inside a println!); the path is printed, never opened.
 crates/parser-bevy-bridge/tests/person_flats_inventory.rs:155	Doc comment in an exported test file; the whole `tests/` file counts as functional by policy, but the line is prose and never opened.
 # --- promotion gate: main-owned records the gate reads by design ---------------------------
@@ -32,10 +32,10 @@ crates/promotion-gate/src/verdict.rs:443	Test fixture inside `#[cfg(test)]`: led
 # --- CI guards: they name the internal record in order to exempt or classify it ------------
 scripts/ci/language-check.py:38	Docstring listing the declared exemptions; prose, no filesystem access.
 scripts/ci/language-check.py:75	EXEMPT_PREFIX: the language gate skips that prefix instead of reading it.
-scripts/ci/language-check.py:371	Printed exemption summary; text only.
+scripts/ci/language-check.py:376	Printed exemption summary; text only.
 scripts/ci/test-language-check.sh:122	Fixture written under `$TMP` to prove the exemption; nothing under the export is touched.
-scripts/ci/trademark-check.sh:70	`case` pattern: internal paths are exempt from the trademark guardrail.
-scripts/ci/trademark-check.sh:81	`case` pattern: labels internal governance paths in the report.
+scripts/ci/trademark-check.sh:71	`case` pattern: internal paths are exempt from the trademark guardrail.
+scripts/ci/trademark-check.sh:86	`case` pattern: labels internal governance paths in the report.
 # --- local operator scripts: inputs and outputs of the main workspace ----------------------
 scripts/closure-gate.py:6	Docstring naming the closure rule; prose, no access.
 scripts/closure-gate.py:27	DEFAULT_REGISTER: closure register the gate reads and rewrites; absent from the export.
@@ -52,10 +52,10 @@ scripts/ui-input-001.py:15	Docstring describing the gitignored evidence director
 scripts/ui-jugable-001.py:13	Docstring describing the gitignored evidence directory; prose, no access.
 scripts/verify-m18-owner-pack.py:15	GATE: the owner-pack verifier reads the M18 gate evidence; absent from the export.
 # --- the export tooling itself: it must name what it excludes or counts --------------------
-tools/public-export/export-public.py:86	H1_PNG: the rule that keeps the retired retail capture out of the export; compared, never read.
-tools/public-export/verify-export.py:212	Pass B: internal prefixes that must never reach a git object; comparison only.
-tools/public-export/verify-export.py:290	Pass D: internal prefixes are a forbidden category; comparison only.
-tools/public-export/verify-export.py:405	Pass E: the token list this verifier counts; pattern data.
+tools/public-export/export-public.py:99	H1_PNG: the rule that keeps the retired retail capture out of the export; compared, never read.
+tools/public-export/verify-export.py:222	Pass B: internal prefixes that must never reach a git object; comparison only.
+tools/public-export/verify-export.py:302	Pass D: internal prefixes are a forbidden category; comparison only.
+tools/public-export/verify-export.py:417	Pass E: the token list this verifier counts; pattern data.
 tools/public-export/test-export-public.py:123	Fixture data: the probe writes this constant into a throwaway repository; nothing in this tree is opened.
 tools/public-export/test-export-public.py:126	Fixture data: prose the probe writes into a throwaway repository to prove the non-functional classification.
 tools/public-export/test-export-public.py:332	The probe's own token list (a restatement of the verifier's); comparison only.

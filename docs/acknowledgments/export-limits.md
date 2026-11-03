@@ -115,9 +115,9 @@ or a help text. Only the first two change behaviour.
 
 ### The windowed demo — writes its own evidence
 
-`crates/app/src/m18_window.rs:689` is activated by a windowed run that renders a context song.
+`crates/app/src/m18_window.rs:885` is activated by a windowed run that renders a context song.
 `create_dir_all` failing prints `M14 VE: music evidence directory ... unavailable (<err>) —
-duration <s> s only` and returns (`m18_window.rs:702`): the run **degrades**, the music still
+duration <s> s only` and returns (`m18_window.rs:900-905`): the run **degrades**, the music still
 plays, no panic. On a writable tree the directory is created and the WAV is written (above 5 MB
 a `sha256` footprint in `.json` instead).
 
@@ -130,9 +130,9 @@ a `sha256` footprint in `.json` instead).
 | `scripts/verify-m18-owner-pack.py:15` | any run | `open()` on the gate evidence at `:17` raises `FileNotFoundError`. |
 | `scripts/npc-flats-capture.py:592` | any run without `--out` | `os.makedirs(..., exist_ok=True)` at `:394` **creates** the internal evidence directory in the tree and writes the capture there. |
 
-`scripts/ci/language-check.py:75` (`EXEMPT_PREFIX`), `scripts/ci/trademark-check.sh:70` and
-`:81`, and the export tooling's own patterns (`verify-export.py:212`, `:290`, `:405`,
-`export-public.py:86`) only compare strings: they classify or count a path, they never open it.
+`scripts/ci/language-check.py:75` (`EXEMPT_PREFIX`), `scripts/ci/trademark-check.sh:71` and
+`:86`, and the export tooling's own patterns (`verify-export.py:222`, `:302`, `:417`,
+`export-public.py:99`) only compare strings: they classify or count a path, they never open it.
 `scripts/ci/test-language-check.sh:122` writes its fixture under `$TMP`. The probe evidence lines
 `crates/app/src/dungeon_probe.rs:252` and `crates/app/src/m34_automap.rs:526` print the path;
 the docstrings in `scripts/ui-base-001.py`, `scripts/ui-config-001.py`, `scripts/ui-create-001.py`,

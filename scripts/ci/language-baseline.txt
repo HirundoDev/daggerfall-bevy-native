@@ -12,12 +12,20 @@
 #     python3 scripts/ci/language-check.py --root <tmp>
 #   M34 delta       = 121 hits over 10 files added after a59d529 and not
 #                     translated at the time; none of them existed at a59d529.
-#   campaign close  = 2026-11-03. Those 300 rows (547 + 121) were RETIRED once
-#                     their files reached 0 hits: 680 of allowance paid back, not
-#                     reused. A row that outlives its debt is an allowance that
-#                     never shrinks, and this table would keep permitting prose
-#                     nobody needs. Measured after retirement, on the exported
-#                     surface (477 files): hits 90 · baselined 90 · new_hits 0.
+#   campaign close  = 2026-11-03. Those 300 rows (547 + 121) were RETIRED, for two
+#                     reasons that are not the same and are not mixed here:
+#                       - translated  - the file reached 0 hits on the surface;
+#                       - off-surface - the file left the surface by name in
+#                         tools/public-export/exclude.txt: the Mother's
+#                         framework-sync mirrors and the promotion-gate fixture
+#                         corpus. Those files are STILL SPANISH. The gate never
+#                         scans them, so a row here would be an allowance with no
+#                         subject; exclude.txt is the declaration that matters.
+#                     680 of allowance retired in total, none of it reused. A row
+#                     that outlives its debt is an allowance that never shrinks,
+#                     and this table would keep permitting prose nobody needs.
+#                     Measured after retirement, on the exported surface
+#                     (477 files): hits 90 · baselined 90 · new_hits 0.
 #   allowed total   = 90 (one row, class frozen-by-design below).
 #
 # Classes (the only reason a hit is declared instead of translated):

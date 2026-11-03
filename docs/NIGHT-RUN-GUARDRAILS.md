@@ -152,7 +152,7 @@ rejection that measures nothing. The command is the usual one and the kit does n
 on its own:
 
 ```bash
-export GUARD_ACTIVE=1        # 0 export persistente: cada lane lo pone en su propio comando
+export GUARD_ACTIVE=1        # not a persistent export: each lane sets it in its own command
 ```
 
 Nothing else to export: the hooks are already installed. With the variable unset or with
@@ -165,7 +165,7 @@ that launches the executor, not in the human's shell.
 The exception is a **conjunction**, not a flag, and it is decided **in one place**:
 
 1. `GUARD_ALLOW_CR=<cr>` set means `pre-commit` **evaluates nothing**: it prints
-   its deferral line (`GUARD-DEFERIDO: pre-commit does not evaluate the exception`) and exits 0.
+   its deferral line (`GUARD-DEFERIDO: GUARD_ALLOW_CR=… definido, pero pre-commit NO evalúa la excepción`) and exits 0.
    Pre-commit runs **before** git writes the message; if it decided here it would have to read
    `.git/COMMIT_EDITMSG`, which at that moment still holds the **previous** commit message,
    so it would decide on an inherited message.
@@ -217,7 +217,7 @@ If the instrument does not need writing: `git restore --staged -- <path>` (remed
 ## 4. Publication exception
 
 ```bash
-GUARD_ALLOW_PUSH="motivo explícito del owner" git push origin <rama>
+GUARD_ALLOW_PUSH="explicit reason from the owner" git push origin <branch>
 ```
 
 `pre-push` prints `GUARD_ALLOW_PUSH: <motivo>` and lets it through. Without the variable, every push
@@ -227,8 +227,8 @@ run: it is a signed act.
 ## 5. Installation and idempotency
 
 ```bash
-bash scripts/guard/install-hooks.sh --dry-run   # plan, 0 escrituras
-bash scripts/guard/install-hooks.sh             # instala los 3 wrappers
+bash scripts/guard/install-hooks.sh --dry-run   # plan, 0 writes
+bash scripts/guard/install-hooks.sh             # installs the 3 wrappers
 ```
 
 - Writes `.git/hooks/{pre-commit,commit-msg,pre-push}`: wrappers with **no logic** that
@@ -243,7 +243,7 @@ bash scripts/guard/install-hooks.sh             # instala los 3 wrappers
 ## 6. How it is tested
 
 ```bash
-bash scripts/guard/verify-guard.sh    # exit 0 solo si las 12 filas coinciden
+bash scripts/guard/verify-guard.sh    # exit 0 only if the 12 rows agree
 ```
 
 Creates a temporary repo (`mktemp -d`): a bare `remote.git` + a `repo` with stubs of every
@@ -527,18 +527,18 @@ be checked in two commands, or refuted by naming the path and the commit.
 ### 8.4 How it is used in a closure
 
 ```bash
-# 1. SEMBRAR (primera vez en este repo, y tras cada cambio legítimo del kit)
+# 1. SEED (first time in this repo, and after every legitimate change of the kit)
 bash scripts/guard/manifest-protected.sh --write docs/sintergic/guard/protected.sha256
 
-# 2. AL CERRAR: los bytes
+# 2. AT CLOSURE: the bytes
 bash scripts/guard/manifest-protected.sh --check docs/sintergic/guard/protected.sha256
-#    exigido: RC=0 y `RESUMEN ... AUSENTE=0 CAMBIADO=0 NUEVO=0`
+#    required: RC=0 and `RESUMEN ... AUSENTE=0 CAMBIADO=0 NUEVO=0`
 
-# 3. AL CERRAR: la historia del ciclo
-bash scripts/guard/reflog-audit.sh --since "<inicio del ciclo>"
-#    exigido: RC=0, `entradas medidas` > 0 y la línea `0 toques a instrumentos`
-#    RC=2 `SIN EVIDENCIA` NO es un cierre válido: es un reflog sin evidencia
-#    (¿expire/gc?) o una ventana vacía. El cierre declara la ventana que usó.
+# 3. AT CLOSURE: the cycle's history
+bash scripts/guard/reflog-audit.sh --since "<cycle start>"
+#    required: RC=0, `entradas medidas` > 0 and the line `0 toques a instrumentos`
+#    RC=2 `SIN EVIDENCIA` is NOT a valid closure: it is a reflog with no evidence
+#    (expire/gc?) or an empty window. The closure declares the window it used.
 ```
 
 Usage notes, no fine print:
