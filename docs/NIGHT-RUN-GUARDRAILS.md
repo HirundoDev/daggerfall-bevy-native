@@ -17,6 +17,12 @@ State at delivery (D4, 2026-10-29): **installed and OFF**. `GUARD_ACTIVE` unset 
 the 3 hooks exit 0 before reading anything (the off kit disturbs no lane). It is switched on
 when M43 closes (see §2).
 
+**Scope of the script paths in this document.** The hooks and their documentation are part of this
+export; the helper scripts named beside them — ledger, mission-log, handoff-lint, audit and
+gate-check tools — live in the private engineering workspace and are **not part of this export**, so a
+`scripts/<name>` mentioned below that is absent from your clone is one of those helpers, not a broken
+link.
+
 ---
 
 ## 1. What each hook protects (hook → path → effect table)
