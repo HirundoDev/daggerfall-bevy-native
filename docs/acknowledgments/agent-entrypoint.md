@@ -25,7 +25,7 @@ corrected rather than reconciled by prose.
 | **M18** | **DONE** at technical level · `PARTIAL-TAG-PENDING` | gate rows and the acceptance signature exist; the release tag does not. The 21 acceptance rows are **signed by delegation on 2026-10-26** — **8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL** (`NOT-COMPARABLE` is a declared class, not a downgraded pass). The pending row is `T-RELEASE-TAG`, the tag is **none**, and the comparison against the *original* game is still the owner's own act. Not the same as "looks like 1996" |
 | **M19–M33** | **DONE** | 15 milestones, each with probes and a QA verdict. "DONE" here means technical closure at the declared bar, not a signed release |
 | **M30–M33** | **DONE** (technical) | economy and banking (M30, closed 2026-10-23), travel with weather and calendar (M31, 2026-10-23), conditions/death/rest (M32, 2026-10-23) and total persistence (M33, 2026-10-26), each with its organ in `crates/` and its probes. Their consumer today is the probe, not the demo window. No tags |
-| **M34** | **DONE** at technical level · `PARTIAL-TECHNICAL-CLOSURE` | end-to-end integration and presentation: closed 2026-10-26 — `ALL-001` **40/40**, QA **0.94** (0 critical / 0 major), owner rows 12/12. One named row stays open: **`AUDIO-RT-001-DEVICE`** — `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`, binary built without the `audio` feature), so the device branch of the audio is the owner's decision. `UI-FULL-001`, also the M40 gate, certifies **85/85** census surfaces with per-surface evidence since `CR-bc68d7ce` (2026-10-27): the 7 `Infra` entries as layer contract of `ui_compat`, and 3 read-only `Playable` windows recorded `not-applicable` on axis A5, so no surface is left uncertified; the device branch is still not promoted here. No tag |
+| **M34** | **DONE** at technical level · `PARTIAL-TECHNICAL-CLOSURE` | end-to-end integration and presentation: closed 2026-10-26 — `ALL-001` **40/40**, QA **0.94** (0 critical / 0 major), owner rows 12/12. One named row stays open: **`AUDIO-RT-001-DEVICE`** — `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`, binary built without the `audio` feature), so the device branch of the audio is the owner's decision. `UI-FULL-001`, also the M40 gate, certifies **85/85** census surfaces with per-surface evidence since 2026-10-27: the 7 `Infra` entries as layer contract of `ui_compat`, and 3 read-only `Playable` windows recorded `not-applicable` on axis A5, so no surface is left uncertified; the device branch is still not promoted here. No tag |
 | **M35** | **PARTIAL** | biomes, 2D vegetation, sky — delivered 2026-10-26 for the `0.1.0` surface: `BIOME-001` 25 passed / 0 failed / **1 declared NA** (`GAP-TAX-11`: the corpus carries no tile-class data) and `SPRITE-001` 11/11. The declared gap is **deferred to M44**. **Optional annex**, not a gate for Plan A |
 | **M36–M38** | **DONE** (technical) | UI-0 audit, the seven-axis UI layer and the 27 creation/configuration surfaces: closed 2026-10-27 — `UI-AUDIT-001` A+B+C `VERDICT: PASS` in two separate processes with identical stdout (**85 = 78 surfaces (27 + 51) + 7 infrastructure rows**, measured **4 implemented / 47 partial / 34 absent**, rule **35 PATCH · 50 REWRITE**), `UI-BASE-001` **9/9** + `UI-INPUT-001` **10/10** over **3 pilot windows**, and `UI-CREATE-001` (16 surfaces) + `UI-CONFIG-001` (11 surfaces) `VERDICT: PASS` in two processes with identical digests. No tag |
 | **M39** | **DONE** at gate level | the 51 interactive playable windows: technical closure measured at HEAD `5803297` — `UI-JUGABLE-001` passes its **9/9** gate rules in two processes with byte-identical stdout (51/51 surfaces, 8/8 blocks, 7/7 axes; AXIS A5 `focus-rows=153` ×2, 4/4 falsifiers red) — and the closure report at `e249004` publishes `requirements_coverage 0.857` with **K7** (owner side-by-side) as the single open clause. Not signed, no tag, and the windows are not yet the running demo window |
@@ -37,7 +37,7 @@ corrected rather than reconciled by prose.
 
 Public surface: tags up to **`v0.4.0-alpha`** (cut 2026-11-02, published 2026-11-03), save fidelity
 generation 4 (`CONTINUE` restores the saved world; measured `delta pos_mm=[0,0,0]` · `delta mundo=0 min`,
-and **unsigned**: its two register rows stay `candidato`). `v0.3.2-alpha` (2026-10-27) is the tagged cut
+and **unsigned**: its two register rows stay unsigned). `v0.3.2-alpha` (2026-10-27) is the tagged cut
 of the `v0.3.1-alpha` documentation correction, which itself was never tagged. No milestone tag exists
 from M18 on; M18's acceptance signature is recorded by delegation on 2026-10-26.
 
@@ -75,7 +75,7 @@ byte-identical stdout in two processes. M38 (UI-2) delivered the 16 creation win
 configuration pages, measured by `UI-CREATE-001` (16 surfaces, 12 checks) and `UI-CONFIG-001` (11
 surfaces, 12 checks) — `VERDICT: PASS`, exit 0, two processes, identical digests — with requirement
 coverage **0.857 (6/7)**: **K7** (owner side-by-side acceptance) is the only open clause — **K2** (the
-composed `FACES.CIF` face) is closed, with its handoff recording `status: DONE` — so the surfaces are
+composed `FACES.CIF` face) is closed, with its record stating `status: DONE` — so the surfaces are
 measured, not accepted, and not yet composed into the running demo window. Nothing in M36–M38 remains
 dispatched, and none carries a tag.
 
@@ -84,14 +84,14 @@ A–H runner and probe are in the tree since `85979b9`: the runner replays the b
 re-hashes the 51 captures and drives the three falsifiers, and `UI-JUGABLE-001` prints `VERDICT: PASS`
 on its 9 gate rules (9/9 PASS ×2, AXIS A5 `focus-rows=153` ×2, 4/4 falsifiers red, at HEAD `5803297`).
 The closure report — measured at `e249004`, kept at
-docs/sintergic/l5-mission/m39-ui3-mission-report-CR-aecd1cef.md — publishes `requirements_coverage
+the M39 mission report — publishes `requirements_coverage
 0.857`, with K7 as the single open clause. What remains is the owner's K7 signature and the tag, not a
 report. Absence of a go is a hard stop, not an invitation, and an unsigned gate is not an accepted
 milestone.
 
 **M40 — the gate over the complete UI — closed at gate level on 2026-10-27** (`UI-FULL-001` 85/85, 8/8
 rules, 4/4 falsifiers, two processes byte-identical;
-`docs/sintergic/l5-mission/m40-ui4-mission-report-CR-bc68d7ce.md`). It is not signed and carries no
+the M40 mission report). It is not signed and carries no
 tag, and its side-by-side is the owner's `K7`. **M41–M44 are also closed at gate level** (depth,
 economy/travel/weather/conditions and dungeons; M43 measured at `de94974` and M44 at `3d25278` on
 2026-10-30). **`M-SHELL` is the next gate, and only with an explicit go.** No `M-SHELL` work is

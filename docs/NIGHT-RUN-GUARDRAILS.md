@@ -31,11 +31,11 @@ Protected paths (single source: `scripts/guard/guard-paths.sh`):
 
 | Pattern | Origin | What it is |
 |---|---|---|
-| `docs/sintergic/validation/closure-register*` | ORDER | closure register |
-| `docs/sintergic/handoffs/INDEX.jsonl` | ORDER | closure ledger |
+| the project's closure register | ORDER | closure register |
+| the project's closure ledger | ORDER | closure ledger |
 | `crates/promotion-gate/**` | ORDER | the gate itself |
 | `crates/side-contract/**` | ORDER | the side contract |
-| `docs/sintergic/promotion-gate/promotion-ledger.jsonl` | ORDER | promotion ledger |
+| the promotion ledger | ORDER | promotion ledger |
 | `daggerfall-side-projects/*` | ORDER | side-projects (see D2: no subject) |
 | `scripts/*-00[0-9]-*.py` | ORDER | gate sources (see D2: 0 files, re-measured 2026-10-29) |
 | `scripts/*-00[0-9].py` | derived D2 | the real gate sources: **23** in the §1.1 snapshot (2026-10-29 11:44 MST), not a fixed number |
@@ -176,7 +176,7 @@ The exception is a **conjunction**, not a flag, and it is decided **in one place
 
 ```bash
 GUARD_ALLOW_CR=CR-b367c9dd-db42-4465-9b2f-d8a341aa3135 \
-  git commit -m "docs(closure): registrar cierre CR-b367c9dd-db42-4465-9b2f-d8a341aa3135" -- docs/sintergic/handoffs/INDEX.jsonl
+  git commit -m "docs(closure): registrar cierre CR-b367c9dd-db42-4465-9b2f-d8a341aa3135" -- the project's closure ledger
 ```
 
 Falsified in both directions (`scripts/guard/verify-guard.sh`): **J** proves that the
@@ -391,7 +391,7 @@ None of the three contains path patterns, but they **do not distribute them the 
   in one place, as in the hooks.
 - `verify-manifest.sh` **sources NOTHING** (0 `source`): it copies the kit into a temporary repo
   (`mktemp -d`) and **seeds two protected paths as stubs** (`scripts/closure-gate.py`,
-  `docs/sintergic/handoffs/INDEX.jsonl`) so the matrix has a subject. **It is not a source of
+  the project's closure ledger) so the matrix has a subject. **It is not a source of
   truth for patterns and must not be cited as one**: if the protected list grows, this
   script does not change, because its stubs are still two.
 
@@ -443,7 +443,7 @@ git version or on `git show`'s default mode); a root commit is measured with
 `git diff-tree -r --no-renames --root`. `--no-renames` makes a rename show up as a delete
 + create: renaming an instrument is seen too. Measured in a temporary repo with a merge whose
 side did touch the ledger: the audit names **the merge**
-(`b1d5a3f | … | docs/sintergic/handoffs/INDEX.jsonl`).
+(`b1d5a3f | … | the project's closure ledger`).
 
 **It detects `--no-verify` by design.** A commit with `--no-verify` is a normal commit: the only
 thing that did not happen is the hook. This layer's evidence is **history**, not the hook, so the
@@ -454,7 +454,7 @@ all the same, with its sha and its path.
 
 `verify-manifest.sh` is the falsifiable proof of the layer. It sets up a temporary repo (`mktemp -d`),
 copies `guard-paths.sh`, `manifest-protected.sh` and `reflog-audit.sh`, seeds two protected paths
-(`scripts/closure-gate.py`, `docs/sintergic/handoffs/INDEX.jsonl`) plus one free one (`src/foo.rs`),
+(`scripts/closure-gate.py`, the project's closure ledger) plus one free one (`src/foo.rs`),
 installs the marker hook and runs the matrix:
 
 | Box | Scenario | Expected |
@@ -528,10 +528,10 @@ be checked in two commands, or refuted by naming the path and the commit.
 
 ```bash
 # 1. SEED (first time in this repo, and after every legitimate change of the kit)
-bash scripts/guard/manifest-protected.sh --write docs/sintergic/guard/protected.sha256
+bash scripts/guard/manifest-protected.sh --write the protected-manifest digest file
 
 # 2. AT CLOSURE: the bytes
-bash scripts/guard/manifest-protected.sh --check docs/sintergic/guard/protected.sha256
+bash scripts/guard/manifest-protected.sh --check the protected-manifest digest file
 #    required: RC=0 and `RESUMEN ... AUSENTE=0 CAMBIADO=0 NUEVO=0`
 
 # 3. AT CLOSURE: the cycle's history
@@ -544,7 +544,7 @@ bash scripts/guard/reflog-audit.sh --since "<cycle start>"
 Usage notes, no fine print:
 
 - **The manifest has to be seeded**: it does not travel in the repo and no hook creates it. The **path is
-  chosen by whoever closes the cycle** (recommended `docs/sintergic/guard/protected.sha256`, which is
+  chosen by whoever closes the cycle** (recommended the protected-manifest digest file, which is
   relative to the caller's directory). If it is meant to travel, it gets committed: a decision of the
   closure, not of these scripts.
 - **The manifest file itself is NOT a protected instrument**: it matches no pattern of
@@ -566,7 +566,7 @@ Usage notes, no fine print:
   authorized touches: the instrument does not distinguish an append from a destructive edit, and that is
   why the declaration is mandatory, not optional. Short recipe: run
   `bash scripts/guard/reflog-audit.sh --since "<start>"` and, for each line naming
-  `docs/sintergic/handoffs/INDEX.jsonl`, one row in the closure's authorized touches table
+  the project's closure ledger, one row in the closure's authorized touches table
   with `<short-sha> · <lane> · append HH-1`. An undeclared append is a finding, not noise.
 - The three commands are **deterministic and free of hidden state**: they write nothing to the repo (the
   manifest is written where it is asked for), they do not touch `.git/hooks/`, they install nothing.

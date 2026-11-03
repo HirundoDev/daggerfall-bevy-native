@@ -29,12 +29,12 @@ Hard dependencies: `W44-5` (save v3) precedes the M-SHELL slots (`roadmap-m18-m4
 |:---|:---|:---|
 | `scripts/shell-001.py` (phase 1: boot→exit through the real window) | 10 (`SH-01..SH-10`) | **PASS** ×2 byte-identical, `DIGEST 89b100dd…` (`COVERAGE-100.md:48,82`) |
 | `scripts/shell-002.py` (phase 2: 5-item menu, 10-stage creation, session/slots, map/travel/pause) | 14 (`SH2-01..SH2-14`) + `CTRL` + 3 `PROC-*` | **stable red FAIL** 3/3, `DIGEST 52691417…` (handoff `HH-20261029-shell-fase2-CR-75e7c81f`) |
-| `docs/sintergic/playability/SHELL-001.md` | phase 1 gate, falsifiers, `src=` anchors (§1–§5) | spec + gate PASS |
-| `docs/sintergic/playability/SHELL-002.md` | 7 closure criteria; `SH2-05/13` blocked on M44 W44-5 (save v3) | spec, gate red |
-| `docs/sintergic/playability/SHELL-VISIBLE-LAYER.md` | re-runnable censuses C1–C11 (`:33-90`): config effect = 0, automap in window = 0, save v3 = 0, createchar in window = 0 | measured matrix of zeros |
-| `docs/sintergic/playability/COVERAGE-100.md` | 25 capabilities | current **9 CUBIERTA · 14 PARCIAL · 0 AUSENTE · 2 NO-VERIFICADO** (§5-ter, `:242,274`) |
-| `docs/sintergic/playability/PLAYTHROUGH-PROBE.md` | P1..P9 contract + 9 negative controls (`:300-308`) | spec; **instrument nonexistent** (`COVERAGE-100.md` §0: `scripts/playthrough-001.py` absent) → M-PLAY `NOT-RUN` |
-| `docs/sintergic/m44/DUN-1-ACCEPTANCE-SPEC-CR-7fd7260f.md` | 46 requirement rows (42 RED · 4 GREEN) | M44 acceptance spec, measured |
+| the M-SHELL gate specification | phase 1 gate, falsifiers, `src=` anchors (§1–§5) | spec + gate PASS |
+| the M-SHELL closure criteria | 7 closure criteria; `SH2-05/13` blocked on M44 W44-5 (save v3) | spec, gate red |
+| the visible-layer census | re-runnable censuses C1–C11 (`:33-90`): config effect = 0, automap in window = 0, save v3 = 0, createchar in window = 0 | measured matrix of zeros |
+| the capability census | 25 capabilities | current **9 CUBIERTA · 14 PARCIAL · 0 AUSENTE · 2 NO-VERIFICADO** (§5-ter, `:242,274`) |
+| the playthrough probe contract | P1..P9 contract + 9 negative controls (`:300-308`) | spec; **instrument nonexistent** (`COVERAGE-100.md` §0: `scripts/playthrough-001.py` absent) → M-PLAY `NOT-RUN` |
+| the M44 acceptance specification | 46 requirement rows (42 RED · 4 GREEN) | M44 acceptance spec, measured |
 
 ## 2. Surface — state — M — evidence table
 

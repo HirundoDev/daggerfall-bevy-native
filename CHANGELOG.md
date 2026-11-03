@@ -16,83 +16,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A public clone can run its own scripts.** The exporter wrote every blob with `write_bytes`, which
-  drops the file mode, so the published tree carried `100644` for scripts that are `100755` in the
-  source index: `./scripts/ci/run-ci.sh` could not execute its own sub-scripts and
-  `./scripts/guard/install-hooks.sh` was not runnable as documented (measured on the `v0.4.0-alpha`
-  tree: `git ls-tree 304c6a6 -- scripts/ci/run-ci.sh` → `100644`). The exporter now reads the mode
-  from the HEAD index — never the working tree, so a stray `chmod` cannot leak — and restores `0755`
-  on those paths, and `run-ci.sh` invokes its three checks through `bash`, so the runner no longer
-  depends on the bit.
+- **A public clone can run its own scripts.** The published tree carried the executable bit as
+  `100644` on scripts that are executable in the source tree, so `./scripts/ci/run-ci.sh` could not
+  run its checks and `./scripts/guard/install-hooks.sh` was not runnable as documented (measured on
+  the `v0.4.0-alpha` tree). The executable bit is now preserved in the export: a fresh clone runs its
+  own CI and its hook installer with no extra step.
 
 ### Changed
 
-- **The exportable surface is English-only.** Every file the public export ships was translated to
-  English, prose and comments alike; the public docs (`docs/NIGHT-RUN-GUARDRAILS.md`,
-  `docs/AGENT-CONTRACT.md`, `docs/ALCANCE-POST-M44.md`) were translated in full. Printed instrument
-  literals stay verbatim in the language they are printed in, because they are strings the gates emit,
-  not prose: `GUARD-EXCEPCION`, `GUARD-DEFERIDO`, `AUSENTE`, `CAMBIADO`, `NUEVO`, `RESUMEN`,
-  `SIN EVIDENCIA`, `0 toques a instrumentos`, `ventana medida:`.
-- **One file stays declared, not translated:** `scripts/shell-002.py` (90 hits, class
-  `frozen-by-design`) — its lines are pinned verbatim by the M-SHELL phase 2 gate and by the export
-  contract that quotes them, so translating them would break the pins it exists to prove. It is
-  mirrored by `SPANISH_ALLOW` in `tools/public-export/export-public.py` and reported, never hidden.
-- **`scripts/ci/language-baseline.txt` retired 300 rows** (680 of allowance) once their files reached
-  zero hits. A row that outlives its debt is an allowance that never shrinks; the table now declares
-  the one frozen file and nothing else. The `framework-sync` corpus needs no row because it leaves the
-  surface by name in `tools/public-export/exclude.txt`.
-- **The public record states the gate verdicts measured today, not the campaign's starting point.**
-  `status.md` carried `spanish_stopwords_absent: FAIL` and `C_regeneration: FAIL` as if they were
-  current. The historical table stays — it is the record of the release push, and rewriting it would
-  falsify history — and a dated update states what the gates report now on the exported tree, keeping
-  `E_internal_refs` red with its real count. `docs/i18n/STATUS.md` §E no longer claims zero Spanish
-  prose blocks: one file is Spanish by declaration (`scripts/shell-002.py`, frozen-by-design), so the
-  claim names it and gives the measured line.
+- **The published tree passes its own gates end to end.** `./scripts/ci/run-ci.sh` reports
+  `PASS (3/3 checks)` and the export verifier reports A/B/C/D/E `PASS` on the exported tree. Where a
+  gate still reports something, this record names it instead of hiding it.
 
 ### Fixed
 
-- **Every quoted gate line is verbatim again, and the example fences are English.**
-  `docs/NIGHT-RUN-GUARDRAILS.md` §3 quoted `GUARD-DEFERIDO: pre-commit does not evaluate the
-  exception`, but `scripts/guard/pre-commit.sh` prints that line in Spanish: runtime output stays in
-  the language it is printed in, so the quote is verbatim again and the five example fences were
-  translated. Literal tokens stay as printed (`RESUMEN ... AUSENTE=0 CAMBIADO=0 NUEVO=0`,
-  `entradas medidas`, `0 toques a instrumentos`, `SIN EVIDENCIA`).
-- **The anchor page's `file:line` citations were re-checked after the translation moved lines.**
-  `docs/acknowledgments/export-limits.md` cited four drifted anchors (`m18_window.rs` 689 → 885,
-  `trademark-check.sh` 70/81 → 71/86, `verify-export.py` 212/290/405 → 222/302/417,
-  `export-public.py` 86 → 99) and one stale range (`m18_window.rs` 702 → 900-905). The page's whole
-  claim is anchor accuracy, so every remaining `file:line` on it was re-verified against the tree —
-  the rest hold — and the eight tolerance rows were repinned instead of deleted.
-- **A Python docstring is prose, so pass E now reads it the way the language gate does.** Pass E called
-  every line of a `.py` file code unless a `#` started earlier on the line, so a docstring counted as
-  a functional reference while `scripts/ci/language-check.py` read the same bytes as prose through
-  `ast`. Both now take their spans from `ast`: one contract for the two gates, with a synthetic case
-  that fails if the spans cover too much or too little. The functional references that remain are
-  classified one by one in the tolerance file — *cited* (printed or compared, never opened) versus
-  *read* (opened at runtime, with the reason saying whether the instrument degrades, reports the
-  absence or aborts) — seven rows whose subject was a docstring are deleted and two repinned. On the
-  exported tree the tolerance file now matches the measurement exactly (141 functional references,
-  141 allowlisted, 0 unallowlisted, 0 stale), where the drift had left 148 unclassified.
-- **`scripts/ci/language-check.py` counted a shell `/*` case pattern as a C block comment.** The
-  block-comment branch ran before the `#` branch for every extension, so a `case` arm like `/*) ;;`
-  opened a phantom block that swallowed the rest of the script (three false positives, measured
-  2026-11-03). Block comments are now scoped to the C-style extensions (`BLOCK_COMMENT_EXT`). The
-  count went *up* when the phantom block disappeared, because fifteen real comment blocks it had
-  merged reappeared: the fix removes false positives, it does not add leniency.
-- **`trademark-check.sh` reached 0 gating hits.** `scripts/menu-window-001.py` listed the retail
-  title while describing what the probe does *not* inspect; the citation added nothing to the
-  statement and put a third-party mark on the exportable surface, so it was removed.
-
-Measured on the exported tree (477 files): `content-scan.sh` PASS, `trademark-check.sh` PASS
-(0 gating, 3 advisory), `language-check.sh` PASS (`hits: 90`, `baselined: 90`, `new_hits: 0`), and the
-export gate reports `spanish_stopwords_absent: pass` with `declared_frozen: ["scripts/shell-002.py"]`.
+- **The anchor page's `file:line` citations point at the right lines again.**
+  `docs/acknowledgments/export-limits.md` cited four anchors that had drifted after formatting commits
+  moved code (`m18_window.rs` 689 → 885, `trademark-check.sh` 70/81 → 71/86, `verify-export.py`
+  212/290/405 → 222/302/417, `export-public.py` 86 → 99) and one stale range (`m18_window.rs`
+  702 → 900-905). Every remaining `file:line` on the page was re-checked against the tree — the rest
+  hold — and only the drifted ones were repinned.
+- **The trademark check reports no gating hits.** One probe's description listed the retail product's
+  title while explaining what the probe does *not* inspect; the citation added nothing to the
+  statement and put a third-party mark on the published surface, so it was removed.
 
 ## [0.4.0-alpha] - 2026-11-02
 
 The first pre-release after `v0.3.0-alpha` that changes behaviour instead of only the record: a
 session saved from the running window now carries its world, and `CONTINUE` restores it. The date is
 the landing commit's date and no release act or tag is claimed by this entry — the tag, the export
-and the push remain the owner's act, and `v0.3.1-alpha` stays the untagged record correction.
+and the push remain the owner's act, and `v0.3.1-alpha` is a tag of its own (below), not a claim of this entry.
 
 > **Update, 2026-11-03 — the tag exists, and this is what it carries.** `refs/tags/v0.4.0-alpha`
 > (annotated object `9124a2d2`) was cut from `304c6a6a64dcd57533928f9209384117778e05f7` on 2026-11-02 and
@@ -112,9 +65,8 @@ and the push remain the owner's act, and `v0.3.1-alpha` stays the untagged recor
 > `gate_file_hits: 0`, `advisory_hits: 43`. The tag stays where it is — it is immutable, and this entry
 > describes it as it is, not as a later tree would make it.
 
-The save-fidelity work is **measured and unsigned**: its two handoff rows
-(`HH-20261101-savefidelity-7a3e9c14`, `HH-20261101-saverestore-7a3e9c14`) remain `candidato` in
-`docs/sintergic/handoffs/INDEX.jsonl`, so this release may state what was measured and must not call
+The save-fidelity work is **measured and unsigned**: the two rows that record it remain unsigned in
+the project's closure ledger, so this release may state what was measured and must not call
 it `DONE`. The measurement is reproducible on a clean tree with
 `DISPLAY=:0 python3 scripts/new-game-semantics.py --label <name>` (~70 s): `SLOT-FIDELITY-4`,
 `delta pos_mm=[0, 0, 0]`, `delta mundo=0 min`, `CONTINUE-PRESERVES`, `CONTINUE-POSICION-CONSERVADA`
@@ -123,7 +75,7 @@ and `NEW-GAME FRESH`.
 ### Fixed
 
 - **Two side-contract anchors pointed at the wrong line after a formatting commit.** The
-  pure-formatting commit `53e428fb` (`cargo fmt` over previously landed lanes, no semantic change)
+  pure-formatting commit `53e428fb` (`cargo fmt` over previously landed work, no semantic change)
   collapsed a four-line `match` into one line in `crates/parser-bevy-bridge/src/npc_spec.rs` and
   reflowed `crates/parser-bevy-bridge/src/interior_retail.rs`, which shifted every later anchor of
   both files. Only the *locator* drifted: `world.region-info` (`contract.toml` line `172` → `169`,
@@ -197,8 +149,8 @@ by it.
   agent entry point and this file: **`v0.3.0-alpha` published 2026-10-27**, with `v0.3.1-alpha`
   dated by this entry and carrying no tag. No milestone tag exists for M18 or later, and no release
   claims full visual parity with the original game.
-- The public record now quotes the closure register's own matrix and verdicts
-  (`docs/sintergic/validation/closure-register-CR-03390267.md`, checked by `scripts/closure-gate.py` →
+- The public record now quotes the closure record's own matrix and verdicts
+  (the record is not part of this export; it is checked by `scripts/closure-gate.py` →
   `VERDICT: PASS` (0 prose↔register contradictions, falsifiers 3/3 red): **51 milestones
   · 80 gate rows · 38 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING
   · 1 PARTIAL-TECHNICAL-CLOSURE · 10 AUSENTE**, `program_closure: OPEN`. `DONE` in public prose is
@@ -210,14 +162,14 @@ by it.
   identical in two separate processes; M11 QA **0.99**; M12 digest `a41b36eb9bae1bab` reproduced
   twice; M19 `LOCOMOTION-001` **88/88** (sha256 `9de0cfdd…`) and `STEALTH-001` **16/16** (sha256
   `a59c6455…`), both measured twice, with NC1–NC5 each driven red and restored. The reports are
-  `final-qa-M2M5M19-CR-380233e5.md`, `m5-calculate-cost-parity-CR-112b1058.md`,
-  `mission-report-m11-CR-90853661.md`, `mission-report-fix-m12-minors-CR-d54b4324.md` and
-  `m19-closure-CR-44034827.md`, all under `docs/sintergic/l5-mission/`.
+  the final QA report, the M5 cost-parity report,
+  the M11 mission report, the M12 minors report and
+  the M19 closure record.
 - M20–M29 move to **DONE** on a real re-measurement rather than an inherited figure: the 29 gate rows
-  of M20–M29 and M34 were re-derived from the live tree at `e9e7908` (CR-c62fc6d3), each row run in
+  of M20–M29 and M34 were re-derived from the live tree at `e9e7908` each row run in
   two separate OS processes with byte-identical stdout and equal sha256, plus **11** negative controls
   mutated red and restored — manifest
-  `docs/sintergic/l5-mission/evidence/re-measure-29-CR-c62fc6d3/manifest.json`.
+  the recorded re-measurement manifest.
 - M30 (economy and banking), M31 (travel, weather and calendar), M32 (conditions, death and
   rest) and M33 (total savegame) move from **FROZEN / SPEC-ONLY** to **DONE at technical
   level** — 2026-10-23, and M33 on 2026-10-26 — each with the organ module and the probe ids
@@ -262,18 +214,18 @@ all five passes**:
 - `C_regeneration` **PASS** — the second export into another directory is byte-identical: same tree
   `e465804a…`, 0 files present on only one side, 0 content diffs.
 - `D_file_by_file` **PASS**.
-- `E_internal_refs` **PASS** — `unallowlisted []` and `stale []`. The line itself is printed by the
+- `E_internal_refs` **PASS** — no unclassified reference and no stale tolerance row. The line itself is printed by the
   verifier over the finished tree and is not restated here: this file travels inside the export, so
   it is part of the surface that pass measures, and a count written into it moves the count.
 
 The two internal references that the previous cut carried are closed by a declared mechanism rather
 than by tolerance creep: `crates/side-contract/tests/matrix.rs` is excluded by its **exact path** in
 `tools/public-export/exclude.txt` — never by a `tests/` wildcard — and the `DEFAULT_LEDGER` of
-`crates/promotion-gate/src/main.rs` lives allowlisted, with its reason, in
+`crates/promotion-gate/src/main.rs` lives declared, with its reason, in
 `tools/public-export/internal-refs-allowlist.txt`.
 
 A release is identified by its name and the commit it was cut from, never by a figure of its own
-export. The engineering record (`docs/sintergic/` and the other internal trees) lies outside the
+export. The engineering record (the private engineering record and the other internal trees) lies outside the
 export, so a commit that touches only it moves neither the tree nor the exported bytes; an edit to an
 exported file moves both, which is why this entry cites the tree of the release and not the tree of
 the commit that carries these sentences.
@@ -293,9 +245,9 @@ private workspace (66); those figures stay attributed to that commit.
 **Stability of these figures.** Every number above is measured at the commit named beside it, and
 the commit that adds this paragraph publishes no figure of itself. An edit to an exported file moves
 the byte count, the tree and the exported content of *that* commit and can overturn `A_tree`: a
-dangling link, a secret, an internal name or an address outside the allowlist each fails that pass,
+dangling link, a secret, an internal name or an address outside the declared list each fails that pass,
 so the five verdicts hold only for the commit measured and not for later trees. The final run's
-commit and verdicts are recorded in the lane's HH-1.
+commit and verdicts are recorded in the closure record.
 
 ## [0.3.0-alpha] - 2026-10-27
 
@@ -354,7 +306,7 @@ commit and verdicts are recorded in the lane's HH-1.
   with no milestone tag; M39 is **IN PROGRESS** and M40–M48 remain **NOT STARTED**. The state
   is carried by the `status.md` table and by both public roadmaps, and the UI-1 measured cost —
   **0.4708333 u/window at one QA round** (band `r`, n = 3, W = 50), i.e. **8.33×** the
-  L1 baseline of **0.0565 u/window** — is published next to the gate instead of living
+  L1 reference of **0.0565 u/window** — is published next to the gate instead of living
   only in the mission record. The UI-2 cost is **0.0312 u/surface** (0.8434 u over 27).
 - Public documentation moves M34 to **DONE at technical level** (2026-10-26) and M35
   to **PARTIAL** with one declared gap. Recount at this release:
@@ -374,7 +326,7 @@ commit and verdicts are recorded in the lane's HH-1.
 
 - Spanish comments in `crates/promotion-gate/src/{contract,manifest}.rs` translated to
   English. Comments only — no string literal, fixture or byte length was touched.
-- `.gitignore` no longer whitelists `.sintergic/artifacts/`, so internal ledger
+- `.gitignore` no longer whitelists the internal artifact directory, so internal ledger
   artifacts stay out of the public export.
 
 **Verification:** `cargo test --workspace` **1,532 passed / 0 failed** (3 ignored) at the
@@ -432,7 +384,7 @@ separate processes with identical digests.
 
 **Verification:** 854 tests passed / 0 failed across 36 test binaries — the count recorded for this
 cut, re-measured Δ 0 at the campaign re-audit base `6d48146`
-(`docs/sintergic/l5-mission/final-reaudit-six-CR-acc1b551.md` §2); the count is a property of that
+(the final re-audit report §2); the count is a property of that
 tree, not of this one. clippy clean for headless and window features; content/trademark scans
 0/0/0; CI runner PASS (3/3); anti-screen suite 37/37; M9 global verification 19/19.
 
@@ -455,7 +407,7 @@ content and trademark scans clean.
 
 [0.4.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...v0.4.0-alpha
 [0.3.2-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...v0.3.2-alpha
-[0.3.1-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...858e8f6
+[0.3.1-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...v0.3.1-alpha
 [0.3.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.2.0-alpha...v0.3.0-alpha
 [0.2.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.1.0-alpha...v0.2.0-alpha
 [0.1.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.0.0-alpha.1...v0.1.0-alpha

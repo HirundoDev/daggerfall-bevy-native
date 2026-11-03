@@ -11,12 +11,11 @@ keep outside this repository. See [Data, legal and trademarks](docs/acknowledgme
 > 2026-11-03.** It is the first behaviour change since `v0.3.0-alpha`: a session saved from the running
 > window now carries its world and `CONTINUE` restores the position, the orientation and the world
 > minutes (`slot fidelity=4`; measured `delta pos_mm=[0, 0, 0]` · `delta mundo=0 min`, reproducible in
-> ~70 s with `scripts/new-game-semantics.py`). That work is **measured and unsigned**: its two handoff
-> rows stay `candidato`, so nothing here calls it `DONE`. The tag is immutable, and what it carries is
+> ~70 s with `scripts/new-game-semantics.py`). That work is **measured and unsigned**: nothing here calls it `DONE`. The tag is immutable, and what it carries is
 > fixed — including the third-party mark its CI reported and the fix that landed **above** it, both
-> recorded in the CHANGELOG. `v0.3.1-alpha` stays the untagged documentation correction, and
-> `v0.3.2-alpha` (tagged 2026-10-27) is the immutable cut of it. The closure register carries the state, and it is the only authority quoted
-> here — `docs/sintergic/validation/closure-register-CR-03390267.md`, which `scripts/closure-gate.py` reports with `VERDICT: PASS` (0 prose↔register contradictions,
+> recorded in the CHANGELOG. `v0.3.1-alpha`, tagged on 2026-10-27 at `858e8f6`, is the documentation correction, and
+> `v0.3.2-alpha` (tagged 2026-10-27) is the immutable cut of it. The closure record carries the state, and it is the only authority quoted
+> here — the record is not part of this export, and `scripts/closure-gate.py` reproduces it with `VERDICT: PASS` (0 prose↔register contradictions,
 > falsifiers 3/3 red): M0–M17 **DONE**
 > and tagged; M18 **`PARTIAL-TAG-PENDING`**; M19–M33 **DONE** at gate level; M34
 > **`PARTIAL-TECHNICAL-CLOSURE`** with the named row `AUDIO-RT-001-DEVICE`; M35
@@ -49,9 +48,9 @@ not at parity. Concretely:
   `COMMERCE-001` sha256 `37007115…` identical in two separate processes); M11 (QA **0.99**); M12
   (digest `a41b36eb9bae1bab` reproduced twice); M19 — `LOCOMOTION-001` **88/88** sha256 `9de0cfdd…`
   and `STEALTH-001` **16/16** sha256 `a59c6455…`, both measured twice, with NC1–NC5 each driven red
-  and restored. Reports under `docs/sintergic/l5-mission/`: `final-qa-M2M5M19-CR-380233e5.md`,
-  `mission-report-m11-CR-90853661.md`, `mission-report-fix-m12-minors-CR-d54b4324.md`,
-  `m5-calculate-cost-parity-CR-112b1058.md`, `m19-closure-CR-44034827.md`. M18 is not in that list:
+  and restored. Reports under the private mission records of : the final QA report,
+  the M11 mission report, the M12 minors report,
+  the M5 cost-parity report, the M19 closure record. M18 is not in that list:
   its 21 acceptance rows were **signed by delegation on 2026-10-26** with
   **0 FAIL** (**8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE**), and what remains is the owner's comparison
   against the original and the tag. The M2–M19 tally is published in
@@ -79,10 +78,10 @@ resolves all **15,251** locations of `MAPS.BSA`); its 21 acceptance rows were me
 window and **signed by delegation on 2026-10-26** — **8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0
 FAIL** — with the comparison against the original game and the tag still the owner's. M19–M29 each
 closed at technical level, each adding its probes to the suite; the 29 gate rows of M20–M29 and M34
-were then re-derived from the live tree at `e9e7908` (CR-c62fc6d3), each row run in two separate OS
+were then re-derived from the live tree at `e9e7908`, each row run in two separate OS
 processes with byte-identical stdout and equal sha256, plus 11 negative controls mutated red and
 restored — manifest
-`docs/sintergic/l5-mission/evidence/re-measure-29-CR-c62fc6d3/manifest.json`. The
+the recorded re-measurement manifest. The
 **854 tests passed / 0 failed** figure belongs to the campaign re-audit base `6d48146` (36 test
 binaries, Δ 0 against the M9 close); it is not a count of this head. Clippy was clean for both
 headless and `--features window`, the content/trademark scans are
@@ -100,7 +99,7 @@ set of test files excluded from the export, declared in
 attributes and explains the gap. The earlier cut stands on its own record: `673b8a9` measured
 **1,524 passed / 0 failed / 3 ignored** on its export (59 binaries) and **1,602 / 0 / 3** in the
 private workspace (66). The release is identified by its name and the commit it was cut from —
-`v0.3.1-alpha` from `9f9cc3b` — never by the export's tree hash, which an edit to this page would
+`v0.3.1-alpha` from `858e8f6` — never by the export's tree hash, which an edit to this page would
 move.
 
 - **Closed with evidence:** M19 locomotion · M20 stats/skills · M21 items, equipment and loot ·
@@ -145,7 +144,7 @@ move.
   still open. `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`: the binary is built without
   the audio feature), so its two-process measure covers the degraded path only, and the device branch
   is not promoted here — that call belongs to the owner. `UI-FULL-001`, which is also the M40 gate,
-  no longer measures a subset: since `CR-bc68d7ce` (2026-10-27) it certifies **85/85** census
+  no longer measures a subset: since 2026-10-27 it certifies **85/85** census
   surfaces with per-surface evidence — the 7 `Infra` entries as layer contract of `ui_compat` (no
   invented window) and 3 read-only `Playable` windows recorded as `not-applicable` on axis A5 — so
   no surface is left uncertified.
@@ -165,7 +164,7 @@ move.
   `crates/parser-bevy-bridge/src/ui_compat/`, exercised by **3 pilot windows** under `UI-BASE-001`
   (9/9) and `UI-INPUT-001` (10/10): `VERDICT: PASS`, exit 0, two separate processes with
   byte-identical stdout. The pilots measured a depth cost of **0.4708333 u/window at one QA round**
-  (band `r`, n = 3, W = 50) — **8.33×** the L1 baseline of **0.0565 u/window**. Technical closure
+  (band `r`, n = 3, W = 50) — **8.33×** the L1 reference of **0.0565 u/window**. Technical closure
   measured 2026-10-27; no milestone tag.
 - **Closed with evidence (M38):** the 27 UI-2 surfaces — 16 creation windows (`C01`–`C16`) and 11
   configuration pages (`CFG01`–`CFG11`) — each measured by its own gate: `scripts/ui-create-001.py`
@@ -173,13 +172,13 @@ move.
   `VERDICT: PASS`, exit 0, in two separate processes with identical stdout and identical digests. The
   UI requirement's coverage is **0.857 (6/7)**: the one open clause is the owner's side-by-side
   acceptance (K7). The composed `FACES.CIF` face (K2) is closed, measured by the UI-2 probe's `FACE
-  … painted=… source=… match=ok` lines and the `FACENAV` traversal, and its handoff records
+  … painted=… source=… match=ok` lines and the `FACENAV` traversal, and the record of that probe
   `status: DONE`. Technical closure measured 2026-10-27; no milestone tag.
 - **DONE at gate level (M39):** the 51 interactive playable windows. The surface registry, the
   block grammar, the playable-window probe and the A–H runner are in the tree since `85979b9`, and
   `UI-JUGABLE-001` prints `VERDICT: PASS` on its 8 rules in two processes with byte-identical stdout
   (21,141 B, sha256 `e1efb40e…`, gate digest `fc0ebb54…`). The closure report — measured at `e249004`
-  and recorded in docs/sintergic/l5-mission/m39-ui3-mission-report-CR-aecd1cef.md — publishes
+  and recorded in the M39 mission report — publishes
   `requirements_coverage 0.857` with **K7** (the owner's side-by-side acceptance) as the single open
   clause. M39 is **not signed and carries no tag**, and the 51 windows it delivers are not yet the
   running demo window.
@@ -208,7 +207,7 @@ at the **[Agent entry point](docs/acknowledgments/agent-entrypoint.md)** for the
 of truth, real state, closure rule, limits, how to continue).
 
 State against the register
-`docs/sintergic/validation/closure-register-CR-03390267.md` (`scripts/closure-gate.py` → `VERDICT:
+the closure record (`scripts/closure-gate.py` → `VERDICT:
 PASS`, 0 prose↔register contradictions, falsifiers 3/3 red):
 **53 milestones · 112 gate rows · 43 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1
 PARTIAL-TECHNICAL-CLOSURE · 7 AUSENTE**, `program_closure: OPEN`. M0–M17 **DONE and tagged** ·
@@ -225,8 +224,9 @@ contract.
 A milestone marked above is at **gate-level technical closure — never owner acceptance**.
 Public tags: `v0.3.0-alpha`, published 2026-10-27 · `v0.3.2-alpha`, tagged 2026-10-27, the immutable cut
 of the documentation correction · `v0.4.0-alpha`, tagged 2026-11-02 and published 2026-11-03 (save
-fidelity generation 4: `CONTINUE` restores the world; measured, unsigned). `v0.3.1-alpha` was never
-tagged: it names the changelog section for the correction that `v0.3.2-alpha` cuts. No milestone tag
+fidelity generation 4: `CONTINUE` restores the world; measured, unsigned). `v0.3.1-alpha` is
+tagged at `858e8f6` (annotated object `1bdd2f2c`): it is the documentation correction, and
+`v0.3.2-alpha` cuts the same content again, one documentation commit later. No milestone tag
 exists from M18 on; M18's acceptance signature is recorded by delegation
 on 2026-10-26.
 
@@ -238,7 +238,7 @@ on 2026-10-26.
 | **M39** | UI-3 | 51 interactive playable windows | DONE at gate level (0.857, K7 open; no tag) | 7.50 (5.65–9.40) | `UI-JUGABLE-001` A–H |
 | **M40** | UI-4 | UI gate + side-by-side + input + accessibility | DONE (technical closure 2026-10-27, no tag) | 3.50 (2.45–4.55) | `UI-FULL-001` 85/85 |
 | **M41** | SYS-1 | depth: combat, magic, items, stats, resistances | DONE (gate rows ×2 processes; no tag — acceptance = owner) | 63.00 (41.30–84.70) | work-package gates (§3.6) |
-| **M42** | SYS-2 | depth: NPCs, guilds, crime and law, quests | DONE (gate rows ×2 processes; no tag — acceptance = owner) | 42.00 (28.00–56.00) | work-package gates (§3.7) — technical closure (gate-rows, 8 gates ×2, CR-c71b453d) |
+| **M42** | SYS-2 | depth: NPCs, guilds, crime and law, quests | DONE (gate rows ×2 processes; no tag — acceptance = owner) | 42.00 (28.00–56.00) | work-package gates (§3.7) — technical closure (gate rows, 8 gates ×2) |
 | **M43** | SYS-3 | depth: economy, travel, weather, calendar, conditions | DONE (gate rows ×2 processes 2026-10-30; no tag — acceptance = owner) | 51.00 (33.50–67.50) | work-package gates (§3.8) |
 | **M44** | DUN-1 | dungeon content: grid + loot/respawn/bosses/instances | DONE (gate rows ×2 processes 2026-10-30; no tag — acceptance = owner) | 39.00 (25.50–52.00) | work-package gates (§3.9) |
 | **M45** | E4 MODS | declarative mod pipeline | AUSENTE (no code, no dispatch, no tag) | 39.00 (26.00–52.00) | `MODS-001` · `MODS-002` |

@@ -47,17 +47,17 @@ those closures contain.
 |---|---|---|
 | **M0** | Naming/legal guardrails, position gates, CI content + trademark scans | `scripts/ci/run-ci.sh` → PASS (3/3 checks: content, trademark, English-only) |
 | **M1** | 3D block viewer: `ARCH3D.BSA` → Bevy mesh, window feature, PathChecker | Real block rendered from retail data |
-| **M2** | First-person camera and grid collision | **DONE** and tagged `M2-2026-10-19` — `PROBE-VIEW-001` PASS; repaired after the campaign re-audit, final QA **0.98** (`docs/sintergic/l5-mission/final-qa-M2M5M19-CR-380233e5.md`) |
+| **M2** | First-person camera and grid collision | **DONE** and tagged `M2-2026-10-19` — `PROBE-VIEW-001` PASS; repaired after the campaign re-audit, final QA **0.98** (`the private mission records of the final QA report`) |
 | **M3** | Navigable city streets, deterministic layout, sky | `PROBE-CITY-001` PASS |
 | **M4** | Interior prototype and time system; the window renders a real `.RDB` interior | `PROBE-INTERIOR-001` PASS (block A synthetic + B time + C real `RDB`), plus a measured window capture |
-| **M5** | Interactive commerce (inventory-lite) and the trade-price formula | **DONE** and tagged `M5-2026-10-19` — `PROBE-COMMERCE-001`; `PROBE-FORMULA-001` with 11 independent golden vectors; repaired, final QA **0.97** (`docs/sintergic/l5-mission/final-qa-M2M5M19-CR-380233e5.md`) plus `dfu_price_pipeline_golden_parity` **40/40** vectors against the mirror of DFU `FormulaHelper.cs` (`CalculateCost:1884-1899` → `CalculateTradePrice:1976-2004`, pin `DFU@2343305d`), its gates byte-identical across two processes — `FORMULA-001` sha256 `ffc0b5e67ca8123aecb30b2af4b27f38519f4f7147bfa62aabf6950e214f9838`, `COMMERCE-001` sha256 `37007115115cac8fd6fa5e574278c64670ca7398d7ad4eb2c074216341d17d8f` (`docs/sintergic/l5-mission/m5-calculate-cost-parity-CR-112b1058.md`) |
+| **M5** | Interactive commerce (inventory-lite) and the trade-price formula | **DONE** and tagged `M5-2026-10-19` — `PROBE-COMMERCE-001`; `PROBE-FORMULA-001` with 11 independent golden vectors; repaired, final QA **0.97** (`the private mission records of the final QA report`) plus `dfu_price_pipeline_golden_parity` **40/40** vectors against the mirror of DFU `FormulaHelper.cs` (`CalculateCost:1884-1899` → `CalculateTradePrice:1976-2004`, pin `DFU@2343305d`), its gates byte-identical across two processes — `FORMULA-001` sha256 `ffc0b5e67ca8123aecb30b2af4b27f38519f4f7147bfa62aabf6950e214f9838`, `COMMERCE-001` sha256 `37007115115cac8fd6fa5e574278c64670ca7398d7ad4eb2c074216341d17d8f` (`the private mission records of the M5 cost-parity report`) |
 | **M6** | Integrated world playthrough and the unified behaviour-probe suite | `PROBE-WORLD-001` PASS |
 | **M7** | Session read models: HUD, automap, inventory/quests | `PROBE-READMODEL-001` PASS |
 | **M8** | Save/load round-trip of a played session | `PROBE-SESSION-001` PASS |
 | **M9** | Release slice and global verification | Global verification **19/19 = 1.00**, 0 critical failures, 19 rows with command + exit + output and **0 exclusions**. See the erratum below |
 | **M10** | Retail city blocks from `BLOCKS.BSA` (`.RMB`) | `PROBE-RMB-001`: 5-city sample, 951/951 building records, 252/252 `ARCH3D` models, 0 traversals |
-| **M11** | Retail interiors from `.RDB` + `ARCH3D` | **DONE** and tagged `M11-2026-10-20` — repaired after the campaign re-audit, QA **0.99** (`docs/sintergic/l5-mission/mission-report-m11-CR-90853661.md`); `PROBE-RDB-001`: 187/187 dungeon-block census; a real interior (`N0000055.RDB`) assembled |
-| **M12** | Retail texture layer: `TEXTURE.000-010`, `TEXTURE.256`, palettes | **DONE** and tagged `M12-2026-10-20` — repaired, digest `a41b36eb9bae1bab` reproduced twice (`docs/sintergic/l5-mission/mission-report-fix-m12-minors-CR-d54b4324.md`); 472 `TEXTURE.*` files hashed; 12 FNV-1a64 golden vectors |
+| **M11** | Retail interiors from `.RDB` + `ARCH3D` | **DONE** and tagged `M11-2026-10-20` — repaired after the campaign re-audit, QA **0.99** (`the private mission records of the M11 mission report`); `PROBE-RDB-001`: 187/187 dungeon-block census; a real interior (`N0000055.RDB`) assembled |
+| **M12** | Retail texture layer: `TEXTURE.000-010`, `TEXTURE.256`, palettes | **DONE** and tagged `M12-2026-10-20` — repaired, digest `a41b36eb9bae1bab` reproduced twice (`the private mission records of the M12 minors report`); 472 `TEXTURE.*` files hashed; 12 FNV-1a64 golden vectors |
 | **M13** | Terrain and climate from `WOODS.WLD` / `MAPS.BSA` | `PROBE-TERRAIN-001`, `PROBE-CLIMATE-001` PASS; height field bit-exact |
 | **M13b** | `extraNoise` parity (`Mathf.PerlinNoise` port) | **0 ULP** against the compiled reference implementation |
 | **M14** | Music (`MIDI.BSA`) and sound effects (`DAGGER.SND`) | `PROBE-AUDIO-001`: 131/132 songs (one without a retail record, declared, not faked), 459 sound records, 60/60 day/night triggers |
@@ -65,25 +65,25 @@ those closures contain.
 | **M16** | Lore, text and quests: `TEXT.RSC`, `.QBN`, `.QRC`, quest verbs, books | 18,501 text tokens, 247/247 QBN tiled, 244/244 QRC validated, 82 quest verbs, 79 quests, 91 books |
 | **M17** | 1996-style UI (IMG/CIF/FNT/RCI assets, windows, HUD) | `PROBE-UI-001` PASS (43/43 checks, 18 golden vectors); `--features window` build EXIT=0; visual signature deferred to M18 |
 | **M18** | Full-map index probe, release scan, final acceptance | **Technical closure PASS (2026-10-20)** — `PROBE-MAP-001` resolves 15,251/15,251 locations (0 skipped, 0 panics, identical digest twice); the suite froze at 18/18 for this milestone and has grown with every later one; the 21 acceptance rows were measured on the real window and **signed by delegation on 2026-10-26** (**8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL**); the comparison against the original game and the tag remain the owner's, so no tag exists |
-| **M19** | Player locomotion and body: DFU speeds, jump/gravity/fall damage, climbing, levitation, swimming and breath, encumbrance, stealth formulas | **DONE at gate level** — `behavior::locomotion` (21 tests, no Bevy, no I/O) consumed by the demo and the window through a single `Locomotion::step`; `PROBE-LOCOMOTION-001` **88/88** (stdout 11,904 B, sha256 `9de0cfdd7fe8d74818d9bb87618beca0ef7a9aabcf3b65c6438433c85a937b52`) and `PROBE-STEALTH-001` **16/16** (1,501 B, sha256 `a59c64550da912765902962635374af84128d82adab63410844de1f7134a9d43`), each measured in **two separate processes, byte-identical**; NC1–NC5 each turned its expected rows red (exit 1) and the source sha256 was restored to `c0e34bb2…` — `docs/sintergic/l5-mission/m19-closure-CR-44034827.md`. Acceptance pending, no `M19` tag |
-| **M20–M26** | Gameplay parity, first tramo: stats and skills (M20), items/equipment/loot (M21), combat (M22), magic (M23), enchanting and alchemy (M24), monsters, enemy AI and encounters (M25), living NPCs, faction dialogue and `RUMOR.DAT` rumours (M26) | **DONE at gate level** (register verdict DONE; acceptance pending, no tag) — each closed at technical level with its probe added to the suite: 18 probes at the M18 freeze → 27/27 at the M26 close. At the M26 close: **534 tests passed / 0 failed**, clippy clean in both configurations. M20–M29 (and M34) were re-measured in `CR-c62fc6d3`: **29 gate rows, each run in two separate OS processes byte-identical**, binary `target/debug/daggerfall-app` sha256 `f0b9ba86…` at tree `e9e7908`, plus **11 negative controls** turned red and restored — manifest `docs/sintergic/l5-mission/evidence/re-measure-29-CR-c62fc6d3/manifest.json` |
-| **M27** | Guilds and factions: `FACTION.TXT` graph (365 ids), reputation with tree propagation, ranks 0–9, per-rank services | **DONE at gate level** — `PROBE-FACTION-001` 17/17, `PROBE-GUILD-001` 33/33, `M27-DEMO-001` 15/15; the suite went from 27 to 28 probes. Re-measured in `CR-c62fc6d3`: its gate rows ran in two separate OS processes byte-identical, binary sha256 `f0b9ba86…` at tree `e9e7908` (`docs/sintergic/l5-mission/evidence/re-measure-29-CR-c62fc6d3/manifest.json`). Acceptance pending, no `M27` tag |
-| **M28** | Crime, law and courts: penalty clamps, legal reputation, city guards, court sentence, prison clock | **DONE at gate level** — `PROBE-CRIME-001` and `PROBE-LAW-001` measure `steps=262`, `5480/375 → 2740/187` and `clock_advanced=16,156,800` against an independent recomputation. Re-measured in `CR-c62fc6d3`: its gate rows ran in two separate OS processes byte-identical, binary sha256 `f0b9ba86…` at tree `e9e7908` (`docs/sintergic/l5-mission/evidence/re-measure-29-CR-c62fc6d3/manifest.json`). Acceptance pending, no `M28` tag |
-| **M29** | Playable retail quests: the `QBN` opcode interpreter, clocks, journal, lifecycle | **DONE at gate level** — `PROBE-QUEST-EXEC-001` (24 golden vectors, a 20-quest determinism trace with its seed falsifier), `LIFECYCLE-001`, `JOURNAL-001`; `covered=62 negative=7 uncovered=0`; census 11/11 over 247 `.QBN` / 244 `.QRC`. Re-measured in `CR-c62fc6d3`: its gate row ran in two separate OS processes byte-identical, binary sha256 `f0b9ba86…` at tree `e9e7908` (`docs/sintergic/l5-mission/evidence/re-measure-29-CR-c62fc6d3/manifest.json`). Acceptance pending, no `M29` tag |
+| **M19** | Player locomotion and body: DFU speeds, jump/gravity/fall damage, climbing, levitation, swimming and breath, encumbrance, stealth formulas | **DONE at gate level** — `behavior::locomotion` (21 tests, no Bevy, no I/O) consumed by the demo and the window through a single `Locomotion::step`; `PROBE-LOCOMOTION-001` **88/88** (stdout 11,904 B, sha256 `9de0cfdd7fe8d74818d9bb87618beca0ef7a9aabcf3b65c6438433c85a937b52`) and `PROBE-STEALTH-001` **16/16** (1,501 B, sha256 `a59c64550da912765902962635374af84128d82adab63410844de1f7134a9d43`), each measured in **two separate processes, byte-identical**; NC1–NC5 each turned its expected rows red (exit 1) and the source sha256 was restored to `c0e34bb2…` — the M19 closure record. Acceptance pending, no `M19` tag |
+| **M20–M26** | Gameplay parity, first tramo: stats and skills (M20), items/equipment/loot (M21), combat (M22), magic (M23), enchanting and alchemy (M24), monsters, enemy AI and encounters (M25), living NPCs, faction dialogue and `RUMOR.DAT` rumours (M26) | **DONE at gate level** (register verdict DONE; acceptance pending, no tag) — each closed at technical level with its probe added to the suite: 18 probes at the M18 freeze → 27/27 at the M26 close. At the M26 close: **534 tests passed / 0 failed**, clippy clean in both configurations. M20–M29 (and M34) were re-measured in the closing round: **29 gate rows, each run in two separate OS processes byte-identical**, binary `target/debug/daggerfall-app` sha256 `f0b9ba86…` at tree `e9e7908`, plus **11 negative controls** turned red and restored — manifest the recorded re-measurement manifest |
+| **M27** | Guilds and factions: `FACTION.TXT` graph (365 ids), reputation with tree propagation, ranks 0–9, per-rank services | **DONE at gate level** — `PROBE-FACTION-001` 17/17, `PROBE-GUILD-001` 33/33, `M27-DEMO-001` 15/15; the suite went from 27 to 28 probes. Re-measured in the closing round: its gate rows ran in two separate OS processes byte-identical, binary sha256 `f0b9ba86…` at tree `e9e7908` (the recorded re-measurement manifest). Acceptance pending, no `M27` tag |
+| **M28** | Crime, law and courts: penalty clamps, legal reputation, city guards, court sentence, prison clock | **DONE at gate level** — `PROBE-CRIME-001` and `PROBE-LAW-001` measure `steps=262`, `5480/375 → 2740/187` and `clock_advanced=16,156,800` against an independent recomputation. Re-measured in the closing round: its gate rows ran in two separate OS processes byte-identical, binary sha256 `f0b9ba86…` at tree `e9e7908` (the recorded re-measurement manifest). Acceptance pending, no `M28` tag |
+| **M29** | Playable retail quests: the `QBN` opcode interpreter, clocks, journal, lifecycle | **DONE at gate level** — `PROBE-QUEST-EXEC-001` (24 golden vectors, a 20-quest determinism trace with its seed falsifier), `LIFECYCLE-001`, `JOURNAL-001`; `covered=62 negative=7 uncovered=0`; census 11/11 over 247 `.QBN` / 244 `.QRC`. Re-measured in the closing round: its gate row ran in two separate OS processes byte-identical, binary sha256 `f0b9ba86…` at tree `e9e7908` (the recorded re-measurement manifest). Acceptance pending, no `M29` tag |
 | **M30** | Economy: shops, inns, banking, transport — `CalculateCost` with regional prices, the 36 `(building, group)` buy table, five trade modes, 53 holidays, loans and default, house and ship | **Technical closure PASS (2026-10-23)** — `behavior::economy` (including `BankLedger` and `LoanEvent`) measured by `PROBE-SHOP-001`, `PROBE-ECONOMY-001` (E1–E28 vectors plus a seeded-determinism block) and `PROBE-BANK-001`, all exit 0 with the digest reproduced twice. No `M30` tag |
 | **M31** | Travel, weather and calendar: fast travel over the real climate data, weather replay, holidays and the calendar clock | **Technical closure PASS (2026-10-23)** — `heart::{travel, weather, calendar}` measured by `PROBE-TRAVEL-001` (34/34 vectors, a 2,200-pixel route over the real `CLIMATE.PAK`, byte-identical stdout in two processes), `PROBE-WEATHER-001` (13/13 vectors, 240,000 draws, `max_abs_delta = 0.0121 < 0.02`) and `PROBE-CALENDAR-001` (14/14). No `M31` tag |
 | **M32** | Conditions, death and rest: diseases, vampirism and lycanthropy stages, rest and the death state | **Technical closure PASS (2026-10-23)** — `skills::{conditions, rest}` measured by `PROBE-CONDITION-001` (24/24), `PROBE-VAMPIRE-001` (16/16), `PROBE-REST-001` (10/10) and `PROBE-DEATH-STATE-001` (2/2). No `M32` tag |
 | **M33** | Total persistence: savegame v2, migration, and the classic `SAVEGAME` read/write | **Technical closure PASS (2026-10-26)** — `memory::{save_v2, savegame, savegame_v2}` measured by `PROBE-SAVE-ALL-001` (24/24 round trips byte-identical, the S0 census, five corruption mutations all rejected, deterministic digest), `PROBE-SAVE-MIGRATION-001` (v1→v2, idempotent), `PROBE-SAVEGAME-READ-001`, `PROBE-SAVEGAME-WRITE-001` and `PROBE-M33-DEMO-001`. No `M33` tag |
-| **M34** | End-to-end integration and presentation: the E2E spine, the full presentation pass and the HUD | **`PARTIAL-TECHNICAL-CLOSURE`** — DONE at technical level with the named row `AUDIO-RT-001-DEVICE`. `PLAYSESSION-001`, `UI-FULL-001` and `AUDIO-RT-001` entered the suite, taking `ALL-001` to **40/40**; the independent probes agree on the same head: `SPINE-001` **12/12** (4 controls, 6 falsifiers, identical digest over two runs), `VIDEO-001` PASS, `PROBE-AUTOMAP-001` **13/13**, `PROBE-LIGHT-001` PASS (digest reproduced in-process, `0x61d950d0d13da8de`), `PROBE-DUNGEON-001` **12/12**. QA round **0.94**, 0 critical / 0 major. Owner rows recorded **12/12** (5 PASS · 7 accepted with a declared deviation · 0 FAIL). No `M34` tag. `AUDIO-RT-001` reproduces `PASS(degraded)` — `[SKIP-DEVICE]`, the binary built without the `audio` feature — so its measure covers the degraded path only and the audio branch is the owner's decision. `UI-FULL-001`, also the M40 gate, certifies **85/85** census surfaces with per-surface evidence since `CR-bc68d7ce` (2026-10-27): the 7 `Infra` entries as layer contract of `ui_compat`, and 3 read-only `Playable` windows recorded `not-applicable` on axis A5, so no surface is left uncertified |
+| **M34** | End-to-end integration and presentation: the E2E spine, the full presentation pass and the HUD | **`PARTIAL-TECHNICAL-CLOSURE`** — DONE at technical level with the named row `AUDIO-RT-001-DEVICE`. `PLAYSESSION-001`, `UI-FULL-001` and `AUDIO-RT-001` entered the suite, taking `ALL-001` to **40/40**; the independent probes agree on the same head: `SPINE-001` **12/12** (4 controls, 6 falsifiers, identical digest over two runs), `VIDEO-001` PASS, `PROBE-AUTOMAP-001` **13/13**, `PROBE-LIGHT-001` PASS (digest reproduced in-process, `0x61d950d0d13da8de`), `PROBE-DUNGEON-001` **12/12**. QA round **0.94**, 0 critical / 0 major. Owner rows recorded **12/12** (5 PASS · 7 accepted with a declared deviation · 0 FAIL). No `M34` tag. `AUDIO-RT-001` reproduces `PASS(degraded)` — `[SKIP-DEVICE]`, the binary built without the `audio` feature — so its measure covers the degraded path only and the audio branch is the owner's decision. `UI-FULL-001`, also the M40 gate, certifies **85/85** census surfaces with per-surface evidence since 2026-10-27: the 7 `Infra` entries as layer contract of `ui_compat`, and 3 read-only `Playable` windows recorded `not-applicable` on axis A5, so no surface is left uncertified |
 | **M35** | Biomes, 2D vegetation and sky — optional, non-blocking annex | **`PARTIAL`** — the register's verdict, with the named row `GAP-TAX-11` **deferred to M44**. `BIOME-001` **25 passed / 0 failed / 1 NA** and `SPRITE-001` **11/11`. The NA is that declared gap: the pinned corpus carries no tile-class data, so the probability gate cannot be measured — the probe reports `DEGRADED` instead of inventing a number. Owner rows CS-05 (`NC-ACEPTA`) and CS-11 (`NOT-COMPARABLE`) are declared classes of the signed acceptance matrix, not passes, and the side-by-side against the original remains the owner's. No `M35` tag |
 | **M36** | UI-0: audit of the census windows, the patch/rewrite rule, the seven-axis compatibility contract and the E1 re-estimate | **Technical closure measured 2026-10-27** — `scripts/ui-audit-001.py` prints `VERDICT: PASS` on blocks A+B+C, exit 0, in two separate processes with byte-identical stdout; **85 = 78 surfaces (27 + 51) + 7 infrastructure rows**, measured **4 implemented / 47 partial / 34 absent**, and the rule settles **35 PATCH · 50 REWRITE**. No `M36` tag |
-| **M37** | UI-1: the seven-axis UI compatibility layer — surface, palette, typography, text, navigation, input, presentation — and its three pilots | **Technical closure measured 2026-10-27** — `crates/parser-bevy-bridge/src/ui_compat/` shipped behind two gates: `UI-BASE-001` **9/9** and `UI-INPUT-001` **10/10**, `VERDICT: PASS`, exit 0, in two separate processes with byte-identical stdout. The pilots measured a depth cost of **0.4708333 u/window at one QA round** — band `r`, n = 3, W = 50 — against the L1 baseline of **0.0565 u/window** (**8.33×**). No `M37` tag |
-| **M38** | UI-2: the 27 surfaces outside the in-play screens — 16 creation windows (`C01`–`C16`) and 11 configuration pages (`CFG01`–`CFG11`) — plus the menu family | **Technical closure measured 2026-10-27** — `scripts/ui-create-001.py` (16 surfaces, 12 checks) and `scripts/ui-config-001.py` (11 surfaces, 12 checks) print `VERDICT: PASS`, exit 0, in two separate processes with identical stdout and identical digests (`249a028172da0e98c2b50186b65e782d9e054356dcfaf3b888a18e7170ebd813`, `6dd450e3b387415bbe4e1004529c22390336c82198ccfc4f183f5da5209df79e`). Measured cost **0.8434 u over 27 surfaces = 0.0312 u/surface**. The UI requirement's coverage at that close is **0.857 (6/7)**: **K7** (the owner's side-by-side acceptance) is the only open clause, with **K2** (the composed `FACES.CIF` face) closed and its handoff recording `status: DONE`. No `M38` tag |
-| **M39** | UI-3: the 51 interactive playable windows, in the eight blocks of the plan | **DONE at gate level** (register verdict DONE, 3 gate rows) — `ui-jugable-001` gate **9/9 PASS ×2** at HEAD `5803297` (stdout 29,539 B, sha256 `1843dc66…`, digest `d93dc12f…`), AXIS A5 **`focus-rows=153` ×2**, **4/4 falsifiers red**; 51/51 surfaces measured, 8/8 blocks and 7/7 axes OK. `requirements_coverage 0.857` with **K7** the single open clause (`docs/sintergic/l5-mission/m39-a5-focus-mission-report-CR-4e32cea3.md`). Not signed, no `M39` tag, and the 51 windows are not yet the running demo window |
-| **M40** | UI-4: the gate over the complete UI | **DONE at gate level** (register verdict DONE, 5 gate rows) — `UI-FULL-001` **85/85** in two separate processes with byte-identical stdout (21,472 B, sha256 `39c01070…`, gate stdout `e288505e…`, digest `27ed819c…`), **8/8** rules, **4/4** falsifiers red and restored; **85 = 51 playable + 16 creation + 11 configuration + 7 infrastructure**, the 7 `Infra` closed as layer contract of `ui_compat::AXES`, 3 read-only `Playable` recorded `not-applicable` on A5 (`docs/sintergic/l5-mission/m40-ui4-mission-report-CR-bc68d7ce.md`). Not signed, no `M40` tag; the side-by-side is the owner's `K7` |
-| **M41–M42** | Plan B depth: SYS-1 (combat, magic, items, stats, resistances) and SYS-2 (NPCs, guilds, crime/law, quests) | **DONE at gate level** — register verdict DONE on their work-package gate rows (8 gates × 2 for M42, `CR-c71b453d`); not signed, no tag. Scope and `u` in the [complete plan](roadmap-m18-m48.md) |
-| **M43–M48** | Plan B remaining: SYS-3 depth, DUN-1 dungeon content, E4 mods, E5 online, E6 platform, E7 modern | **`AUSENTE`** — no code, no dispatch, no tag; **M43 in flight** under `CR-39d656e1`, **M44 next**, M45/M46/M48 `DEFERRED`, M47 `OPTIONAL`, and M46 additionally carries the owner's `T-M46-GO`. Scope, gates and `u` are in the [complete plan](roadmap-m18-m48.md) |
-| **M-SHELL · M-PLAY** | The application and the session (13 capabilities, 17.00 u) and the end-to-end playthrough probe (6.50 u provisional) | **`PLANNED`** — no code, no dispatch, no tag, and **register rows since 2026-10-29** (`CR-359b5d8e`: `EXPECTED_IDS` extended, `verdict: AUSENTE`). Sequence: **M43 → M44 → M-SHELL → M-PLAY**. Gates `SHELL-001..006` are declared, none built |
+| **M37** | UI-1: the seven-axis UI compatibility layer — surface, palette, typography, text, navigation, input, presentation — and its three pilots | **Technical closure measured 2026-10-27** — `crates/parser-bevy-bridge/src/ui_compat/` shipped behind two gates: `UI-BASE-001` **9/9** and `UI-INPUT-001` **10/10**, `VERDICT: PASS`, exit 0, in two separate processes with byte-identical stdout. The pilots measured a depth cost of **0.4708333 u/window at one QA round** — band `r`, n = 3, W = 50 — against the L1 reference of **0.0565 u/window** (**8.33×**). No `M37` tag |
+| **M38** | UI-2: the 27 surfaces outside the in-play screens — 16 creation windows (`C01`–`C16`) and 11 configuration pages (`CFG01`–`CFG11`) — plus the menu family | **Technical closure measured 2026-10-27** — `scripts/ui-create-001.py` (16 surfaces, 12 checks) and `scripts/ui-config-001.py` (11 surfaces, 12 checks) print `VERDICT: PASS`, exit 0, in two separate processes with identical stdout and identical digests (`249a028172da0e98c2b50186b65e782d9e054356dcfaf3b888a18e7170ebd813`, `6dd450e3b387415bbe4e1004529c22390336c82198ccfc4f183f5da5209df79e`). Measured cost **0.8434 u over 27 surfaces = 0.0312 u/surface**. The UI requirement's coverage at that close is **0.857 (6/7)**: **K7** (the owner's side-by-side acceptance) is the only open clause, with **K2** (the composed `FACES.CIF` face) closed and its record stating `status: DONE`. No `M38` tag |
+| **M39** | UI-3: the 51 interactive playable windows, in the eight blocks of the plan | **DONE at gate level** (register verdict DONE, 3 gate rows) — `ui-jugable-001` gate **9/9 PASS ×2** at HEAD `5803297` (stdout 29,539 B, sha256 `1843dc66…`, digest `d93dc12f…`), AXIS A5 **`focus-rows=153` ×2**, **4/4 falsifiers red**; 51/51 surfaces measured, 8/8 blocks and 7/7 axes OK. `requirements_coverage 0.857` with **K7** the single open clause (the M39 focus report). Not signed, no `M39` tag, and the 51 windows are not yet the running demo window |
+| **M40** | UI-4: the gate over the complete UI | **DONE at gate level** (register verdict DONE, 5 gate rows) — `UI-FULL-001` **85/85** in two separate processes with byte-identical stdout (21,472 B, sha256 `39c01070…`, gate stdout `e288505e…`, digest `27ed819c…`), **8/8** rules, **4/4** falsifiers red and restored; **85 = 51 playable + 16 creation + 11 configuration + 7 infrastructure**, the 7 `Infra` closed as layer contract of `ui_compat::AXES`, 3 read-only `Playable` recorded `not-applicable` on A5 (the M40 mission report). Not signed, no `M40` tag; the side-by-side is the owner's `K7` |
+| **M41–M42** | Plan B depth: SYS-1 (combat, magic, items, stats, resistances) and SYS-2 (NPCs, guilds, crime/law, quests) | **DONE at gate level** — register verdict DONE on their work-package gate rows (8 gates × 2 for M42); not signed, no tag. Scope and `u` in the [complete plan](roadmap-m18-m48.md) |
+| **M43–M48** | Plan B remaining: SYS-3 depth, DUN-1 dungeon content, E4 mods, E5 online, E6 platform, E7 modern | **`AUSENTE`** — no code, no dispatch, no tag; **M43 in flight**, **M44 next**, M45/M46/M48 `DEFERRED`, M47 `OPTIONAL`, and M46 additionally carries the owner's `T-M46-GO`. Scope, gates and `u` are in the [complete plan](roadmap-m18-m48.md) |
+| **M-SHELL · M-PLAY** | The application and the session (13 capabilities, 17.00 u) and the end-to-end playthrough probe (6.50 u provisional) | **`PLANNED`** — no code, no dispatch, no tag, and **register rows since 2026-10-29** (`EXPECTED_IDS` extended, `verdict: AUSENTE`). Sequence: **M43 → M44 → M-SHELL → M-PLAY**. Gates `SHELL-001..006` are declared, none built |
 | **E8** | Deferred expansion horizon | **`AUSENTE`** — a separate program with its own genesis contract, never "M49" |
 
 **No milestone tag exists from M18 on; M18's acceptance signature is recorded by delegation on
@@ -91,7 +91,7 @@ those closures contain.
 been accepted, and every milestone after M18 is still unsigned. M39 is DONE at gate level: its three
 gate rows pass, `ui-jugable-001` prints `9/9 PASS ×2` at HEAD `5803297`, AXIS A5 measures
 `focus-rows=153` twice and 4/4 falsifiers turn red, and the closure report — kept at
-`docs/sintergic/l5-mission/m39-a5-focus-mission-report-CR-4e32cea3.md` — publishes
+the M39 focus report — publishes
 `requirements_coverage 0.857` with K7 (the owner's side-by-side acceptance) as the single open clause.
 M43–M48 are `AUSENTE` in the register (M41 and M42 carry gate-level closures with no tag), and E8 is a
 separate program. `M-SHELL` and `M-PLAY` are neither: they are `PLANNED` in the roadmap and outside the
@@ -129,13 +129,12 @@ Older slots degrade **loudly**: a slot without the world fields loads with a vis
 naming the absent fields and does not teleport the player or invent a clock, and an interior save that
 cannot re-enter its block restores the clock and the orientation and says so with `W-SAVE-002`.
 
-**State of the record.** This is a measurement, not a closure. The two handoff rows of `CR-7a3e9c14`
-(`HH-20261101-savefidelity-7a3e9c14`, `HH-20261101-saverestore-7a3e9c14`) stay **`candidato`** in
-`docs/sintergic/handoffs/INDEX.jsonl`; their `note` ("codigo NO escrito") is stale — the code landed in
-`d96a60a8 … 6237fa9c` — and the independent signature that would move them out of `candidato` is still
+**State of the record.** This is a measurement, not a closure. The two rows that record it stay **unsigned** in
+the project's closure ledger; their `note` ("codigo NO escrito") is stale — the code landed in
+`d96a60a8 … 6237fa9c` — and the independent signature that would make them signed is still
 owed. Nothing here calls the work `DONE`.
 
-Two declared non-matches travel with that measurement, both from its own handoff: `sim ticks` is
+Two declared non-matches travel with that measurement, both from its own record: `sim ticks` is
 **not** persisted on purpose (`WorldSimTicks.frames` counts frames of *this* process, so persisting it
 would fake what it measures), and the first frame captured after `continue` (~0.9 s) still shows the
 spawn view while the log already declares `pos=(422.0,1.6,419.0)`; the second frame (~2.0 s) is the
@@ -175,10 +174,10 @@ measured on the exported tree (477 files):
 |---|---|---|
 | `content-scan.sh` | PASS | 0 packaged data, 0 retail signature, 0 advisory |
 | `trademark-check.sh` | PASS | 0 gating hits, 3 advisory (all declared exemptions) |
-| `language-check.sh` | PASS | `hits: 90` · `baselined: 90` · `new_hits: 0`; every hit is `scripts/shell-002.py`, class `frozen-by-design` |
+| `language-check.sh` | PASS | `hits: 90` · `declared: 90` · `new_hits: 0`; every hit is `scripts/shell-002.py`, class `frozen-by-design` |
 | `spanish_stopwords_absent` (export gate) | PASS | `files: 0`, `declared_frozen: ["scripts/shell-002.py"]` |
 | `C_regeneration` | PASS | a second export reproduces the tree byte for byte |
-| `E_internal_refs` | **FAIL** | 156 functional references not allowlisted + 8 stale rows (153 at `v0.4.0-alpha`) |
+| `E_internal_refs` | **FAIL** | 156 functional references not declared + 8 stale rows (153 at `v0.4.0-alpha`) |
 
 A fresh clone runs its own battery: `./scripts/ci/run-ci.sh` → `ci: PASS (3/3 checks)`. The remaining
 red gate is not Spanish prose: it counts code that cites a private documentation path (probe `SPEC_*`
@@ -224,12 +223,12 @@ technical closures landed:
   (`249a028172da0e98c2b50186b65e782d9e054356dcfaf3b888a18e7170ebd813` and
   `6dd450e3b387415bbe4e1004529c22390336c82198ccfc4f183f5da5209df79e`) for M38.
 - UI-1 measured depth cost, cited: **0.4708333 u/window at one QA round** (`113/240`, band `r`,
-  n = 3 pilots, W = 50), **8.33×** the L1 baseline of **0.0565 u/window**. The literal form that
+  n = 3 pilots, W = 50), **8.33×** the L1 reference of **0.0565 u/window**. The literal form that
   keeps the five QA rounds in the numerator is `2.3541667 u/window` — a retread upper bound, not a
   mission cost.
 - UI-2 measured cost, cited: **0.8434 u consumed over 27 surfaces = 0.0312 u/surface**. The UI
   requirement's coverage at the M38 close is **0.857 (6/7)**: the owner's side-by-side acceptance
-  (K7) is the only open clause, and the composed `FACES.CIF` face (K2) is closed — its handoff
+  (K7) is the only open clause, and the composed `FACES.CIF` face (K2) is closed — its record
   records `status: DONE` and the UI-2 probe prints the `FACE … match=ok` and `FACENAV` lines.
 
 ### Public export of the earlier cut
@@ -241,7 +240,7 @@ verified by `tools/public-export/verify-export.py --export <dir> --regen-dir <di
 **PASS** on all five passes A, B, C, D and E:
 
 - `A_tree` **PASS** — **516 files**, **10,292,276 bytes**, **0 broken links**, README first line
-  `# daggerfall-bevy-native`, no secret, no personal address outside the upstream allowlist
+  `# daggerfall-bevy-native`, no secret, no personal address outside the declared upstream list
   (119 upstream addresses tolerated).
 - `B_gitobjects` **PASS** — **600 objects / 516 blobs**, **1 commit**, **no remotes**.
 - `C_regeneration` **PASS** — regeneration into a second directory is byte-identical: same tree
@@ -252,18 +251,18 @@ verified by `tools/public-export/verify-export.py --export <dir> --regen-dir <di
   `da05a23aab7c1fa67a77c62ffcc7c36e3c364df6a10ba37338457d923a4d9618`, 0 missing, 0 extra and
   0 unexplained content.
 - `E_internal_refs` **PASS** — the internal-reference metric [Export limits](export-limits.md)
-  declares, with its command and its tolerance rows: `unallowlisted []` and `stale []` at that
+  declares, with its command and its tolerance rows: no unclassified reference and no stale row at that
   commit. Its counts are printed by the verifier at export time and are not restated on this page.
 
 The commit was exported twice from the same worktree and both runs carry the same export commit and
 the same tree, so the run is identified by export commit **and** tree: the export's own report
 carries `commit` and neither `tree` nor `manifest_sha256`, while `manifest_sha256` is reported by
-pass D of the verifier. Each figure is measured at one named commit. `docs/sintergic/**` and
-`.sintergic/**` lie outside the export, so edits there change nothing in it; a documentation commit
+pass D of the verifier. Each figure is measured at one named commit. The private engineering record and the
+private workspace lie outside the export, so edits there change nothing in it; a documentation commit
 elsewhere moves the byte count and `manifest_sha256` of **that commit's** export but does not alter
 the verdicts **of the commit measured above** — and an edit that adds a dangling link, a secret or an
 unresolvable reference can still fail `A_tree`. That is why every run is recorded with its commit and
-its verdicts in the lane's HH-1, not asserted here for later trees.
+its verdicts in the closure record, not asserted here for later trees.
 
 **Stability of these figures.** The figures of the earlier cut are measured at `673b8a9`. The commit
 that adds this section publishes no figure of itself, and the export regenerates byte for byte
@@ -277,7 +276,7 @@ The metric, the four excluded test files and every count behind them live in [Ex
 
 - `cargo test --workspace` at the campaign re-audit base `6d48146`: **854 tests passed, 0 failed**
   across 36 test binaries, a delta of **0** against the M9 close
-  (`docs/sintergic/l5-mission/final-reaudit-six-CR-acc1b551.md` §2). It is the figure of that base —
+  (the final re-audit report §2). It is the figure of that base —
   not a count of this head.
 - `cargo clippy --workspace --all-targets -- -D warnings` and
   `cargo clippy -p daggerfall-app --features window --all-targets -- -D warnings`: clean.
@@ -296,7 +295,7 @@ The metric, the four excluded test files and every count behind them live in [Ex
 
 ## Final re-audit of the campaign (M0–M29)
 
-The 30 milestones were re-measured on the closing campaign head by fresh QA lanes: probes and gates
+The 30 milestones were re-measured on the closing campaign head by fresh QA passes: probes and gates
 re-executed, verdicts taken from the live tree rather than from the closure reports. Tally: **21 PASS ·
 2 PASS-as-shipped (M3, M6: they pass against their campaign cut, with declared scope drift) · 7 FAIL
 (M2, M5, M9, M11, M12, M18, M19)**. M9 was a denominator defect and is closed (19/19 = 1.00 above).
@@ -313,9 +312,9 @@ after their repairs, each with the report cited: **M2** (final QA **0.98**), **M
 (QA **0.99**), **M12** (digest `a41b36eb9bae1bab` reproduced twice) and **M19**
 (`PROBE-LOCOMOTION-001` **88/88** and `PROBE-STEALTH-001` **16/16**, measured twice in separate
 processes, with NC1–NC5 red and the source digest restored) — in
-`final-qa-M2M5M19-CR-380233e5.md`, `m5-calculate-cost-parity-CR-112b1058.md`,
-`mission-report-m11-CR-90853661.md`, `mission-report-fix-m12-minors-CR-d54b4324.md` and
-`m19-closure-CR-44034827.md`, all under `docs/sintergic/l5-mission/`. **M9**'s denominator defect is
+the final QA report, the M5 cost-parity report,
+the M11 mission report, the M12 minors report and
+the M19 closure record. **M9**'s denominator defect is
 closed: the global verification now runs 19/19 with the full denominator. **M18** is
 **`PARTIAL-TAG-PENDING`** — its acceptance signature is on record by delegation (2026-10-26), while
 the tag and the ORIGINAL-side comparison remain the owner's.
@@ -349,16 +348,16 @@ the tag and the ORIGINAL-side comparison remain the owner's.
 - **UI acceptance (`K7`).** The M38 surfaces pass their gates, but acceptance is the owner's
   side-by-side review against the original window; that decision is open and no `M38` tag exists.
 - **Internal paths inside the exported tree.** The export does not copy anything under
-  `docs/sintergic/` or `.sintergic/`, yet the exported tree still quotes a bounded set of such paths
+  the private engineering record or the private workspace, yet the exported tree still quotes a bounded set of such paths
   as plain text. Every functional line among them is carried by a tolerance row in
   `tools/public-export/internal-refs-allowlist.txt`, and the verifier reports both failure lists
-  empty (`unallowlisted []`, `stale []`) when it runs over the finished tree. The check measures
+  empty (no unclassified reference, no stale row) when it runs over the finished tree. The check measures
   `path:line` references, not files — that is the metric, and nothing here claims it counts whole
   files; the counts themselves are printed by pass E at export time and are not restated here. The
   two load-bearing references of the
   earlier cut are closed by declared means: `crates/side-contract/tests/matrix.rs` is excluded by
   **exact path** in `tools/public-export/exclude.txt` (never by a `tests/` wildcard), and the
-  `DEFAULT_LEDGER` of `crates/promotion-gate/src/main.rs` is **allowlisted with its reason** in
+  `DEFAULT_LEDGER` of `crates/promotion-gate/src/main.rs` is **declared with its reason** in
   `tools/public-export/internal-refs-allowlist.txt`. No silent tolerance: every remaining kept
   reference is either non-functional or carries its declared row. The full metric, the four excluded
   test files and the behaviour of every reference are declared in [Export limits](export-limits.md).

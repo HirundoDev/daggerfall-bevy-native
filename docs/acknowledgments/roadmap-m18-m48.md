@@ -36,7 +36,7 @@ no tag. These are the closure register's own verdicts (checked by `scripts/closu
 
 | Block | Milestones | State |
 |:---|:---|:---|
-| **Active path — sequence in force (2026-10-29)** | **M43 → M44 → M-SHELL → M-PLAY** | **M43 (SYS-3) in flight** under `CR-39d656e1` (register verdict still `AUSENTE`; no dispatch of M44 until it closes) → **M44 (DUN-1) next**, whole and unblocked: the dungeons of the original, content and state (layers A/B/C) → **M-SHELL**, the application and the session: the 13 capabilities (boot, loading screen, menu, new game, character, world load, session, slots, HUD, map, fast travel, pause/options, exit) that the coverage matrix measures as **not reachable from the binary** (17.00 u, §3.9b; `PLANNED`) → **M-PLAY**, the milestone that connects the whole game and whose only acceptance condition is the complete playthrough probe of                                                   (`P1..P9`, `P5` = a real dungeon of the original ⇒ hard dependency on M44; `P1`/`P8`/`P9` observe the shell ⇒ hard dependency on M-SHELL) |
+| **Active path — sequence in force (2026-10-29)** | **M43 → M44 → M-SHELL → M-PLAY** | **M43 (SYS-3) in flight** under `CR-39d656e1` (register verdict still `AUSENTE`; no dispatch of M44 until it closes) → **M44 (DUN-1) next**, whole and unblocked: the dungeons of the original, content and state (layers A/B/C) → **M-SHELL**, the application and the session: the 13 capabilities (boot, loading screen, menu, new game, character, world load, session, slots, HUD, map, fast travel, pause/options, exit) that the coverage matrix measures as **not reachable from the binary** (17.00 u, §3.9b; `PLANNED`) → **M-PLAY**, the milestone that connects the whole game and whose only acceptance condition is the complete playthrough probe of the playthrough probe contract (`P1..P9`, `P5` = a real dungeon of the original ⇒ hard dependency on M44; `P1`/`P8`/`P9` observe the shell ⇒ hard dependency on M-SHELL) |
 | **Blocked behind M-PLAY** | **M45, M46, M48 (`DEFERRED`)** and **M47 (`OPTIONAL`)** | M45, M46, M48 y M47 no se abren hasta que M-PLAY pase su probe de partida completa de punta a punta; M44 no se difiere ni se bloquea. |
 | DONE at gate level | M19–M33 (15 milestones) | **DONE** (each with its probes and QA score; acceptance PENDING, no tags) |
 | DONE at technical level, tag pending | M18 | **DONE at technical level · `PARTIAL-TAG-PENDING`** (acceptance signature recorded 2026-10-26 by delegation: 8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL; row `T-RELEASE-TAG` pending; the comparison against the original and the tag remain the owner's) |
@@ -165,8 +165,8 @@ says otherwise. None of them reduces scope; all of them prevent a false gate.
 | **M42** | **SYS-2** | depth: NPCs, guilds, crime and law, quests | **DONE** (technical closure, gate-rows; 8 GAP-M42 cerrados con evidencia re-ejecutada; acceptance y tag = owner) | 42.00 |
 | **M43** | **SYS-3** | depth: economy, travel, weather, calendar, conditions | **AUSENTE** — **in flight** under `CR-39d656e1`; first of the sequence, no tag | 51.00 |
 | **M44** | **DUN-1** | dungeon content and state: loot/respawn/bosses/instances (the geometry is M34's, measured by `PROBE-DUNGEON-001`) | **AUSENTE** — **next** in the sequence, whole and unblocked; its close is the hard precondition of `M-PLAY` (`P5`) and it **precedes `M-SHELL`**: `W44-5` writes save **v3**, the format the save slots are built on | 39.00 |
-| **M-SHELL** | **SHELL** | the application and the session — the 13 capabilities of `docs/sintergic/playability/COVERAGE-100.md`: boot, loading screen, main menu, new game, character creation/selection, world load, session/saved game, save/load slots, HUD, map, fast travel, pause/options, exit | **PLANNED** — gate: `SHELL-001` (the composed sequence, 13 rows × 2 processes with byte-identical stdout + 13/13 negative controls) plus `SHELL-002..006` per work package; not a row of the closure register (G-N13) | 17.00 (12.92–21.93) |
-| **M-PLAY** | **PLAY** | connect the whole game: doors and transitions, world↔building↔dungeon, combat↔inventory↔stats, save/load, UI hooks — the work list is `docs/sintergic/playability/FUNCTIONAL-GAPS.md` | **PLANNED** — gate: `PLAYTHROUGH-PROBE` (`P1..P9`) of `docs/sintergic/playability/PLAYTHROUGH-PROBE.md`; not a row of the closure register (the register's `EXPECTED_IDS` is fixed M0..M48 + E8, so a machine row here would be `SCHEMA-IDS`) | 6.50 (**provisional**, 3.90–9.10) |
+| **M-SHELL** | **SHELL** | the application and the session — the 13 capabilities of the capability census: boot, loading screen, main menu, new game, character creation/selection, world load, session/saved game, save/load slots, HUD, map, fast travel, pause/options, exit | **PLANNED** — gate: `SHELL-001` (the composed sequence, 13 rows × 2 processes with byte-identical stdout + 13/13 negative controls) plus `SHELL-002..006` per work package; not a row of the closure register (G-N13) | 17.00 (12.92–21.93) |
+| **M-PLAY** | **PLAY** | connect the whole game: doors and transitions, world↔building↔dungeon, combat↔inventory↔stats, save/load, UI hooks — the work list is `the private engineering recordplayability/FUNCTIONAL-GAPS.md` | **PLANNED** — gate: `PLAYTHROUGH-PROBE` (`P1..P9`) of the playthrough probe contract; not a row of the closure register (the register's `EXPECTED_IDS` is fixed M0..M48 + E8, so a machine row here would be `SCHEMA-IDS`) | 6.50 (**provisional**, 3.90–9.10) |
 | **M45** | **E4 MODS** | declarative mod pipeline | **`DEFERRED`** — register verdict stays `AUSENTE`; reason: width (mods) without moving functional parity of the original; blocked behind `M-PLAY` | 39.00 |
 | **M46** | **E5 ONLINE** | optional online: lobby, instances, authority | **`DEFERRED`** — register verdict stays `AUSENTE` with `blocker: OWNER-GO`; reason: width (online) without moving functional parity; blocked behind `M-PLAY` | 78.00 |
 | **M47** | **E6 PLATFORM** | packaging, multi-OS CI, sustained perf, accessibility | **`OPTIONAL`** — register verdict stays `AUSENTE`; entry condition: the `M-PLAY` probe passes end to end **and** the owner asks for distribution (gate `PLATFORM-001..003`); blocked behind `M-PLAY` | 15.50 |
@@ -399,7 +399,7 @@ correct with layers A/B/C already separated: implementing layer C by deleting fr
 
 ### 3.9b M-SHELL — SHELL: the application and the session (17.00 u; range 12.92–21.93)
 
-**Why it exists.**                                             
+**Why it exists.** the capability census
 — the single source of this section's scope, figures and verdicts, re-measured 2026-10-29 at snapshot
 `d4db3c0` after the phase-1 wiring (`d1ee654`) — scores the original's 25 capabilities against the binary:
 **9 CUBIERTA · 14 PARCIAL · 0 AUSENTE · 2 NO-VERIFICADO** (COVERAGE-100 §5-ter; earlier figures were
@@ -561,7 +561,7 @@ gap: the parts exist, the playthrough does not. `M-PLAY` is therefore **a milest
 own gate**, not a diffuse "tramo": its work list is a **defect inventory** (`FUNCTIONAL-GAPS`), and its
 only acceptance condition is **one complete playthrough**.
 
-**Gate — `PLAYTHROUGH-PROBE`** (                                                 ).
+**Gate — `PLAYTHROUGH-PROBE`** (the playthrough probe contract).
 
 | id | what the player does | step passes only when |
 |:--|:---|:---|
@@ -596,7 +596,7 @@ this list and in `FUNCTIONAL-GAPS`):
 | **Save / load** | the playable state is written to disk and comes back byte-identical in all 12 sections and in position | `P8` |
 | **UI hooks** | the run happens **through the playable window**, not a CLI: every step captures its frame (`captures=9`, `sha_match=1`) and the HUD reflects the equipped slot | `P1`, `P7`, `P9` |
 
-**Work list.**                                                
+**Work list.**                                                               
 **is** the work list of `M-PLAY` (12 rows: **5 `BLOQUEA-JUGAR` · 6 `MOLESTA` · 1 `COSMÉTICO`**). The five
 blocking rows, in probe order, are: **FG-01** doors and scene transition (`P2`+`P4`, the owner's report,
 first by construction) · **FG-02** no playable dungeon (`P5`, depends on M44) · **FG-04** death with no

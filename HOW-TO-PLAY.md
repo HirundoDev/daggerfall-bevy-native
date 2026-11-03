@@ -293,7 +293,7 @@ writes its own session slot (`DFL-SESSION 3`, generation `fidelity=4`, under `DF
 pauses, `S` opens the save browser, `Enter` writes a slot, and `continue` in the start menu restores the
 saved position, orientation and world minutes — measured `delta pos_mm=[0, 0, 0]` · `delta mundo=0 min`,
 reproducible with `scripts/new-game-semantics.py`, and **unsigned** (the register rows stay
-`candidato`). What that artifact does **not** surface is the M33 total savegame, which remains a probe
+unsigned). What that artifact does **not** surface is the M33 total savegame, which remains a probe
 surface there.
 M34 closed at technical level on 2026-10-26 — **`PARTIAL-TECHNICAL-CLOSURE`** — with one named row
 still open, **`AUDIO-RT-001-DEVICE`**: `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`, the
