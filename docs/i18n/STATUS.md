@@ -9,9 +9,13 @@ in [`POLICY.md`](POLICY.md#when-a-translation-is-produced): **P0** entry door, *
 still in Spanish, **P2** nice to have, **—** not a translation target.
 
 **Summary: 15 published markdown documents · 0 stale · 1 local-only translation (not published).**
-The public export ships English only and the tree is English: the sweep reports **0 Spanish prose
-blocks** on the exportable surface (`bash scripts/ci/language-check.sh`, §E). Translations are written
-by hand, on demand; the push is gated by the export gate, which re-measures the exported tree.
+What the language gate reports is a **declared allowance**, not zero: `hits: 90` · `baselined: 90
+(declared debt, not translated)` · `new_hits: 0`, over one declared file (`scripts/shell-002.py`,
+class `frozen-by-design`), whose lines the M-SHELL gate pins verbatim. It reads markdown prose outside
+code blocks plus code comments and docstrings above a per-block density threshold, and nothing below
+it (see [`POLICY.md`](POLICY.md#current-state)): under those thresholds the published markdown is
+English, while code comments and docstrings are not all translated. Translations are written by hand,
+on demand; the push is gated by the export gate, which re-measures the exported tree.
 
 ## A. Project documentation — English canonical (P0)
 
@@ -62,11 +66,12 @@ history.
 |---|---:|---|---|---|
 | `DATA-CLASSIFICATION.es.md` | 50 | `DATA-CLASSIFICATION.md` @ `261a1b5` | current | **local-only**: excluded from the export, not linked from any published file |
 
-The tree is English: every document in §A–§C was translated **by hand, file by file**; no automated
-translator is used, and the working record kept outside the published surface is not a translation
-target. What is translated is prose, not code: identifiers, paths, probe IDs, commands and commit
-hashes stay byte-identical. The export gate must still report 0 Spanish files in the published tree
-before anything is published.
+Every document in §A–§C was translated **by hand, file by file**: the published markdown is English; no
+automated translator is used, and the working record kept outside the published surface is not a
+translation target. What is translated is prose, not code: identifiers, paths, probe IDs, commands and commit
+hashes stay byte-identical. The export gate re-measures the published tree before anything is
+published: `spanish_stopwords_absent` prints `files: 0` with `declared_frozen: ["scripts/shell-002.py"]`,
+and the language gate prints `hits: 90` · `baselined: 90` · `new_hits: 0` — declared, not zero.
 
 ## E. Code-surface residual - measured
 
@@ -113,7 +118,7 @@ wc -l README.md ARCHITECTURE.md CONTRIBUTING.md DATA-CLASSIFICATION*.md \
       docs/ACKNOWLEDGMENTS.md docs/acknowledgments/*.md docs/i18n/*.md
 git ls-files 'reference/' | wc -l                 # third-party corpus (123)
 git log -1 --format=%h -- DATA-CLASSIFICATION.md  # canonical commit of the only translation
-# section E: Spanish prose blocks on the exportable surface (0) and its size
+# section E: language gate over the exportable surface (90 hits, all declared) and its size
 bash scripts/ci/language-check.sh
 bash scripts/ci/language-check.sh --list-surface | wc -l
 # section E: files carrying accented characters in the exported code surface (1, pattern data)

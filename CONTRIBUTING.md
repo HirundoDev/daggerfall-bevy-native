@@ -177,7 +177,7 @@ What each one proves:
 |---|---|
 | `cargo test --workspace` | Unit and integration behaviour, including the golden vectors |
 | `cargo clippy ... -D warnings` | The build is warning-free in **both** configurations, headless and windowed |
-| `scripts/ci/run-ci.sh` | Zero retail content tracked or embedded, zero unauthorised marks, zero Spanish prose on the exportable surface |
+| `scripts/ci/run-ci.sh` | Zero retail content tracked or embedded, zero unauthorised marks, and the language gate inside its declared allowance (`hits: 90` · `baselined: 90` · `new_hits: 0`) |
 | `--probe ALL-001` | The headless behaviour suite passes and its digests match |
 
 **CI is not the whole battery today.** The workflow in `.github/workflows/ci.yml` runs the three

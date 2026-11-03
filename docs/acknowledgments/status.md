@@ -178,15 +178,15 @@ measured on the exported tree (477 files):
 |---|---|---|
 | `content-scan.sh` | PASS | 0 packaged data, 0 retail signature, 0 advisory |
 | `trademark-check.sh` | PASS | 0 gating hits, 3 advisory (all declared exemptions) |
-| `language-check.sh` | PASS | `hits: 90` · `declared: 90` · `new_hits: 0`; every hit is `scripts/shell-002.py`, class `frozen-by-design` |
+| `language-check.sh` | PASS | `hits: 90` · `baselined: 90 (declared debt, not translated)` · `new_hits: 0`; every hit is `scripts/shell-002.py`, class `frozen-by-design` |
 | `spanish_stopwords_absent` (export gate) | PASS | `files: 0`, `declared_frozen: ["scripts/shell-002.py"]` |
 | `C_regeneration` | PASS | a second export reproduces the tree byte for byte |
-| `E_internal_refs` | **FAIL** | 156 functional references not declared + 8 stale rows (153 at `v0.4.0-alpha`) |
+| `E_internal_refs` | PASS | `functional=141` · `allowlisted=141` · `unallowlisted=[]` · `stale=[]`; every functional reference is declared with its reason |
 
-A fresh clone runs its own battery: `./scripts/ci/run-ci.sh` → `ci: PASS (3/3 checks)`. The remaining
-red gate is not Spanish prose: it counts code that cites a private documentation path (probe `SPEC_*`
-constants, evidence strings, harness fixtures). Declaring those 156 lines or de-shipping the probes
-that carry them is its own pass, and it is not claimed here.
+A fresh clone runs its own battery: `./scripts/ci/run-ci.sh` → `ci: PASS (3/3 checks)`. The last red
+gate of the `v0.4.0-alpha` push is now green: pass E counts 141 functional references, every one
+declared with its reason, 0 unlisted and 0 stale. What remains declared is the Spanish in
+`scripts/shell-002.py`, frozen by design and pinned verbatim by the M-SHELL gate.
 
 ## Verified facts at the current head (2026-10-27)
 
