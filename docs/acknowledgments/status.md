@@ -5,9 +5,9 @@
 **Public release line: `v0.4.0-alpha`, tagged from `304c6a6a` on 2026-11-02 and published 2026-11-03.**
 It is the first behaviour change since `v0.3.0-alpha` — the session slot family `fidelity=4`, described
 below and **unsigned** — and the tag is immutable: what it carries is fixed, including the third-party
-mark its CI reported and the fix that landed above it (see the CHANGELOG). `v0.3.1-alpha` stays the
-untagged **documentation correction** that fixes this page and its siblings and adds no feature, and
-`v0.3.2-alpha` (tagged 2026-10-27) is the immutable cut of it. The alpha
+mark its CI reported and the fix that landed above it (see the CHANGELOG). `v0.3.1-alpha` (tagged 2026-10-27 at `858e8f6`) is the
+**documentation correction** that fixes this page and its siblings and adds no feature, and
+`v0.3.2-alpha` (tagged 2026-10-27) is the immutable cut of it, one documentation commit later. The alpha
 publishes the mechanism measured below; it does **not** claim visual parity. M18 — the global
 acceptance gate — has its **acceptance signature recorded on 2026-10-26 by delegation**: its 21
 acceptance rows are signed **8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL**. Two acts remain the

@@ -38,7 +38,8 @@ corrected rather than reconciled by prose.
 Public surface: tags up to **`v0.4.0-alpha`** (cut 2026-11-02, published 2026-11-03), save fidelity
 generation 4 (`CONTINUE` restores the saved world; measured `delta pos_mm=[0,0,0]` · `delta mundo=0 min`,
 and **unsigned**: its two register rows stay unsigned). `v0.3.2-alpha` (2026-10-27) is the tagged cut
-of the `v0.3.1-alpha` documentation correction, which itself was never tagged. No milestone tag exists
+of the `v0.3.1-alpha` documentation correction, which is tagged at `858e8f6` (annotated object
+`1bdd2f2c`); `v0.3.2-alpha` adds one documentation commit on top. No milestone tag exists
 from M18 on; M18's acceptance signature is recorded by delegation on 2026-10-26.
 
 ## 3. Closure rule (the only one)
