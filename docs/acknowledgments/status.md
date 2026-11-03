@@ -164,6 +164,24 @@ travel with the export (`daggerfall-side-contract`, `-content-api`, `-content-ru
 The owner chose to publish the behaviour now and settle the surface of the harness family afterwards,
 so this tree ships **with the hygiene gate red and said out loud**.
 
+**Update 2026-11-03 — the English gate is green; the internal-reference gate is not.** The harness
+family was translated after that push, so the record above is history and this is the state now,
+measured on the exported tree (477 files):
+
+| gate | verdict | measurement |
+|---|---|---|
+| `content-scan.sh` | PASS | 0 packaged data, 0 retail signature, 0 advisory |
+| `trademark-check.sh` | PASS | 0 gating hits, 3 advisory (all declared exemptions) |
+| `language-check.sh` | PASS | `hits: 90` · `baselined: 90` · `new_hits: 0`; every hit is `scripts/shell-002.py`, class `frozen-by-design` |
+| `spanish_stopwords_absent` (export gate) | PASS | `files: 0`, `declared_frozen: ["scripts/shell-002.py"]` |
+| `C_regeneration` | PASS | a second export reproduces the tree byte for byte |
+| `E_internal_refs` | **FAIL** | 156 functional references not allowlisted + 8 stale rows (153 at `v0.4.0-alpha`) |
+
+A fresh clone runs its own battery: `./scripts/ci/run-ci.sh` → `ci: PASS (3/3 checks)`. The remaining
+red gate is not Spanish prose: it counts code that cites a private documentation path (probe `SPEC_*`
+constants, evidence strings, harness fixtures). Declaring those 156 lines or de-shipping the probes
+that carry them is its own pass, and it is not claimed here.
+
 ## Verified facts at the current head (2026-10-27)
 
 Measured on the development head this page travels with, after the M30–M33 organs and the M36–M38

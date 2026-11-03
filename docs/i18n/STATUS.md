@@ -71,8 +71,10 @@ tooling ship with the documentation. Measured at this snapshot with the language
 (`bash scripts/ci/language-check.sh`), which reads comments, Python docstrings and manifest
 descriptions over `git ls-files` minus the export exclusions:
 
-- **0 Spanish prose blocks** on the exportable surface, and 0 accented characters inside comments,
-  docstrings or descriptions.
+- **One declared file is still Spanish**, `scripts/shell-002.py` (90 hits, class `frozen-by-design`):
+  its lines are pinned verbatim by the M-SHELL phase 2 gate and by the export contract that quotes
+  them, so translating it would break the pins it exists to prove. Every other file on the surface
+  measures 0 prose hits (2026-11-03: `hits: 90`, `baselined: 90`, `new_hits: 0`).
 - **1 file carries accented characters**, `tools/public-export/export-public.py`, and they are
   pattern data — the Spanish accent character class — not prose. The Spanish word list lives in
   `scripts/ci/language-check.py`, which the export gate now imports instead of keeping a second
