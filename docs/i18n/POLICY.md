@@ -138,8 +138,18 @@ Translations are written **by hand, on demand, without scripts**: files are tran
 time, claims unchanged, and no automated translator is used. One derived file exists today —
 `DATA-CLASSIFICATION.es.md` of `DATA-CLASSIFICATION.md`, local-only — and nothing is stale.
 
-The sweep condition is met at this snapshot: the CI gate of [Enforcement](#enforcement) reports
-**0 Spanish prose blocks** on the exportable surface, and the code comments, Python docstrings and
-manifest descriptions are English. The published markdown surface is English, the two gates keep it
-that way, and the export gate re-measures the exported tree at publication. The inventory of
-documents, their language, their priority and the measurement are in [`STATUS.md`](STATUS.md).
+The gate of [Enforcement](#enforcement) does not report zero Spanish; it reports a **declared
+allowance**. What it reads: `.md` prose outside fenced blocks, inline code and HTML comments; `//`
+and `/* */` in `.rs`; Python docstrings (module, class and function, read with `ast`) and whole-line
+`#` comments in `.py`; whole-line `#` comments in `.sh`, `.bash`, `.toml`, `.yml` and `.yaml`; and in
+`.toml` also the `description = "..."` value. What it does **not** read: string literals, argparse
+`help=` values, `printf`/`echo` arguments, or prose that stays under the threshold. The threshold is
+per contiguous prose block — `es >= 2 and es / (es + en) > 0.15`, or `accents >= 2` with `es >= 1` —
+so a short comment carrying a single function word falls below it. On this tree the gate prints
+`baselined: 90` covered by `scripts/ci/language-baseline.txt` (one declared file) and fails only
+while `new_hits > 0`, so the allowance can only shrink.
+
+The honest reading is narrower than "the surface is English": the **published markdown** is English
+under those thresholds, while code comments and docstrings are **not all** translated and the gate
+does not require them at that level. The inventory of documents, their language, their priority and
+the measurement are in [`STATUS.md`](STATUS.md).

@@ -1,5 +1,5 @@
 # language-baseline.txt - declared Spanish-prose allowance for the English gate
-# Gate: scripts/ci/language-check.py (CI-ENGLISH-SURFACE-001) · lane M0-PRE-6 · CR-bbd5db82-f194-4772-932d-364206dca16b
+# Gate: scripts/ci/language-check.py (CI-ENGLISH-SURFACE-001)
 #
 # Format: one '<path> <count>' per line; '#' starts a comment (trailing allowed).
 # <count> is the number of prose hits that file is ALLOWED to carry. The gate
