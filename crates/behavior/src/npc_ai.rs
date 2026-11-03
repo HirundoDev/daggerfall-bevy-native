@@ -504,6 +504,218 @@ impl Walker {
     }
 }
 
+// ── W42-1 (SYS-NPC-001): 24 h deterministic agendas ──────────────────────────
+//
+// The M26 routine walks the navgrid by tile weight (N-4: no per-building
+// destinations, no interiors). W42-1 layers the **reproducible daily agenda**
+// on top without changing the walk: one 100 ms-tick simulation of 24 h
+// ([`DAY_TICKS`]), the cell occupied at each hour boundary is that hour's
+// agenda stop, and every single path step is checked for adjacency
+// (`teleports == 0` is the gate). Same seed ⇒ same 24 stops, enforced by the
+// `SYS-NPC-001` probe in two separate processes.
+
+/// Hours in one simulated day (W42-1 gate: 24 h).
+pub const DAY_HOURS: usize = 24;
+/// Ticks per hour at the 100 ms population tick (`10 · 3600`).
+pub const TICKS_PER_HOUR: usize = 36_000;
+/// Ticks in one simulated day (`24 · 36_000`).
+pub const DAY_TICKS: usize = DAY_HOURS * TICKS_PER_HOUR;
+/// Fixed step of the population clock (restates [`TICK_MS`)).
+pub const DAY_TICK_DT_SECONDS: f32 = 0.1;
+
+/// Where the NPC is expected to be during one agenda hour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgendaKind {
+    Home,
+    Work,
+    Meal,
+    Patrol,
+    Rest,
+}
+
+impl AgendaKind {
+    /// Hour of the civilian day table; guards always patrol.
+    pub fn for_hour(hour: u8, guard: bool) -> Self {
+        if guard {
+            return AgendaKind::Patrol;
+        }
+        match hour {
+            0..=5 | 22..=23 => AgendaKind::Home,
+            6..=10 | 13..=17 => AgendaKind::Work,
+            11..=12 | 18..=19 => AgendaKind::Meal,
+            _ => AgendaKind::Rest,
+        }
+    }
+
+    /// Stable label printed by the `SYS-NPC-001` probe.
+    pub fn name(self) -> &'static str {
+        match self {
+            AgendaKind::Home => "home",
+            AgendaKind::Work => "work",
+            AgendaKind::Meal => "meal",
+            AgendaKind::Patrol => "patrol",
+            AgendaKind::Rest => "rest",
+        }
+    }
+
+    /// Stable index hashed by [`agenda_digest`].
+    pub fn index(self) -> u8 {
+        match self {
+            AgendaKind::Home => 0,
+            AgendaKind::Work => 1,
+            AgendaKind::Meal => 2,
+            AgendaKind::Patrol => 3,
+            AgendaKind::Rest => 4,
+        }
+    }
+}
+
+/// One hour of a reproducible agenda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgendaStop {
+    /// Hour of the day (`0..24`).
+    pub hour: u8,
+    /// Cell occupied at the hour boundary.
+    pub cell: (i32, i32),
+    /// Expected activity during the hour.
+    pub kind: AgendaKind,
+}
+
+/// Outcome of one simulated day for one NPC.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaySchedule {
+    /// NPC seed (same seed ⇒ same schedule).
+    pub seed: u64,
+    /// Guard (`true`) or civilian schedule.
+    pub guard: bool,
+    /// One stop per hour (`stops[h].hour == h`).
+    pub stops: [AgendaStop; DAY_HOURS],
+    /// Completed `SeekingTile → MovingForward` transitions.
+    pub moves: u64,
+    /// Distinct cells visited during the day.
+    pub cells_visited: usize,
+    /// [`Walker::digest`] at the end of the day.
+    pub digest: u64,
+    /// Path steps whose Chebyshev distance exceeds 1 (gate requires 0).
+    pub teleports: u64,
+    /// Largest Chebyshev distance of any single path step.
+    pub max_step: u32,
+}
+
+/// Chebyshev distance of two cells (a legal step is `<= 1`).
+pub fn chebyshev(a: (i32, i32), b: (i32, i32)) -> u32 {
+    (a.0 - b.0).abs().max((a.1 - b.1).abs()) as u32
+}
+
+/// FNV-1a 64 over the 24 agenda stops
+/// (`hour:u8, x:i32le, y:i32le, kind:u8` per stop, hour ascending).
+pub fn agenda_digest(stops: &[AgendaStop; DAY_HOURS]) -> u64 {
+    let mut bytes = Vec::with_capacity(DAY_HOURS * 10);
+    for stop in stops {
+        bytes.push(stop.hour);
+        bytes.extend_from_slice(&stop.cell.0.to_le_bytes());
+        bytes.extend_from_slice(&stop.cell.1.to_le_bytes());
+        bytes.push(stop.kind.index());
+    }
+    fnv1a64(&bytes)
+}
+
+/// Simulates 24 h of the M26 routine for one NPC and records its agenda:
+/// the cell at each hour boundary (`tick == h · 36_000`) becomes stop `h`.
+/// Every appended path cell is checked against its predecessor; any jump
+/// with Chebyshev distance `> 1` counts as a teleport (the gate fails).
+pub fn simulate_day(seed: u64, guard: bool, grid: &NavGrid, start: (i32, i32)) -> DaySchedule {
+    let mut walker = Walker::new(seed, start);
+    let mut hour_cells = [start; DAY_HOURS];
+    let mut teleports: u64 = 0;
+    let mut max_step: u32 = 0;
+    let mut last_len = walker.path().len();
+    for tick in 0..DAY_TICKS {
+        if tick % TICKS_PER_HOUR == 0 {
+            hour_cells[tick / TICKS_PER_HOUR] = walker.cell();
+        }
+        walker.step(grid, DAY_TICK_DT_SECONDS);
+        let path = walker.path();
+        if path.len() > last_len {
+            for w in path[last_len - 1..].windows(2) {
+                let d = chebyshev(w[0], w[1]);
+                if d > max_step {
+                    max_step = d;
+                }
+                if d > 1 {
+                    teleports += 1;
+                }
+            }
+            last_len = path.len();
+        }
+    }
+    let mut stops = [AgendaStop {
+        hour: 0,
+        cell: start,
+        kind: AgendaKind::Home,
+    }; DAY_HOURS];
+    for (h, cell) in hour_cells.iter().enumerate() {
+        stops[h] = AgendaStop {
+            hour: h as u8,
+            cell: *cell,
+            kind: AgendaKind::for_hour(h as u8, guard),
+        };
+    }
+    DaySchedule {
+        seed,
+        guard,
+        stops,
+        moves: walker.moves() as u64,
+        cells_visited: walker.cells_visited(),
+        digest: walker.digest(),
+        teleports,
+        max_step,
+    }
+}
+
+#[cfg(test)]
+mod day_tests {
+    use super::*;
+
+    #[test]
+    fn agenda_kinds_follow_the_day_table() {
+        for h in 0..=5u8 {
+            assert_eq!(AgendaKind::for_hour(h, false), AgendaKind::Home);
+        }
+        for h in 22..=23u8 {
+            assert_eq!(AgendaKind::for_hour(h, false), AgendaKind::Home);
+        }
+        for h in [6u8, 10, 13, 17] {
+            assert_eq!(AgendaKind::for_hour(h, false), AgendaKind::Work);
+        }
+        for h in [11u8, 12, 18, 19] {
+            assert_eq!(AgendaKind::for_hour(h, false), AgendaKind::Meal);
+        }
+        for h in [20u8, 21] {
+            assert_eq!(AgendaKind::for_hour(h, false), AgendaKind::Rest);
+        }
+        for h in 0..24u8 {
+            assert_eq!(AgendaKind::for_hour(h, true), AgendaKind::Patrol);
+        }
+    }
+
+    #[test]
+    fn day_is_deterministic_without_teleports() {
+        let grid = NavGrid::city(1, 7);
+        let a = simulate_day(11, false, &grid, (3, 32));
+        let b = simulate_day(11, false, &grid, (3, 32));
+        assert_eq!(a, b);
+        assert_eq!(a.stops.len(), DAY_HOURS);
+        for (h, stop) in a.stops.iter().enumerate() {
+            assert_eq!(stop.hour, h as u8);
+        }
+        assert_eq!(a.teleports, 0);
+        assert!(a.max_step <= 1);
+        assert!(a.moves > 0);
+        assert_eq!(agenda_digest(&a.stops), agenda_digest(&b.stops));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

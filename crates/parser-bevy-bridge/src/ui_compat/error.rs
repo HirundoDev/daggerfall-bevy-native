@@ -19,10 +19,12 @@ use std::fmt;
 use crate::ui_spec::UiSpecError;
 
 /// A1 rule 1: the declared asset is not in the bank.
-pub const RULE_SURFACE_ORPHAN: &str = "A1 rule 1: the surface names an asset that is not in the bank";
+pub const RULE_SURFACE_ORPHAN: &str =
+    "A1 rule 1: the surface names an asset that is not in the bank";
 /// A1 rule 2: the surface does not fit the 320×200 canvas (or its source cell
 /// is outside the asset).
-pub const RULE_SURFACE_CANVAS: &str = "A1 rule 2: the surface rectangle does not fit the 320x200 canvas";
+pub const RULE_SURFACE_CANVAS: &str =
+    "A1 rule 2: the surface rectangle does not fit the 320x200 canvas";
 /// A1 rule 2: a whole-source surface must place the whole asset.
 pub const RULE_SURFACE_WHOLE: &str =
     "A1 rule 2: a whole-source surface must place the whole asset (declare a rect to clip)";
@@ -56,8 +58,7 @@ pub const RULE_PALETTE_FLAT: &str =
     "A2 rule 3: the asset exposes fewer than two distinct indices (no readable ink)";
 
 /// A3 rule 1: the font is not one of the five retail `.FNT` files.
-pub const RULE_FONT_REGISTRY: &str =
-    "A3 rule 1: the font is not one of the five retail .FNT files";
+pub const RULE_FONT_REGISTRY: &str = "A3 rule 1: the font is not one of the five retail .FNT files";
 /// A3 rule 2: `ink == 0` is transparent.
 pub const RULE_INK_TRANSPARENT: &str =
     "A3 rule 2: ink 0 is transparent, so a run with ink 0 would paint nothing";
@@ -203,6 +204,7 @@ impl UiCompatError {
             UiSpecError::OutOfCanvas { .. } => Self::Surface(RULE_SURFACE_CANVAS),
             UiSpecError::SourceOutOfBounds { .. } => Self::Surface(RULE_SURFACE_SOURCE),
             UiSpecError::GenericWidget { .. } => Self::Surface(RULE_SURFACE_ORPHAN),
+            UiSpecError::ActiveRowOutOfRange { .. } => Self::Surface(RULE_SURFACE_CANVAS),
         }
     }
 }

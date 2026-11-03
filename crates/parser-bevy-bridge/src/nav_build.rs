@@ -37,11 +37,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use daggerfall_behavior::nav_graph::{
-    AiPathFallback, BlockId, DoorPortal, EdgeKind, FOLLOW_SPEED_MPS, NavBlockGraph, NavEdge,
-    NavGraph, NavNode, NavPoint, NavStep, NavStats, NavNodeId, PathFollower, PathQuery, PathResult,
-    SeamEdge, CELL_METERS, DIAGONAL_COST, DOOR_COST, LEVEL_STEP_M, MAX_EXPANSIONS_DEFAULT,
+    node_world_m, AiPathFallback, BlockId, DoorPortal, EdgeKind, NavBlockGraph, NavEdge, NavGraph,
+    NavNode, NavNodeId, NavPoint, NavStats, NavStep, PathFollower, PathQuery, PathResult, SeamEdge,
+    CELL_METERS, DIAGONAL_COST, DOOR_COST, FOLLOW_SPEED_MPS, LEVEL_STEP_M, MAX_EXPANSIONS_DEFAULT,
     MAX_LEVELS, NPC_RADIUS_M, RAMP_COST, SEAM_ALIGN_TOLERANCE_M, SEAM_COST, WALK_COST,
-    node_world_m,
 };
 use daggerfall_parser_rs::rdb::RdbBlock;
 
@@ -169,9 +168,7 @@ pub fn build_nav_block(
                 let is_floor = matches!(grid.classify_point(here), CellStatus::Free)
                     && (matches!(grid.classify_point(below), CellStatus::Solid)
                         || (y - min[1]) < cfg.cell_m);
-                if is_floor
-                    && grid.is_free([cx, y + cfg.npc_radius_m, cz], cfg.npc_radius_m)
-                {
+                if is_floor && grid.is_free([cx, y + cfg.npc_radius_m, cz], cfg.npc_radius_m) {
                     let level = (y / cfg.level_step_m).round() as i16;
                     if level >= 0 && level < cfg.max_levels {
                         let key = (level, ix, iz);
@@ -242,7 +239,11 @@ pub fn build_nav_block(
             if let Some(&to) = index.get(&key) {
                 let to_node = &nodes[to as usize];
                 if (to_node.y_m - node.y_m).abs() <= cfg.level_step_m * 2.0 {
-                    edges[from].push(NavEdge { to, cost: RAMP_COST, kind: EdgeKind::Ramp });
+                    edges[from].push(NavEdge {
+                        to,
+                        cost: RAMP_COST,
+                        kind: EdgeKind::Ramp,
+                    });
                 }
             }
         }
@@ -288,10 +289,24 @@ pub fn build_nav_block(
         else {
             continue;
         };
-        let kind = EdgeKind::Door { object_offset: door.object_offset };
-        edges[a as usize].push(NavEdge { to: b, cost: DOOR_COST, kind });
-        edges[b as usize].push(NavEdge { to: a, cost: DOOR_COST, kind });
-        portals.push(DoorPortal { a, b, object_offset: door.object_offset });
+        let kind = EdgeKind::Door {
+            object_offset: door.object_offset,
+        };
+        edges[a as usize].push(NavEdge {
+            to: b,
+            cost: DOOR_COST,
+            kind,
+        });
+        edges[b as usize].push(NavEdge {
+            to: a,
+            cost: DOOR_COST,
+            kind,
+        });
+        portals.push(DoorPortal {
+            a,
+            b,
+            object_offset: door.object_offset,
+        });
     }
 
     // Deterministic flood fill → unreachable regions (portals count).
@@ -594,10 +609,7 @@ pub fn run_navmesh_measurement(arena2: &std::path::Path) -> Result<NavmeshMeasur
         blocks_index: &blocks_index,
     };
     let dungeon = measure_dungeon_nav(&sources, 26_219, &cfg)?;
-    max_levels_observed = max_levels_observed.max(
-        dungeon
-            .max_levels_observed,
-    );
+    max_levels_observed = max_levels_observed.max(dungeon.max_levels_observed);
     partial_blocks += dungeon.partial_blocks;
     if !dungeon.stable {
         stable = false;
@@ -633,24 +645,56 @@ fn measure_path(graph: &NavBlockGraph) -> PathSummary {
 /// measured path is a long real traversal, not an adjacent pair.
 fn measure_path_with_budget(graph: &NavBlockGraph, budget: u32) -> PathSummary {
     if graph.nodes.is_empty() {
-        return PathSummary { outcome: "NoGraph", steps: 0, cost: 0, length_m: 0.0, digest: 0 };
+        return PathSummary {
+            outcome: "NoGraph",
+            steps: 0,
+            cost: 0,
+            length_m: 0.0,
+            digest: 0,
+        };
     }
     // Wrap the single block into a NavGraph for find_path.
     let mut blocks = BTreeMap::new();
     blocks.insert(graph.block, graph.clone());
-    let nav = NavGraph { dungeon_location_id: 0, blocks, seams: Vec::new(), digest: 0 };
+    let nav = NavGraph {
+        dungeon_location_id: 0,
+        blocks,
+        seams: Vec::new(),
+        digest: 0,
+    };
 
     let components = connected_components(&graph.nodes, &graph.edges);
-    let largest = components.into_iter().max_by_key(Vec::len).unwrap_or_default();
+    let largest = components
+        .into_iter()
+        .max_by_key(Vec::len)
+        .unwrap_or_default();
     let Some(&start_id) = largest.first() else {
-        return PathSummary { outcome: "Unreachable", steps: 0, cost: 0, length_m: 0.0, digest: 0 };
+        return PathSummary {
+            outcome: "Unreachable",
+            steps: 0,
+            cost: 0,
+            length_m: 0.0,
+            digest: 0,
+        };
     };
     let goal_id = farthest_reachable(graph, start_id);
     let start_node = &graph.nodes[start_id as usize];
     let goal_node = &graph.nodes[goal_id as usize];
-    let from = NavPoint { block: graph.block, cell: start_node.cell, level: start_node.level };
-    let to = NavPoint { block: graph.block, cell: goal_node.cell, level: goal_node.level };
-    let query = PathQuery { from, to, max_expansions: budget };
+    let from = NavPoint {
+        block: graph.block,
+        cell: start_node.cell,
+        level: start_node.level,
+    };
+    let to = NavPoint {
+        block: graph.block,
+        cell: goal_node.cell,
+        level: goal_node.level,
+    };
+    let query = PathQuery {
+        from,
+        to,
+        max_expansions: budget,
+    };
 
     match daggerfall_behavior::nav_graph::find_path(&nav, &query) {
         PathResult::Found(steps) => {
@@ -673,8 +717,20 @@ fn measure_path_with_budget(graph: &NavBlockGraph, budget: u32) -> PathSummary {
                 digest: daggerfall_behavior::nav_graph::path_digest(&steps),
             }
         }
-        PathResult::Unreachable => PathSummary { outcome: "Unreachable", steps: 0, cost: 0, length_m: 0.0, digest: 0 },
-        PathResult::NoGraph { .. } => PathSummary { outcome: "NoGraph", steps: 0, cost: 0, length_m: 0.0, digest: 0 },
+        PathResult::Unreachable => PathSummary {
+            outcome: "Unreachable",
+            steps: 0,
+            cost: 0,
+            length_m: 0.0,
+            digest: 0,
+        },
+        PathResult::NoGraph { .. } => PathSummary {
+            outcome: "NoGraph",
+            steps: 0,
+            cost: 0,
+            length_m: 0.0,
+            digest: 0,
+        },
     }
 }
 
@@ -707,7 +763,10 @@ fn farthest_reachable(graph: &NavBlockGraph, from_id: NavNodeId) -> NavNodeId {
 /// in x/z plus the node `y_m` delta (the mesh origin cancels between nodes).
 fn path_length_m(steps: &[daggerfall_behavior::nav_graph::NavStep], graph: &NavBlockGraph) -> f32 {
     let lookup = |p: &NavPoint| -> Option<(f32, f32, f32)> {
-        let node = graph.nodes.iter().find(|n| n.cell == p.cell && n.level == p.level)?;
+        let node = graph
+            .nodes
+            .iter()
+            .find(|n| n.cell == p.cell && n.level == p.level)?;
         Some((f32::from(node.cell[0]), node.y_m, f32::from(node.cell[1])))
     };
     let mut total = 0.0f32;
@@ -730,15 +789,25 @@ fn total_cost(steps: &[NavStep], graph: &NavBlockGraph) -> u32 {
             let a = &pair[0].point;
             let b = &pair[1].point;
             let (Some(an), Some(bn)) = (
-                graph.nodes.iter().find(|n| n.cell == a.cell && n.level == a.level),
-                graph.nodes.iter().find(|n| n.cell == b.cell && n.level == b.level),
+                graph
+                    .nodes
+                    .iter()
+                    .find(|n| n.cell == a.cell && n.level == a.level),
+                graph
+                    .nodes
+                    .iter()
+                    .find(|n| n.cell == b.cell && n.level == b.level),
             ) else {
                 return 0;
             };
             graph
                 .edges
                 .get(an.id as usize)
-                .and_then(|adj| adj.iter().find(|e| e.to == bn.id).map(|e| u32::from(e.cost)))
+                .and_then(|adj| {
+                    adj.iter()
+                        .find(|e| e.to == bn.id)
+                        .map(|e| u32::from(e.cost))
+                })
                 .unwrap_or(0)
         })
         .sum()
@@ -782,8 +851,7 @@ fn census_unique_rdb(
         if names.is_empty() {
             continue;
         }
-        let Ok(locations) =
-            daggerfall_parser_rs::maps::parse_pitem(pitem_record, names.len())
+        let Ok(locations) = daggerfall_parser_rs::maps::parse_pitem(pitem_record, names.len())
         else {
             continue;
         };
@@ -835,7 +903,12 @@ pub struct SeamReport {
 
 /// World position of a node (origin + local, N3 lattice).
 fn node_world_pos(graph: &NavBlockGraph, node: &NavNode) -> [f32; 3] {
-    node_world(graph.cell_origin_m, &NavBuildConfig::default(), node.cell, node.y_m)
+    node_world(
+        graph.cell_origin_m,
+        &NavBuildConfig::default(),
+        node.cell,
+        node.y_m,
+    )
 }
 
 /// Node of `graph` nearest to a world position (integer mm² horizontal
@@ -900,18 +973,23 @@ pub fn stitch_seams(
             let mut pairs = 0usize;
             for na in &a_graph.nodes {
                 let wa = node_world_pos(a_graph, na);
-                let sa = ((f64::from(wa[axis]) - f64::from(boundary)) * f64::from(sign) * 1000.0).round() as i64;
+                let sa = ((f64::from(wa[axis]) - f64::from(boundary)) * f64::from(sign) * 1000.0)
+                    .round() as i64;
                 if sa > 0 || -sa > tol_mm {
                     continue; // not on A's face within tolerance
                 }
                 for nb in &b_graph.nodes {
                     let wb = node_world_pos(b_graph, nb);
-                    let sb = ((f64::from(wb[axis]) - f64::from(boundary)) * f64::from(sign) * 1000.0).round() as i64;
+                    let sb =
+                        ((f64::from(wb[axis]) - f64::from(boundary)) * f64::from(sign) * 1000.0)
+                            .round() as i64;
                     if sb < 0 || sb > tol_mm {
                         continue; // not on B's face within tolerance
                     }
-                    let lateral_mm =
-                        ((f64::from(wa[lateral_axis]) - f64::from(wb[lateral_axis])).abs() * 1000.0).round() as i64;
+                    let lateral_mm = ((f64::from(wa[lateral_axis]) - f64::from(wb[lateral_axis]))
+                        .abs()
+                        * 1000.0)
+                        .round() as i64;
                     let dy_mm =
                         ((f64::from(wa[1]) - f64::from(wb[1])).abs() * 1000.0).round() as i64;
                     if lateral_mm > tol_mm || dy_mm > tol_mm {
@@ -935,20 +1013,26 @@ pub fn stitch_seams(
             // only way through (design §3.4). One seam per boundary.
             let mut door_seamed = false;
             for door in &grid.doors {
-                let sd = ((f64::from(door.position_m[axis]) - f64::from(boundary)) * f64::from(sign) * 1000.0)
+                let sd = ((f64::from(door.position_m[axis]) - f64::from(boundary))
+                    * f64::from(sign)
+                    * 1000.0)
                     .round() as i64;
                 if sd.abs() > tol_mm {
                     continue;
                 }
-                let (Some(a), Some(b)) = (nearest_node(a_graph, door.position_m), nearest_node(b_graph, door.position_m))
-                else {
+                let (Some(a), Some(b)) = (
+                    nearest_node(a_graph, door.position_m),
+                    nearest_node(b_graph, door.position_m),
+                ) else {
                     continue;
                 };
                 out.push(SeamEdge {
                     a: (a_id, a),
                     b: (b_id, b),
                     cost: SEAM_COST,
-                    via: EdgeKind::Door { object_offset: door.object_offset },
+                    via: EdgeKind::Door {
+                        object_offset: door.object_offset,
+                    },
                 });
                 report.door_seams += 1;
                 door_seamed = true;
@@ -1003,7 +1087,10 @@ pub fn assemble_dungeon_nav(
             .doors
             .iter()
             .filter(|door| door.block == index)
-            .map(|door| BlockDoor { object_offset: door.object_offset, world_m: door.position_m })
+            .map(|door| BlockDoor {
+                object_offset: door.object_offset,
+                world_m: door.position_m,
+            })
             .collect();
         let graph = nav_build_from_rdb(
             index as BlockId,
@@ -1014,8 +1101,11 @@ pub fn assemble_dungeon_nav(
             &doors,
             cfg,
         );
-        let portal_offsets: BTreeSet<usize> =
-            graph.portals.iter().map(|portal| portal.object_offset).collect();
+        let portal_offsets: BTreeSet<usize> = graph
+            .portals
+            .iter()
+            .map(|portal| portal.object_offset)
+            .collect();
         doors_unflanked += doors
             .iter()
             .filter(|door| !portal_offsets.contains(&door.object_offset))
@@ -1023,9 +1113,19 @@ pub fn assemble_dungeon_nav(
         blocks.insert(index as BlockId, graph);
     }
     let (seams, report) = stitch_seams(&blocks, grid, SEAM_ALIGN_TOLERANCE_M);
-    let mut graph = NavGraph { dungeon_location_id, blocks, seams, digest: 0 };
+    let mut graph = NavGraph {
+        dungeon_location_id,
+        blocks,
+        seams,
+        digest: 0,
+    };
     graph.digest = graph.digest();
-    DungeonNav { graph, report, doors: grid.doors.len(), doors_unflanked }
+    DungeonNav {
+        graph,
+        report,
+        doors: grid.doors.len(),
+        doors_unflanked,
+    }
 }
 
 /// Whole-dungeon assembly measurement (NAVMESH-001 B).
@@ -1108,8 +1208,15 @@ pub fn measure_dungeon_nav(
     location_id: u16,
     cfg: &NavBuildConfig,
 ) -> Result<DungeonMeasurement, String> {
-    let NavmeshSources { maps, maps_data, blocks, blocks_data, arch, arch_data, blocks_index } =
-        *sources;
+    let NavmeshSources {
+        maps,
+        maps_data,
+        blocks,
+        blocks_data,
+        arch,
+        arch_data,
+        blocks_index,
+    } = *sources;
     let layout = locate_dungeon(maps, maps_data, location_id)?;
 
     let mut arch_index: BTreeMap<u32, usize> = BTreeMap::new();
@@ -1137,8 +1244,20 @@ pub fn measure_dungeon_nav(
         crate::dungeon_grid::assemble_dungeon(&layout, &mut closure)
     };
 
-    let nav1 = assemble_dungeon_nav(location_id, &grid, &mut resolve_rdb, &mut resolve_model, cfg);
-    let nav2 = assemble_dungeon_nav(location_id, &grid, &mut resolve_rdb, &mut resolve_model, cfg);
+    let nav1 = assemble_dungeon_nav(
+        location_id,
+        &grid,
+        &mut resolve_rdb,
+        &mut resolve_model,
+        cfg,
+    );
+    let nav2 = assemble_dungeon_nav(
+        location_id,
+        &grid,
+        &mut resolve_rdb,
+        &mut resolve_model,
+        cfg,
+    );
     let stable = nav1.graph.digest == nav2.graph.digest && nav1.report == nav2.report;
 
     let nodes: usize = nav1.graph.blocks.values().map(|b| b.stats.nodes).sum();
@@ -1196,9 +1315,21 @@ fn measure_cross_path(graph: &NavGraph) -> CrossPathSummary {
     let to_id = farthest_reachable(b_graph, seam.b.1);
     let an = &a_graph.nodes[from_id as usize];
     let bn = &b_graph.nodes[to_id as usize];
-    let from = NavPoint { block: seam.a.0, cell: an.cell, level: an.level };
-    let to = NavPoint { block: seam.b.0, cell: bn.cell, level: bn.level };
-    let query = PathQuery { from, to, max_expansions: BUDGET_LADDER[4] };
+    let from = NavPoint {
+        block: seam.a.0,
+        cell: an.cell,
+        level: an.level,
+    };
+    let to = NavPoint {
+        block: seam.b.0,
+        cell: bn.cell,
+        level: bn.level,
+    };
+    let query = PathQuery {
+        from,
+        to,
+        max_expansions: BUDGET_LADDER[4],
+    };
 
     let (outcome, steps) = match daggerfall_behavior::nav_graph::find_path(graph, &query) {
         PathResult::Found(steps) => ("Found", steps),
@@ -1222,7 +1353,11 @@ fn measure_cross_path(graph: &NavGraph) -> CrossPathSummary {
             visited.push(step.point.block);
         }
     }
-    let blocks_tag = visited.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(">");
+    let blocks_tag = visited
+        .iter()
+        .map(|b| b.to_string())
+        .collect::<Vec<_>>()
+        .join(">");
     CrossPathSummary {
         outcome,
         steps: steps.len(),
@@ -1277,8 +1412,15 @@ pub fn measure_marker_walk(
     location_id: u16,
     cfg: &NavBuildConfig,
 ) -> Result<MarkerWalk, String> {
-    let NavmeshSources { maps, maps_data, blocks, blocks_data, arch, arch_data, blocks_index } =
-        *sources;
+    let NavmeshSources {
+        maps,
+        maps_data,
+        blocks,
+        blocks_data,
+        arch,
+        arch_data,
+        blocks_index,
+    } = *sources;
     let layout = locate_dungeon(maps, maps_data, location_id)?;
 
     let mut arch_index: BTreeMap<u32, usize> = BTreeMap::new();
@@ -1293,7 +1435,9 @@ pub fn measure_marker_walk(
     };
     let mut resolve_rdb = |name: &str| -> Option<Vec<u8>> {
         let index = *blocks_index.get(&name.to_ascii_uppercase())?;
-        crate::bsa_source::entry_data(blocks, blocks_data, index).ok().map(<[u8]>::to_vec)
+        crate::bsa_source::entry_data(blocks, blocks_data, index)
+            .ok()
+            .map(<[u8]>::to_vec)
     };
 
     let grid = {
@@ -1304,7 +1448,13 @@ pub fn measure_marker_walk(
         crate::dungeon_grid::assemble_dungeon(&layout, &mut closure)
     };
 
-    let nav = assemble_dungeon_nav(location_id, &grid, &mut resolve_rdb, &mut resolve_model, cfg);
+    let nav = assemble_dungeon_nav(
+        location_id,
+        &grid,
+        &mut resolve_rdb,
+        &mut resolve_model,
+        cfg,
+    );
 
     // Starting block (the only one that carries editor markers, DFU).
     let Some(start_index) = grid.blocks.iter().position(|b| b.is_starting_block) else {
@@ -1325,35 +1475,64 @@ pub fn measure_marker_walk(
     let collision = CollisionGrid::from_mesh_spec(&interior.mesh, 1.0);
 
     let Some(block_graph) = nav.graph.blocks.get(&block_id) else {
-        return Err(format!("location {location_id}: starting block {block_id} has no graph"));
+        return Err(format!(
+            "location {location_id}: starting block {block_id} has no graph"
+        ));
     };
 
     // Markers (honest when absent — never fabricated).
     let (Some(start_marker), Some(enter_marker)) = (grid.start_marker, grid.enter_marker) else {
-        let reason = if grid.start_marker.is_none() { "no Start marker" } else { "no Enter marker" };
+        let reason = if grid.start_marker.is_none() {
+            "no Start marker"
+        } else {
+            "no Enter marker"
+        };
         return Err(format!("location {location_id}: {reason}"));
     };
 
-    let (Some(from_id), Some(to_id)) =
-        (nearest_node(block_graph, start_marker), nearest_node(block_graph, enter_marker))
-    else {
-        return Err(format!("location {location_id}: a marker has no lattice node"));
+    let (Some(from_id), Some(to_id)) = (
+        nearest_node(block_graph, start_marker),
+        nearest_node(block_graph, enter_marker),
+    ) else {
+        return Err(format!(
+            "location {location_id}: a marker has no lattice node"
+        ));
     };
     let from_node = &block_graph.nodes[from_id as usize];
     let to_node = &block_graph.nodes[to_id as usize];
-    let from = NavPoint { block: block_id, cell: from_node.cell, level: from_node.level };
-    let to = NavPoint { block: block_id, cell: to_node.cell, level: to_node.level };
+    let from = NavPoint {
+        block: block_id,
+        cell: from_node.cell,
+        level: from_node.level,
+    };
+    let to = NavPoint {
+        block: block_id,
+        cell: to_node.cell,
+        level: to_node.level,
+    };
 
     // Fallback demo (independent of the walk): a query to a phantom block
     // has no graph ⇒ `AiPathFallback` is emitted, never a fake path.
-    let ghost = NavPoint { block: u16::MAX, cell: [0, 0], level: 0 };
+    let ghost = NavPoint {
+        block: u16::MAX,
+        cell: [0, 0],
+        level: 0,
+    };
     let ghost_result = daggerfall_behavior::nav_graph::find_path(
         &nav.graph,
-        &PathQuery { from, to: ghost, max_expansions: MAX_EXPANSIONS_DEFAULT },
+        &PathQuery {
+            from,
+            to: ghost,
+            max_expansions: MAX_EXPANSIONS_DEFAULT,
+        },
     );
     let fallback = AiPathFallback::from_path_result(&ghost_result, from);
 
-    let query = PathQuery { from, to, max_expansions: BUDGET_LADDER[4] };
+    let query = PathQuery {
+        from,
+        to,
+        max_expansions: BUDGET_LADDER[4],
+    };
     let result = daggerfall_behavior::nav_graph::find_path(&nav.graph, &query);
 
     let steps: &[NavStep] = match &result {
@@ -1379,7 +1558,10 @@ pub fn measure_marker_walk(
         }
     };
 
-    let ramps = steps.iter().filter(|s| matches!(s.via, EdgeKind::Ramp)).count();
+    let ramps = steps
+        .iter()
+        .filter(|s| matches!(s.via, EdgeKind::Ramp))
+        .count();
     let digest = daggerfall_behavior::nav_graph::path_digest(steps);
 
     let Some(mut follower) = PathFollower::new(&result, &nav.graph, FOLLOW_SPEED_MPS) else {
@@ -1412,11 +1594,17 @@ pub fn measure_marker_walk(
     let max_frames = 60u32 * 60;
     while !follower.is_finished() && frames < max_frames {
         let commanded = follower.advance(pos, dt);
-        let delta =
-            [commanded[0] - pos[0], commanded[1] - pos[1], commanded[2] - pos[2]];
+        let delta = [
+            commanded[0] - pos[0],
+            commanded[1] - pos[1],
+            commanded[2] - pos[2],
+        ];
         let body_from = [pos[0], pos[1] + radius, pos[2]];
-        let from_local =
-            [body_from[0] - origin[0], body_from[1] - origin[1], body_from[2] - origin[2]];
+        let from_local = [
+            body_from[0] - origin[0],
+            body_from[1] - origin[1],
+            body_from[2] - origin[2],
+        ];
         let step = collision.resolve_step(from_local, delta, radius);
         if step.blocked.is_some() {
             blocked += 1;
@@ -1424,8 +1612,11 @@ pub fn measure_marker_walk(
         if matches!(collision.classify_point(step.pos), CellStatus::Solid) {
             penetrations += 1;
         }
-        let resolved =
-            [step.pos[0] + origin[0], step.pos[1] + origin[1] - radius, step.pos[2] + origin[2]];
+        let resolved = [
+            step.pos[0] + origin[0],
+            step.pos[1] + origin[1] - radius,
+            step.pos[2] + origin[2],
+        ];
         let dx = resolved[0] - pos[0];
         let dy = resolved[1] - pos[1];
         let dz = resolved[2] - pos[2];
@@ -1472,13 +1663,16 @@ fn locate_dungeon(
     }
     suffixes.sort();
     for suffix in &suffixes {
-        let Some(names_record) = named_record(maps, maps_data, &format!("MAPNAMES.{suffix}")) else {
+        let Some(names_record) = named_record(maps, maps_data, &format!("MAPNAMES.{suffix}"))
+        else {
             continue;
         };
-        let Some(pitem_record) = named_record(maps, maps_data, &format!("MAPPITEM.{suffix}")) else {
+        let Some(pitem_record) = named_record(maps, maps_data, &format!("MAPPITEM.{suffix}"))
+        else {
             continue;
         };
-        let Some(ditem_record) = named_record(maps, maps_data, &format!("MAPDITEM.{suffix}")) else {
+        let Some(ditem_record) = named_record(maps, maps_data, &format!("MAPDITEM.{suffix}"))
+        else {
             continue;
         };
         let Ok(names) = daggerfall_parser_rs::maps::parse_map_names(names_record) else {
@@ -1517,12 +1711,7 @@ mod tests {
         let mut indices = Vec::new();
         let mut quad = |x0: f32, z0: f32, x1: f32, z1: f32, y: f32| {
             let base = positions.len() as u32;
-            positions.extend_from_slice(&[
-                [x0, y, z0],
-                [x1, y, z0],
-                [x1, y, z1],
-                [x0, y, z1],
-            ]);
+            positions.extend_from_slice(&[[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1]]);
             normals.extend_from_slice(&[[0.0, 1.0, 0.0]; 4]);
             indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         };
@@ -1568,9 +1757,18 @@ mod tests {
     fn empty_mesh_yields_empty_graph() {
         let cfg = NavBuildConfig::default();
         let doors = [
-            BlockDoor { object_offset: 0, world_m: [1.0, 0.0, -1.0] },
-            BlockDoor { object_offset: 1, world_m: [2.0, 0.0, -2.0] },
-            BlockDoor { object_offset: 2, world_m: [3.0, 0.0, -3.0] },
+            BlockDoor {
+                object_offset: 0,
+                world_m: [1.0, 0.0, -1.0],
+            },
+            BlockDoor {
+                object_offset: 1,
+                world_m: [2.0, 0.0, -2.0],
+            },
+            BlockDoor {
+                object_offset: 2,
+                world_m: [3.0, 0.0, -3.0],
+            },
         ];
         let graph = build_nav_block(
             0,
@@ -1679,13 +1877,19 @@ mod tests {
         // Block 1 parsed but empty (no geometry ⇒ no nodes): the boundary
         // can never be stitched and must be *counted*, not silently dropped.
         let empty_mesh = MeshSpec::new(vec![], vec![], vec![]);
-        blocks.insert(1u16, build_nav_block(1, [51.2, 0.0, 0.0], &empty_mesh, &[], &cfg));
+        blocks.insert(
+            1u16,
+            build_nav_block(1, [51.2, 0.0, 0.0], &empty_mesh, &[], &cfg),
+        );
         let grid = empty_grid(vec![placed("A.RDB", 0, 0), placed("B.RDB", 1, 0)]);
         let (seams, report) = stitch_seams(&blocks, &grid, SEAM_ALIGN_TOLERANCE_M);
         assert_eq!(report.boundaries, 1);
         assert_eq!(report.seams, 0);
         assert_eq!(report.door_seams, 0);
-        assert_eq!(report.seams_rejected, 1, "an opening-less boundary is rejected, loudly");
+        assert_eq!(
+            report.seams_rejected, 1,
+            "an opening-less boundary is rejected, loudly"
+        );
         assert!(seams.is_empty());
     }
 
@@ -1701,14 +1905,27 @@ mod tests {
             [9.6, -3.2, 16.0, 0.0, 0.0],
             [9.6, -3.2, 16.0, 0.0, 3.2],
         ]);
-        let doors = [BlockDoor { object_offset: 4242, world_m: [8.0, 1.0, -1.6] }];
+        let doors = [BlockDoor {
+            object_offset: 4242,
+            world_m: [8.0, 1.0, -1.6],
+        }];
         let graph = build_nav_block(0, [0.0; 3], &mesh, &doors, &cfg);
-        assert_eq!(graph.stats.portals, 1, "the door must build exactly one portal");
+        assert_eq!(
+            graph.stats.portals, 1,
+            "the door must build exactly one portal"
+        );
         assert_eq!(graph.portals[0].object_offset, 4242);
         // The portal is the only cross-gap connection: the route resolves.
         let summary = measure_path(&graph);
         assert_eq!(summary.outcome, "Found", "portal must bridge the rooms");
-        let uses_door = graph.edges.iter().flatten().any(|e| matches!(e.kind, EdgeKind::Door { object_offset: 4242 }));
+        let uses_door = graph.edges.iter().flatten().any(|e| {
+            matches!(
+                e.kind,
+                EdgeKind::Door {
+                    object_offset: 4242
+                }
+            )
+        });
         assert!(uses_door, "a Door edge with the door identity must exist");
     }
 }

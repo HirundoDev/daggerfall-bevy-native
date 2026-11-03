@@ -306,76 +306,204 @@
 
 use bevy::prelude::*;
 
+// M42B (CR-ed07f360-1498-4c86-b06f-b3fcc6650781): the instrumentation is NOT
+// part of the product binary. Every probe module below is behind the `probes`
+// feature (default ON, so the 8 existing gates and every `--probe` invocation
+// are byte-identical; `cargo build -p daggerfall-app --no-default-features`
+// compiles none of them). `window` implies `probes` (Cargo.toml) because the
+// M18 windowed demo consumes these helper modules.
+#[cfg(feature = "probes")]
 mod m2_probe;
+#[cfg(feature = "probes")]
 mod m3_probe;
+#[cfg(feature = "probes")]
 mod m4_probe;
+#[cfg(feature = "probes")]
 mod m5_probe;
+#[cfg(feature = "probes")]
 mod m6_probe;
+#[cfg(feature = "probes")]
 mod m7_probe;
+#[cfg(feature = "probes")]
 mod m7_readmodels;
+#[cfg(feature = "probes")]
 mod m8_probe;
+#[cfg(feature = "probes")]
 mod m8_session;
+#[cfg(feature = "probes")]
 mod m10_probe;
+#[cfg(feature = "probes")]
 mod interior_transit_probe;
+#[cfg(feature = "probes")]
 mod m11_probe;
+#[cfg(feature = "probes")]
 mod m12_probe;
+#[cfg(feature = "probes")]
 mod m13_probe;
+#[cfg(feature = "probes")]
 mod m14_probe;
+#[cfg(feature = "probes")]
 mod m15_probe;
+#[cfg(feature = "probes")]
 mod m16_probe;
+#[cfg(feature = "probes")]
 mod m17_probe;
+#[cfg(feature = "probes")]
 mod m18_probe;
+#[cfg(feature = "probes")]
 mod m18_demo;
+#[cfg(feature = "probes")]
 mod m18_phase;
+#[cfg(feature = "probes")]
 mod m18_b1_probe;
+#[cfg(feature = "probes")]
 mod m18_b3_probe;
+mod menu_layout_probe;
+#[cfg(feature = "probes")]
 mod m18_b3a;
+#[cfg(feature = "probes")]
 mod m18_b3b;
+#[cfg(feature = "probes")]
 mod ui_weather;
+#[cfg(feature = "probes")]
 mod m19_probe;
+#[cfg(feature = "probes")]
 mod m20_probe;
+#[cfg(feature = "probes")]
 mod m21_probe;
+// M41 W41-5 (CR-75eda300-4cb0-4d9f-bcc0-85cf60ac72c5): SYS-ITEM-001 — the
+// template census + condition/repair/wear/material goldens (`daggerfall-inventory`).
+#[cfg(feature = "probes")]
+mod m41_item_probe;
+#[cfg(feature = "probes")]
 mod m22_probe;
+// M41 W41-1 (CR-8b5f2d61-4c7a-4e93-9f18-6d0c2ae74155): SYS-STATS-001 — the
+// stats/resistances/birthsign census (`daggerfall-skills` + `daggerfall-heart`).
+#[cfg(feature = "probes")]
+mod m41_stats_probe;
+// M41 W41-2 (CR-da9915b0-e700-471a-80b8-0bafa9459938): SYS-COMBAT-001
+#[cfg(feature = "probes")]
+mod m41_combat_probe;
+#[cfg(feature = "probes")]
 mod m23_probe;
+// M41 W41-3 CR-a86cec9d-3ec1-406f-aac9-82d2265bbb28 — SYS-MAGIC-001 (magic).
+#[cfg(feature = "probes")]
+mod m41_magic_probe;
+#[cfg(feature = "probes")]
 mod m24_probe;
+// M41 W41-4 (CR-0f2a75d6-4d6e-4a1b-8ac2-6c6f3ef0b9d1): SYS-CRAFT-001 — enchanting points/slots, MAGIC.DEF artefacts, alchemy.
+#[cfg(feature = "probes")]
+mod m41_craft_probe;
+#[cfg(feature = "probes")]
 mod m25_probe;
+#[cfg(feature = "probes")]
 mod m26_probe;
+#[cfg(feature = "probes")]
 mod m27_probe;
+#[cfg(feature = "probes")]
 mod m28_probe;
+#[cfg(feature = "probes")]
 mod m29_probe;
+#[cfg(feature = "probes")]
 mod m30_probe;
+#[cfg(feature = "probes")]
 mod m31_probe;
+#[cfg(feature = "probes")]
 mod m32_probe;
+#[cfg(feature = "probes")]
+mod m32_region_probe;
+#[cfg(feature = "probes")]
 mod m33_probe;
+// M42 W42-1 (CR-b434f896-2fe9-4750-b70e-9b748370e6c3): SYS-NPC-001 — the 24 h
+// deterministic agenda layer over the M26 routine (`daggerfall-behavior`).
+#[cfg(feature = "probes")]
+mod m42_npc_probe;
+// M42 W42-2 (CR-b434f896-2fe9-4750-b70e-9b748370e6c3): SYS-DIALOGUE-001 —
+// topics per faction/region + retail rumors over the M26 dialogue/rumor base.
+#[cfg(feature = "probes")]
+mod m42_dialogue_probe;
+// M42 W42-3 (CR-b434f896-2fe9-4750-b70e-9b748370e6c3): SYS-FACTION-001 —
+// faction tree with census, rank/service tables, versioned reputation.
+#[cfg(feature = "probes")]
+mod m42_faction_probe;
+// M42 W42-4 (CR-b434f896-2fe9-4750-b70e-9b748370e6c3): SYS-LAW-001 —
+// per-region record, legal reputation, guards, five outcomes one by one.
+#[cfg(feature = "probes")]
+mod m42_law_probe;
+// M42 W42-5 (CR-765daa10-5084-4197-883d-dd626301e59e): SYS-QUEST-001 —
+// quest dispatch in depth: 89 OpcodeEffect variants via from_effect.
+#[cfg(feature = "probes")]
+mod m42_quest_probe;
+#[cfg(feature = "probes")]
 mod m34_audio_probe;
+#[cfg(feature = "probes")]
 mod m34_ui_probe;
+#[cfg(feature = "probes")]
 mod m37_ui1_probe;
+#[cfg(feature = "probes")]
 mod m38_ui2_probe;
 // M39/UI-3 — the 51 `Playable` windows (plan §4 frozen interface) and their
 // executable gate `PROBE-UI-JUGABLE-001` (plan §4.1).
+#[cfg(feature = "probes")]
 mod m39_state;
+#[cfg(feature = "probes")]
 mod m39_block_a;
 // Block B exposes accessors (`window`, `ordinal`, `tick`, `painted`,
 // `last_delta`, `changed`) that only its unit tests read; the probe consumes
 // `interact`/`evidence`, so the lint stays muted here — and only here.
 #[allow(dead_code)]
+#[cfg(feature = "probes")]
 mod m39_block_b;
+#[cfg(feature = "probes")]
 mod m39_block_cd;
+#[cfg(feature = "probes")]
 mod m39_block_ef;
+#[cfg(feature = "probes")]
 mod m39_block_gh;
+#[cfg(feature = "probes")]
 mod m39_surfaces;
+#[cfg(feature = "probes")]
 mod m39_jugable_probe;
+#[cfg(feature = "probes")]
 mod m34_video_probe;
+#[cfg(feature = "probes")]
 mod m34_light_probe;
+#[cfg(feature = "probes")]
 mod m35_biome_probe;
+#[cfg(feature = "probes")]
 mod m35_sprite_probe;
+#[cfg(feature = "probes")]
 mod f_aud_01_stream_probe;
+#[cfg(feature = "probes")]
 mod playsession_probe;
+#[cfg(feature = "probes")]
 mod dungeon_probe;
+#[cfg(feature = "probes")]
 mod m34_automap;
+#[cfg(feature = "probes")]
 mod interior_retail;
+// M44 (CR-bd972066-59e6-4768-9985-de75f69f6798): the dungeon instrumentation —
+// one canal (stdout + `$DF_DUN_STATE`), one consumer of the assembled geometry
+// and the two sibling lanes of this cycle (`dungeon_state` = B,
+// `dungeon_elig` = C; their bodies are the lanes', not this lane's).
+#[cfg(feature = "probes")]
+mod dun_canal;
+#[cfg(feature = "probes")]
+mod dun_geometry;
+#[cfg(feature = "probes")]
+mod dungeon_state;
+#[cfg(feature = "probes")]
+mod dungeon_elig;
+// M44 lane D (`CR-bd972066-59e6-4768-9985-de75f69f6798`): the dungeon content —
+// descent from the interior into the assembled retail grid + the loot/farm
+// evidence of `scripts/dun-content-001.py`. Consumed by `m18_doors`.
+#[cfg(feature = "probes")]
+mod dungeon_content;
+#[cfg(feature = "probes")]
 mod spine_probe;
+#[cfg(feature = "probes")]
 mod m9_probe;
+#[cfg(feature = "probes")]
 mod ui_assets;
 #[cfg(feature = "window")]
 mod m2_player;
@@ -392,17 +520,87 @@ mod m8_window;
 #[cfg(feature = "window")]
 mod m17_window;
 #[cfg(feature = "window")]
+mod m18_doors;
+#[cfg(feature = "window")]
 mod m18_window;
+// M-SHELL fase 1 (CR-ca78eb76): application layer of the shell — state machine,
+// `SHELL VE:` evidence contract and fast-travel plan.
+//
+// `CR-a602cafc` (P5): `probes`, no `window`. La fase 2 los dejó colgando de la
+// ventana y el instrumento (`scripts/mplay-001.py`) conduce el binario SIN
+// servidor gráfico: la ruta existía y `P4`/`P9` no tenían quien las midiera.
+// El shell no necesita el mundo compuesto para hablar de sí mismo — la escena
+// entra por parámetro (`shell_route::SessionScene`).
+#[cfg(feature = "probes")]
+// La ventana es el consumidor de casi todo el contrato del shell: en un build
+// `probes` sin `window` esas funciones quedan sin llamante por diseño (se
+// compilan igual porque el pase headless y los tests las miden).
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
+mod shell;
+// M-SHELL fase 2 (CR-a34396f5): slots `SAVE0..SAVE5` del shell sobre el save v3
+// de 🧠 Memoria (`DF_SAVE_DIR` por proceso/perfil).
+#[cfg(feature = "probes")]
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
+mod shell_slots;
+// M-SHELL fase 3 (CR-a602cafc): las rutas de sesión (`creación → mundo →
+// guardar → menú`) sin ECS, para que la ventana y el pase headless sean la
+// MISMA ruta. Un solo dueño de las transiciones: `m18_window` traduce teclas y
+// llama aquí; `m38_ui2_probe` la ejercita sin ventana.
+#[cfg(feature = "probes")]
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
+mod shell_route;
+// M-QST (CR-9b3e5d70): el disparador de la quest principal y el acto 1 como
+// ruta sin ventana — la tabla legal vive en `daggerfall_behavior::mainquest`
+// y aquí solo la costura (oferta, teclas, muerte, save v3, probe headless).
+#[cfg(feature = "probes")]
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
+mod mainquest_route;
 // M37 (F-AUD-01): async cell streaming. The ECS layer is window-only by
 // design (§2.8); its policy lives headless in the bridge (`stream_policy`)
 // and the STREAM-001 probe runs its pure block in every build.
 #[cfg(feature = "window")]
 mod world_stream;
 
+/// ¿Puede el limb de ventana abrir un event loop en este proceso?
+///
+/// winit aborta con `Failed to build event loop` (rc=101) cuando el proceso no
+/// tiene servidor gráfico: en un run headless `--features window` la sonda ya
+/// había impreso su veredicto y el pánico de después lo convertía en un fallo
+/// de la sonda (F1 de `CR-a602cafc`). El guard NO simula la ventana: dice que
+/// no se intentó, y el veredicto de la sonda queda intacto.
+///
+/// `DISPLAY` (X11) o `WAYLAND_DISPLAY` (Wayland) presentes ⇒ se intenta; las
+/// dos ausentes ⇒ `limb=headless-no-display`, una línea determinista por sonda.
+///
+/// **Dónde se llama:** en cada limb, justo ANTES de construir la ventana (no en
+/// el `if` del dispatch de `--probe`). Abortar el bloque del dispatch ahorraría
+/// el pánico pero también la evidencia que el limb publica antes de la ventana
+/// — medido: `m8_window` imprime `SAVED to …`/`roundtrip: true` antes de
+/// `App::new()` y son las líneas que `mplay-001` lee en P7/P8 (abortar el
+/// bloque convertía dos filas PASS en FAIL). El borde de la ventana es el
+/// punto exacto: la medición se publica, la ventana headless no se intenta.
+#[cfg(feature = "window")]
+pub(crate) fn window_limb_ready(probe: &str) -> bool {
+    let x11 = std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty());
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty());
+    if x11 || wayland {
+        return true;
+    }
+    println!(
+        "WINDOW VE: probe={probe} limb=headless-no-display — window not attempted (verdict intact)"
+    );
+    false
+}
+
 fn main() {
     // M2: Anti-Screen probe — handled BEFORE any other path
     // (default headless and --features window compile the same code).
     let args: Vec<String> = std::env::args().collect();
+    // M42B (CR-ed07f360): the 105-arm dispatch is instrumentation and only
+    // exists with the `probes` feature (default ON). The product build
+    // (`--no-default-features`) refuses the same entry point explicitly
+    // below instead of linking 77 probe modules.
+    #[cfg(feature = "probes")]
     if let Some(pos) = args.iter().position(|arg| arg == "--probe") {
         let code = match args.get(pos + 1).map(String::as_str) {
             Some("VIEW-001") => m2_probe::run_view_001(),
@@ -448,6 +646,15 @@ fn main() {
             Some("ORIGIN-001") => m18_b1_probe::run_origin_001(),
             Some("ATTACK-KEY-001") => m18_b1_probe::run_attack_key_001(),
             Some("MENU-001") => m18_b1_probe::run_menu_001(),
+            // CR-8e42f0b7: the menu interior is measured (labels vs buttons).
+            // CR-3f6a1d84: plus the strip left of the menu column (the
+            // MENU.IMG band of static measured by `--force-gutter`).
+            Some("MENU-LAYOUT-001") => menu_layout_probe::run_menu_layout_001(
+                // Margin 8 to the plate chrome: the 2026-10-31 overflow.
+                args.iter().any(|arg| arg == "--force-margin"),
+                // CR-4a9c1e77: the frozen active row — the `eb2aece` paint.
+                args.iter().any(|arg| arg == "--force-frozen-row"),
+            ),
             // M19: DFU locomotion (REQ-L99-052) + stealth.
             Some("LOCOMOTION-001") => m19_probe::run_locomotion_001(),
             Some("STEALTH-001") => m19_probe::run_stealth_001(),
@@ -463,10 +670,18 @@ fn main() {
             Some("ITEM-001") => m21_probe::run_item_001(),
             Some("EQUIP-001") => m21_probe::run_equip_001(),
             Some("LOOT-001") => m21_probe::run_loot_001(),
+            // M41 W41-5 (CR-75eda300-4cb0-4d9f-bcc0-85cf60ac72c5): SYS-ITEM-001.
+            Some("SYS-ITEM-001") => m41_item_probe::run_sys_item_001(),
             // M22: combat — hit/damage/cadence (COMBAT-001,
             // in the suite), 600-tick loop (COMBAT-LOOP-001) and death
             // (DEATH-001), spec M22 (REQ-L99-055).
             Some("COMBAT-001") => m22_probe::run_combat_001(),
+            // M41 W41-1 (CR-8b5f2d61-4c7a-4e93-9f18-6d0c2ae74155): SYS-STATS-001 —
+            // 8 attributes, one golden vector per derived value and per
+            // resistance type, the PlayerMod census and the 12 birthsigns.
+            Some("SYS-STATS-001") => m41_stats_probe::run_sys_stats_001(),
+            // M41 W41-2 (CR-da9915b0-e700-471a-80b8-0bafa9459938): SYS-COMBAT-001
+            Some("SYS-COMBAT-001") => m41_combat_probe::run_sys_combat_001(),
             Some("COMBAT-LOOP-001") => m22_probe::run_combat_loop_001(),
             Some("DEATH-001") => m22_probe::run_death_001(),
             // M23: magic — SPELLS.STD + cost + casting
@@ -475,10 +690,14 @@ fn main() {
             Some("MAGIC-001") => m23_probe::run_magic_001(),
             Some("EFFECT-001") => m23_probe::run_effect_001(),
             Some("SPELLMAKER-001") => m23_probe::run_spellmaker_001(),
+            // M41 W41-3 — SYS-MAGIC-001 (CR-a86cec9d-3ec1-406f-aac9-82d2265bbb28).
+            Some("SYS-MAGIC-001") => m41_magic_probe::run_sys_magic_001(),
             // M24: enchantment/alchemy — ENCHANT-001 (in the
             // suite) and POTION-001 (standalone), spec M24 (REQ-L99-057).
             Some("ENCHANT-001") => m24_probe::run_enchant_001(),
             Some("POTION-001") => m24_probe::run_potion_001(),
+            // M41 W41-4 — SYS-CRAFT-001 (CR-0f2a75d6-4d6e-4a1b-8ac2-6c6f3ef0b9d1).
+            Some("SYS-CRAFT-001") => m41_craft_probe::run_sys_craft_001(),
             // M25: monsters/AI/encounters — MONSTER-001 (in the
             // suite) + ENEMY-AI-001 and ENCOUNTER-001 (standalone), spec M25.
             Some("MONSTER-001") => m25_probe::run_monster_001(),
@@ -490,7 +709,21 @@ fn main() {
             Some("DIALOGUE-001") => m26_probe::run_dialogue_001(),
             Some("RUMOR-001") => m26_probe::run_rumor_001(),
             Some("NPC-DEMO-001") => m26_probe::run_demo_001(),
-            // M27: guilds/factions — GUILD-001 (in the suite),
+            // M42 W42-1 (CR-b434f896-2fe9-4750-b70e-9b748370e6c3): SYS-NPC-001 —
+            // 24 h deterministic agendas over the M26 routine, 0 teleports.
+            Some("SYS-NPC-001") => m42_npc_probe::run_sys_npc_001(),
+            // M42 W42-2 (CR-b434f896-2fe9-4750-b70e-9b748370e6c3): SYS-DIALOGUE-001 —
+            // topics per faction/region, retail rumors, 0 out-of-context answers.
+            Some("SYS-DIALOGUE-001") => m42_dialogue_probe::run_sys_dialogue_001(),
+            // M42 W42-3 (CR-b434f896-2fe9-4750-b70e-9b748370e6c3): SYS-FACTION-001 —
+            // faction tree with census, rank/service tables, versioned reputation.
+            Some("SYS-FACTION-001") => m42_faction_probe::run_sys_faction_001(),
+            // M42 W42-4 (CR-b434f896-2fe9-4750-b70e-9b748370e6c3): SYS-LAW-001 —
+            // per-region record, legal reputation, guards, five outcomes.
+            Some("SYS-LAW-001") => m42_law_probe::run_sys_law_001(),
+            // M42 W42-5 (CR-765daa10-5084-4197-883d-dd626301e59e): SYS-QUEST-001 —
+            // 89 quest variants via from_effect, triggers, verbs, single_tick.
+            Some("SYS-QUEST-001") => m42_quest_probe::run_sys_quest_001(),
             // FACTION-001 and M27-DEMO-001 (standalone), spec M27 (REQ-L99-060).
             Some("FACTION-001") => m27_probe::run_faction_001(),
             Some("GUILD-001") => m27_probe::run_guild_001(),
@@ -530,6 +763,9 @@ fn main() {
             Some("VAMPIRE-001") => m32_probe::run_vampire_001(),
             Some("REST-001") => m32_probe::run_rest_001(),
             Some("DEATH-STATE-001") => m32_probe::run_death_state_001(),
+            // M43 SYS-REGION-001 (CR-39d656e1, GAP-M43-01): PROBE-REGION-001 —
+            // price/legal reputation/political climate per region with state.
+            Some("REGION-001") => m32_region_probe::run_region_001(),
             // Spine: typed 5-type plumbing + the 12-step smoke (§7).
             // EXIT=0 ⟺ 12/12 with digest ×2; EXIT=2 while M33 is unavailable.
             Some("SPINE-001") => spine_probe::run_spine_001(),
@@ -544,8 +780,9 @@ fn main() {
 // classic 0x33 record without touching the M33 keys; EXIT=2 without ARENA2.
             Some("PROBE-AUTOMAP-001") => m34_automap::run_automap_001(),
             // M33: total persistence — SAVE-ALL-001 (A-E: 24 states roundtrip,
-            // S0 census, corruption, determinism, escaping), SAVE-MIGRATION-001
-            // (3 v1 fixtures → v2, idempotence, GV-05/GV-09 census),
+            // S0/FX-1 census, corruption, determinism, escaping),
+            // SAVE-MIGRATION-001 (3 v1 fixtures → v3, idempotence,
+            // GV-05/GV-09 census),
             // SAVEGAME-READ-001 (Mode A retail MAPSAVE.SAV/IMG layout + NEGATIVE
             // N2/N3, EXIT=2 without ARENA2), SAVEGAME-WRITE-001 (synthetic
             // SAVETREE/MAPSAVE round-trips through our reader) and
@@ -634,9 +871,17 @@ fn main() {
             // EXIT=1 on any FAIL row, EXIT=0 on 12/12 with the same digest in
             // two separate processes.
             Some("PLAYSESSION-001") => playsession_probe::run_playsession_001(),
+            // M-QST (CR-9b3e5d70): PROBE-MAINQUEST-001 — the main quest
+            // trigger and act 1 headless: new game → offer → accept → real
+            // engine death → deliver → save → load (state kept, no re-offer).
+            // Pure shell + save v3: no window, no retail custody.
+            Some("MAINQUEST-001") => mainquest_route::run_mainquest_001(),
+            // M-QST (CR-3c7a91e6): PROBE-MAINQUEST-002 — the quest prompt is
+            // measured in ink pixels per state (unstarted paints nothing).
+            Some("MAINQUEST-002") => mainquest_route::run_mainquest_002(),
             other => {
                 eprintln!(
-                    "--probe: unknown name {other:?} (supported: VIEW-001, CITY-001, INTERIOR-001, COMMERCE-001, FORMULA-001, WORLD-001, ALL-001, READMODEL-001, SESSION-001, RMB-001, SEED-001, RDB-001, INTERIOR-TRANSIT-001, AUDIO-001, TEXTURE-001, TERRAIN-001, CLIMATE-001, NPC-001, TEXT-RSC-001, QUEST-ORIGINAL-001, UI-001, MAP-001, DEMO-001, LOCOMOTION-001, STEALTH-001, STATS-001, SKILLS-001, PROGRESSION-001, ITEM-001, EQUIP-001, LOOT-001, COMBAT-001, COMBAT-LOOP-001, DEATH-001, MAGIC-001, EFFECT-001, SPELLMAKER-001, ENCHANT-001, POTION-001, MONSTER-001, ENEMY-AI-001, ENCOUNTER-001, NPC-AI-001, DIALOGUE-001, RUMOR-001, NPC-DEMO-001, FACTION-001, GUILD-001, M27-DEMO-001, CRIME-001, LAW-001, EXEC-001, LIFECYCLE-001, JOURNAL-001, CHUNK-001, SCHEDULE-001, MODB-ISOLATION-001, SHOP-001, ECONOMY-001, BANK-001, ORIGIN-001, ATTACK-KEY-001, MENU-001, SAVE-ALL-001, SAVE-MIGRATION-001, SAVEGAME-READ-001, SAVEGAME-WRITE-001, M33-DEMO-001, VIDEO-001, PLAYSESSION-001, BIOME-001, SPRITE-001, STREAM-001)"
+                    "--probe: unknown name {other:?} (supported: MAINQUEST-001, MAINQUEST-002, VIEW-001, CITY-001, INTERIOR-001, COMMERCE-001, FORMULA-001, WORLD-001, ALL-001, READMODEL-001, SESSION-001, RMB-001, SEED-001, RDB-001, INTERIOR-TRANSIT-001, AUDIO-001, TEXTURE-001, TERRAIN-001, CLIMATE-001, NPC-001, TEXT-RSC-001, QUEST-ORIGINAL-001, UI-001, MAP-001, DEMO-001, LOCOMOTION-001, STEALTH-001, STATS-001, SKILLS-001, PROGRESSION-001, ITEM-001, EQUIP-001, LOOT-001, COMBAT-001, COMBAT-LOOP-001, DEATH-001, MAGIC-001, EFFECT-001, SPELLMAKER-001, ENCHANT-001, POTION-001, MONSTER-001, ENEMY-AI-001, ENCOUNTER-001, NPC-AI-001, DIALOGUE-001, RUMOR-001, NPC-DEMO-001, FACTION-001, GUILD-001, M27-DEMO-001, CRIME-001, LAW-001, EXEC-001, LIFECYCLE-001, JOURNAL-001, CHUNK-001, SCHEDULE-001, MODB-ISOLATION-001, SHOP-001, ECONOMY-001, BANK-001, ORIGIN-001, ATTACK-KEY-001, MENU-001, SAVE-ALL-001, SAVE-MIGRATION-001, SAVEGAME-READ-001, SAVEGAME-WRITE-001, M33-DEMO-001, VIDEO-001, PLAYSESSION-001, BIOME-001, SPRITE-001, STREAM-001)"
                 );
                 2
             }
@@ -729,6 +974,46 @@ fn main() {
         std::process::exit(code);
     }
 
+    // M42B (CR-ed07f360): product binary (`--no-default-features`). The same
+    // `--probe` entry point answers explicitly — never a panic, never the
+    // silent F0 banner — with a controlled exit code.
+    #[cfg(not(feature = "probes"))]
+    if let Some(pos) = args.iter().position(|arg| arg == "--probe") {
+        let name = args.get(pos + 1).map(String::as_str).unwrap_or("<missing>");
+        eprintln!(
+            "--probe {name}: instrumentation is not compiled into this binary \
+             (built without the `probes` feature). Rebuild with the default \
+             features (`cargo build -p daggerfall-app`) or `--features probes` \
+             to run probes."
+        );
+        std::process::exit(2);
+    }
+
+    // **§4.5/§4.6 (D4)** — the data-root flags answer here, before any window
+    // or banner: `--forget-data-root` clears the persisted choice and
+    // `--verify-data` prints the L1/L2/L3 report. Both speak only through the
+    // one resolver.
+    let data_cli = match daggerfall_app::mode_a::cli() {
+        Ok(cli) => cli,
+        Err(reason) => {
+            eprintln!("E-DATA-002: {reason}");
+            std::process::exit(2);
+        }
+    };
+    if data_cli.forget {
+        match daggerfall_app::mode_a::forget_data_root() {
+            Ok(line) => println!("{line}"),
+            Err(reason) => {
+                eprintln!("{reason}");
+                std::process::exit(2);
+            }
+        }
+        std::process::exit(0);
+    }
+    if data_cli.verify {
+        std::process::exit(daggerfall_app::mode_a::verify_data());
+    }
+
     println!("daggerfall-bevy-native F0 — organs online:");
     println!("  nervous    -> {}", daggerfall_nervous::organ_name());
     println!("  heart      -> {}", daggerfall_heart::organ_name());
@@ -766,19 +1051,26 @@ fn main() {
                 std::process::exit(2);
             }
         };
+        // **§4.3 (L2) / D4** — structural validation runs BEFORE the window
+        // exists; a failure exits 2 with its `E-DATA-003/004` line and nothing
+        // is persisted. `--remember` writes the config only past this gate.
+        if let Err(reason) = daggerfall_app::mode_a::prepare_product_data() {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        }
         let launched = if legacy_m2 {
             run_windowed(&path_checker)
         } else {
             m18_window::run_windowed_m18(&path_checker, overrides)
         };
         if let Err(reason) = launched {
+            // **D3 (data contract §4.4)** — a launch that cannot open the
+            // world is fatal. The F0 headless app is NOT a fallback: it has 0
+            // plugins and no window, so falling back to it reported every
+            // retail-data failure as a successful launch (exit 0, nothing on
+            // screen). Report the reason and exit 2.
             eprintln!("M18 (feature window): {reason}");
-            if legacy_m2 {
-                eprintln!("M2: fallback to the F0 headless app (no window)");
-            } else {
-                eprintln!("M18: fallback to the F0 headless app (no window)");
-            }
-            App::new().run();
+            std::process::exit(2);
         }
         // M-1 (QA M1): no `return;` — with the `window` feature
         // the block is the last one of `main()` and clippy flagged it
@@ -882,6 +1174,7 @@ fn run_windowed(
 /// (`daggerfall_app::mode_a`) so the production audio runtime and the
 /// integration tests resolve retail data exactly like this binary does —
 /// one copy, 0 divergent logic.
+#[cfg(feature = "probes")]
 fn mode_a_arena2_dir() -> Result<std::path::PathBuf, String> {
     daggerfall_app::mode_a::arena2_dir()
 }
@@ -890,6 +1183,7 @@ fn mode_a_arena2_dir() -> Result<std::path::PathBuf, String> {
 /// Source custody (PRE-2 §8 rule 3): M10 uses it for MAPS.BSA /
 /// BLOCKS.BSA / ARCH3D.BSA (PROBE-RMB-001 / PROBE-SEED-001); ModeState=A
 /// custody is done by the callers via `PathChecker`.
+#[cfg(feature = "probes")]
 fn mode_a_arena2_path(name: &str) -> Result<std::path::PathBuf, String> {
     daggerfall_app::mode_a::arena2_path(name)
 }
@@ -899,6 +1193,7 @@ fn mode_a_arena2_path(name: &str) -> Result<std::path::PathBuf, String> {
 /// M2 window and by PROBE-VIEW-001 (same origin custodian, PRE-2 §8
 /// rule 3; ModeState=A custody is done by the callers via
 /// `PathChecker`).
+#[cfg(feature = "probes")]
 fn mode_a_arch3d_path() -> Result<std::path::PathBuf, String> {
     mode_a_arena2_path("ARCH3D.BSA")
 }
@@ -938,6 +1233,7 @@ fn m2_facing_yaw(
 /// Deterministic block selection (M1, FIRST record of the directory —
 /// BSA order, sha-pinned input S1 — that converts to visible geometry).
 /// Shared by the M2 window and PROBE-VIEW-001.
+#[cfg(feature = "probes")]
 fn first_convertible_block(
     data: &[u8],
 ) -> Result<(usize, u32, daggerfall_parser_bevy_bridge::MeshSpec), String> {
@@ -980,6 +1276,7 @@ fn first_convertible_block(
 ///
 /// [`first_convertible_block`] does NOT change: M2/PROBE-VIEW-001 needs a spawn
 /// INSIDE the block (a solid block would have no walkable interior).
+#[cfg(feature = "probes")]
 fn convertible_blocks(
     data: &[u8],
     max: usize,

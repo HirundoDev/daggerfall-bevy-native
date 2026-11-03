@@ -684,7 +684,7 @@ fn build_textures(
     let palette_bytes = std::fs::read(dir.join("PAL.PAL")).map_err(|e| format!("PAL.PAL: {e}"))?;
     let palette = Palette::parse(&palette_bytes).map_err(|e| format!("PAL.PAL parse: {e:?}"))?;
     let textures = {
-        let city = build_retail_city(width, height, blocks, &mut |id| arch.resolve(id));
+        let city = build_retail_city(width, height, blocks, &mut |id| arch.resolve_model(id));
         let (demo, _failures) = crate::m18_demo::decode_city_textures(&city, &dir, &palette)
             .map_err(|e| format!("decode textures: {e:?}"))?;
         demo.into_iter()

@@ -21,7 +21,7 @@
 //! | S06 mazmorra | the first retail dungeon's grid is populated (`sides > 0`), one `.RDB` cell measures **51.2 m**, the `Transit` enters at the `Start` marker and exits **at the door position** (loads 1→2) |
 //! | S07 hechizo | the spell points decrement **exactly** `SpellCost::spell_points` and `Levitate` is active with `rounds_left > 0` after a real `cast_effects` |
 //! | S08 combate | 300 real `resolve_attack` resolutions: every hit reduces `hp` by exactly `min(damage, remaining)` via `set_health`, and the total reduction accounts for the final health |
-//! | S09 guardar | `SaveGameV2` validates, `to_state` yields a **v2** envelope with the 12 canonical sections in `M33_SECTIONS` order, non-empty, and both `from_state` and `from_text` round-trip the document |
+//! | S09 guardar | `SaveGameV2` validates, `to_state` yields a **v3** envelope with the 13 canonical sections in `M33_SECTIONS` order, non-empty, and both `from_state` and `from_text` round-trip the document |
 //! | S10 salir y recargar | the document written to disk and re-read has the **same digest** |
 //! | S11 cargar restaura | position in millimeters and the inventory sets (goods + items) are restored: **0 items lost** |
 //! | S12 segundo guardar/cargar | the second write/reload cycle keeps the S09 digest and the file bytes |
@@ -33,7 +33,7 @@
 //! - `EXIT=2` when a **prerequisite is absent**, detected before any row is
 //!   emitted (a missing prerequisite never becomes a synthetic PASS):
 //!   - **M33 state**: `attach_m33_codecs` + `registry.coverage(&M33_SECTIONS)`
-//!     must reach `12/12`, the envelope version must be `SAVE_VERSION = 2` and
+//!     must reach `13/13`, the envelope version must be `SAVE_VERSION = 3` and
 //!     a `sample → to_state → encode → decode → from_state` cycle must return
 //!     the same canonical text. `EXIT=2` is printed with the literal reason.
 //!   - **Retail custody (Mode A)**: `ARENA2` (override `DF_APP_ROOT`) must
@@ -431,7 +431,7 @@ fn load_retail() -> Result<Retail, String> {
     })
 }
 
-/// M33 prerequisite: the 12 canonical v2 codecs plus a real envelope cycle.
+/// M33 prerequisite: the 13 canonical v3 codecs plus a real envelope cycle.
 fn m33_gate() -> Result<String, String> {
     let mut registry = SectionRegistry::new();
     registry
@@ -466,7 +466,7 @@ fn m33_gate() -> Result<String, String> {
     let document = SaveGameV2::from_state(&decoded)
         .map_err(|e| format!("envelope from_state: {e:?}"))?;
     if document.to_text() != sample.to_text() {
-        return Err("v2 envelope roundtrip changed the document".to_string());
+        return Err("v3 envelope roundtrip changed the document".to_string());
     }
     Ok(format!(
         "coverage={}/{} version={} roundtrip=ok",
@@ -953,7 +953,7 @@ fn s08_combat(world: &mut World) -> Row {
 
 // ── S09 save ───────────────────────────────────────────────────────────────
 
-/// Builds the v2 document from the playthrough's measured state.
+/// Builds the v3 save document from the playthrough's measured state.
 fn save_document(world: &World) -> SaveGameV2 {
     let mut document = SaveGameV2::sample();
     document.world.pos_x_mm = i64::from(to_mm(world.position[0]));
@@ -1191,7 +1191,7 @@ pub fn run_playsession_001() -> i32 {
     let origin = &retail.towns[0];
     let destination = &retail.towns[1];
     let save_path = std::env::temp_dir().join(format!(
-        "playsession-001-{}-v2.dfl",
+        "playsession-001-{}-v3.dfl",
         std::process::id()
     ));
 

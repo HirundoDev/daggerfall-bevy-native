@@ -228,7 +228,10 @@ fn reclassification_holds_on_the_retail_archive() {
     const FEATURED: u16 = 50;
     assert!(!npc_spec::TOPLESS_RECORDS.contains(&FEATURED));
     assert_eq!(npc_spec::clothed_flat_record(FEATURED), FEATURED);
-    let header = flats.records.get(FEATURED as usize).expect("featured record");
+    let header = flats
+        .records
+        .get(FEATURED as usize)
+        .expect("featured record");
     let meta = match header.kind {
         texture::RecordKind::Image(meta) => meta,
         other => panic!("featured record {FEATURED} is not an image: {other:?}"),

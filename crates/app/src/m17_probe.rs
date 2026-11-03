@@ -41,55 +41,10 @@ use daggerfall_perception::read_models::{
 };
 
 /// Assets consumed by the 4 panels (headerless `RCI`/`CIF` included).
-pub const PANEL_ASSETS: [&str; 43] = [
-    "MAIN00I0.IMG",
-    "MAIN02I0.IMG",
-    "MAIN03I0.IMG",
-    "COMPASS.IMG",
-    "ITEM00I0.IMG",
-    "INVE00I0.IMG",
-    "INVE03I0.IMG",
-    "INVE06I0.IMG",
-    "INVE07I0.IMG",
-    "INVE08I0.IMG",
-    "INVE09I0.IMG",
-    "INVE10I0.IMG",
-    "INVE11I0.IMG",
-    "INVE12I0.IMG",
-    "INVE13I0.IMG",
-    "INVE14I0.IMG",
-    "ITEM01I0.IMG",
-    "BOOK00I0.IMG",
-    "SCBG00I0.IMG",
-    "SCBG01I0.IMG",
-    "SCBG02I0.IMG",
-    "SCBG03I0.IMG",
-    "SCBG04I0.IMG",
-    "SCBG05I0.IMG",
-    "SCBG06I0.IMG",
-    "SCBG07I0.IMG",
-    "SCBG08I0.IMG",
-    "SCRL04I0.IMG",
-    "SCRL05I0.IMG",
-    "SCRL07I0.IMG",
-    "SCRL08I0.IMG",
-    "SCRL09I0.IMG",
-    "SCRL10I0.IMG",
-    "SCRL11I0.IMG",
-    "SCRL12I0.IMG",
-    "SCRL13I0.IMG",
-    "SCRL14I0.IMG",
-    "TITL00I0.IMG",
-    "MENU.IMG",
-    "BUTN00I0.IMG",
-    "BUTN03I0.IMG",
-    // **B3-c** — the two map screens (raw 320×200 RCI). Their palette index
-    // range is resolved per asset (`image::ASSET_RANGE_DERIVATIONS`), not by
-    // widening the `Map` family floor.
-    "MAP100I0.IMG",
-    "TRAV0I00.IMG",
-];
-
+///
+/// One source: the canonical manifest owns the list (data contract §4.3), so
+/// the preflight, this probe and `ui_assets` cannot drift.
+pub use daggerfall_inventory::retail_manifest::PANEL_ASSETS;
 /// Aggregated result of the probe checks.
 struct Checks {
     passed: usize,
@@ -945,5 +900,24 @@ pub fn run_ui_001() -> i32 {
             .collect();
         println!("VERDICT: PROBE-UI-001 FAIL - failed: {}", failed.join(" · "));
         1
+    }
+}
+
+#[cfg(test)]
+mod panel_drift_tests {
+    use super::*;
+
+    /// The probe's panel list is the canonical manifest's, in order.
+    ///
+    /// It is a re-export today, so this test is a tripwire: replacing the
+    /// `pub use` with a local copy (the four copies this lane killed) makes
+    /// the two lists diverge here instead of at the first window.
+    #[test]
+    fn panel_assets_are_the_canonical_manifest() {
+        assert_eq!(
+            PANEL_ASSETS.to_vec(),
+            daggerfall_inventory::retail_manifest::PANEL_ASSETS.to_vec(),
+            "PANEL_ASSETS drifted from retail_manifest::PANEL_ASSETS"
+        );
     }
 }

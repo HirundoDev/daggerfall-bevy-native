@@ -1195,7 +1195,7 @@ mod m39_block_gh_tests {
 
     /// The retail bank of this workstation, when it is installed.
     fn retail_arena2() -> Option<PathBuf> {
-        if let Some(path) = std::env::var_os("DF_ARENA2") {
+        if let Some(path) = std::env::var_os("DF_APP_ROOT").map(|root| PathBuf::from(root).join("ARENA2")) {
             let path = PathBuf::from(path);
             if path.is_dir() {
                 return Some(path);
@@ -1375,7 +1375,7 @@ mod m39_block_gh_tests {
     #[test]
     fn retail_run_delivers_citable_deltas_and_evidence() {
         let Some(arena2) = retail_arena2() else {
-            eprintln!("skip: no ARENA2 (set DF_ARENA2 to run the retail flows)");
+            eprintln!("skip: no ARENA2 (run with --data-root to exercise the retail flows)");
             return;
         };
         let has_factions = arena2.join(FACTION_FILENAME).is_file();

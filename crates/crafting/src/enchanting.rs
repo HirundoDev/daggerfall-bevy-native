@@ -178,12 +178,16 @@ pub fn extra_spell_pts_settings() -> Vec<EnchantmentSettings> {
 ///
 /// The unparametrized families match on `key` alone (their `classic_param` is
 /// a stored `0`, not a discriminator). ExtraSpellPts is the parametrized
-/// family: it requires an exact `(key, param)` match.
+/// family: `("ExtraSpellPts", param)` resolves the variant whose ordinal is
+/// `param` (0..=10, `EXTRA_SPELL_PTS`).
 pub fn find_enchantment(effect_key: &str, classic_param: i32) -> Option<EnchantmentSettings> {
     if effect_key == "ExtraSpellPts" {
-        return extra_spell_pts_settings().into_iter().find(|entry| {
-            entry.effect_key == "ExtraSpellPts" && entry.classic_param == classic_param
-        });
+        // The 11 variants are stored under their dotted keys
+        // (`ExtraSpellPts.Undead`, …), so the family is selected by
+        // `classic_param` — the variant ordinal of `EXTRA_SPELL_PTS`.
+        return extra_spell_pts_settings()
+            .into_iter()
+            .find(|entry| entry.classic_param == classic_param);
     }
     ENCHANTMENT_REGISTRY
         .iter()
@@ -359,6 +363,22 @@ mod tests {
         let sel = [effect("EnhancesSkill").unwrap(), effect("ExtraWeight").unwrap()];
         assert_eq!(cost_points(&sel), 800);
         assert_eq!(cost_gold(&sel), 9000);
+    }
+
+    /// The parametrized family resolves through `find_enchantment` too: the
+    /// `(key, param)` route used by the item records.
+    #[test]
+    fn find_enchantment_resolves_extra_spell_pts_by_param() {
+        let undead = find_enchantment("ExtraSpellPts", 7).expect("param 7 = Undead");
+        assert_eq!(undead.effect_key, "ExtraSpellPts.Undead");
+        assert_eq!(undead.enchant_cost, 700);
+        assert_eq!(undead.classic_type, ench_types::EXTRA_SPELL_PTS);
+        assert_eq!(
+            find_enchantment("ExtraSpellPts", 0).map(|entry| entry.enchant_cost),
+            Some(500)
+        );
+        // Out-of-range ordinal: refused, never a default variant.
+        assert!(find_enchantment("ExtraSpellPts", 11).is_none());
     }
 
     /// ExtraSpellPts variants resolve by name with the exact §2.3 costs.

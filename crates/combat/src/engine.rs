@@ -199,6 +199,19 @@ fn hit_chance(input: &AttackInput<'_>, part: usize, crit_ok: bool) -> i32 {
     chance_to_hit(mods)
 }
 
+/// Public view of the per-part composition ([`hit_chance`]): the chance to hit
+/// **one named body part**, with the critical verdict injected.
+///
+/// The composition is private to the pipeline because [`resolve_attack`] owns
+/// the frozen roll order; but the armour of a struck part
+/// (`ArmorValues[part]` `:1149-1161`) plus the inc/dec modifiers, adrenaline,
+/// enchantment, stats, dodge and adjustments is exactly what a depth probe or
+/// the HUD needs **without** a roll. This delegates to the single composition —
+/// 0 duplicated arithmetic, 0 second source of truth.
+pub fn chance_to_hit_for_part(input: &AttackInput<'_>, part: usize, crit_ok: bool) -> i32 {
+    hit_chance(input, part, crit_ok)
+}
+
 /// `MonsterAttackInput` — DFU's monster branch of `CalculateAttackDamage`
 /// (`FormulaHelper.cs:636-672`): the struck part is chosen ONCE (`:616`) and
 /// up to three bands are gated by the player's reflexes.

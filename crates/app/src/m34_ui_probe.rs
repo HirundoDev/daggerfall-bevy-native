@@ -48,6 +48,7 @@
 //! - `EXIT=2` when `ARENA2` is not accessible — the probe measures nothing it
 //!   cannot read.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use daggerfall_parser_bevy_bridge::ui_spec::{
@@ -59,6 +60,7 @@ use daggerfall_perception::ui_census::{
     self, WindowCategory, CENSUS_BYTES, CENSUS_DIGEST, CENSUS_SIZE, HUD_DIGEST, HUD_FLAGS,
     HUD_INSTANCES, HUD_REGISTERED, HUD_TYPES, PLAYABLE_BYTES, PLAYABLE_DIGEST,
 };
+use daggerfall_parser_bevy_bridge::ui_compat;
 use daggerfall_perception::ui_shell::{canonical_id_for, UiShell};
 
 /// One independent measurement pass (`a` and `b` must agree).
@@ -106,8 +108,19 @@ impl CensusRun {
 /// Runs [`PROBE-UI-FULL-001`].
 ///
 /// Returns the process exit code (0 pass · 1 assertion failed · 2 no `ARENA2`).
+///
+/// **M40/UI-4 (block C).** The probe certifies **85/85** census surfaces, one
+/// `FULL` line each, composed from the three family stages that already own
+/// the per-surface measurement: `PROBE-UI-CREATE-001` (16), `PROBE-UI-CONFIG-001`
+/// (11) and `PROBE-UI-JUGABLE-001` (51). The seven `Infra` rows are engine
+/// contracts of the closed M37 layer: each cites one `(axis, module)` pair of
+/// [`daggerfall_parser_bevy_bridge::ui_compat::AXES`] that the probe re-checks,
+/// and declares focus `not-applicable` with the M34 spec clause. Nothing is
+/// re-painted here, so a surface a family gate refuses cannot be certified by
+/// the composite gate.
 pub fn run_ui_full_001() -> i32 {
-    println!("PROBE-UI-FULL-001 - 85 ventanas / 55 widgets (REQ-L99-067, M34)");
+    let mut out: Vec<String> = Vec::new();
+    out.push("PROBE-UI-FULL-001 - 85 surfaces / 11 blocks (M40/UI-4, REQ-L99-067)".to_owned());
 
     let dir = match crate::mode_a_arena2_dir() {
         Ok(dir) => dir,
@@ -119,7 +132,6 @@ pub fn run_ui_full_001() -> i32 {
             return 2;
         }
     };
-    println!("[info] arena2={}", dir.display());
 
     // ── census rows: 85 names, one per line, `N/A-engine` explicit ─────────
     for (index, row) in ui_census::census().iter().enumerate() {
@@ -128,13 +140,13 @@ pub fn run_ui_full_001() -> i32 {
         } else {
             "1996-ui"
         };
-        println!(
+        out.push(format!(
             "[{:03}] {:<40} {:<10} {}",
             index + 1,
             row.name,
             row.category.as_str(),
             tag
-        );
+        ));
     }
 
     let counts = [
@@ -147,16 +159,16 @@ pub fn run_ui_full_001() -> i32 {
         && counts == ui_census::CENSUS_COUNTS
         && ui_census::is_ascending();
     if census_ok {
-        println!(
+        out.push(format!(
             "[OK] census: {} = {} createchar + {} config + {} infra + {} jugables",
             ui_census::census().len(),
             counts[0],
             counts[1],
             counts[2],
             counts[3]
-        );
+        ));
     } else {
-        println!(
+        out.push(format!(
             "[FAIL] census: medida {} = {} createchar + {} config + {} infra + {} jugables (GV-01 espera {} = 16+11+7+51 · ascendente={})",
             ui_census::census().len(),
             counts[0],
@@ -165,7 +177,7 @@ pub fn run_ui_full_001() -> i32 {
             counts[3],
             CENSUS_SIZE,
             ui_census::is_ascending()
-        );
+        ));
     }
 
     // ── two independent passes over the same frozen data ──────────────────
@@ -175,15 +187,15 @@ pub fn run_ui_full_001() -> i32 {
 
     let shell_ok = first.registered == CENSUS_SIZE && first.navigable == CENSUS_SIZE && first.leaked == 0;
     if shell_ok {
-        println!(
+        out.push(format!(
             "[OK] shell: {}/{} registradas · {}/{} abiertas y cerradas · depth={}",
             first.registered, CENSUS_SIZE, first.navigable, CENSUS_SIZE, first.leaked
-        );
+        ));
     } else {
-        println!(
+        out.push(format!(
             "[FAIL] shell: {}/{} registradas · {}/{} abiertas y cerradas · depth={}",
             first.registered, CENSUS_SIZE, first.navigable, CENSUS_SIZE, first.leaked
-        );
+        ));
     }
 
     // ── block B: the 51 playable windows (composed in ui_playable_g*) ──────
@@ -197,7 +209,7 @@ pub fn run_ui_full_001() -> i32 {
         && first.generic_widgets == 0
         && first.out_of_canvas == 0
         && first.foreign_ids == 0;
-    println!(
+    out.push(format!(
         "[{}] playable: {}/{} con asset retail IMG/CIF/FNT/RCI decodificado · video: {}/{} decodificado (decode_frames) · generic_widgets={} · assets_missing={} · fuera_de_lienzo={} · ids_fuera_del_censo={} · grupos=[g1={} g2={} g3={}]",
         if playable_ok { "OK" } else { "FAIL" },
         first.decoded,
@@ -211,7 +223,7 @@ pub fn run_ui_full_001() -> i32 {
         window_group_counts()[0],
         window_group_counts()[1],
         window_group_counts()[2]
-    );
+    ));
 
     // ── HUD census (GV-03) ────────────────────────────────────────────────
     let hud_ok = ui_census::HUD_FIELDS.len() == HUD_INSTANCES
@@ -219,65 +231,87 @@ pub fn run_ui_full_001() -> i32 {
         && ui_census::HUD_VISIBILITY_FLAGS.len() == HUD_FLAGS
         && ui_census::hud_types() == HUD_TYPES
         && first.hud_digest == HUD_DIGEST;
-    println!(
+    out.push(format!(
         "[{}] hud: {} instancias / {} registradas / {} flags · types={}",
         if hud_ok { "OK" } else { "FAIL" },
         ui_census::HUD_FIELDS.len(),
         ui_census::hud_registered(),
         ui_census::HUD_VISIBILITY_FLAGS.len(),
         ui_census::hud_types()
-    );
+    ));
 
     // ── digests against the §8 literals (measured first, verdict after) ────
     let digests_ok = first.windows_digest == CENSUS_DIGEST
         && first.playable_digest == PLAYABLE_DIGEST
         && first.hud_digest == HUD_DIGEST;
-    println!(
+    out.push(format!(
         "[{}] windows_digest={:016x} playable_digest={:016x} hud_digest={:016x}",
         if digests_ok { "OK" } else { "FAIL" },
         first.windows_digest,
         first.playable_digest,
         first.hud_digest
-    );
+    ));
     if first.windows_digest == CENSUS_DIGEST {
-        println!(
+        out.push(format!(
             "[OK] GV-02 literal {:016x} reproducido ({} B, regla §3.1: ascendente por byte, \\n, sin salto final)",
             CENSUS_DIGEST, CENSUS_BYTES
-        );
+        ));
     } else {
-        println!(
+        out.push(format!(
             "[WARN] GV-02 literal {:016x} no reproducible; medido {:016x} ({} B de {} esperados)",
             CENSUS_DIGEST,
             first.windows_digest,
             ui_census::census_text().len(),
             CENSUS_BYTES
-        );
+        ));
     }
     if first.playable_digest == PLAYABLE_DIGEST {
-        println!(
+        out.push(format!(
             "[OK] GV-19 literal {:016x} reproducido ({} B)",
             PLAYABLE_DIGEST, PLAYABLE_BYTES
-        );
+        ));
     } else {
-        println!(
+        out.push(format!(
             "[WARN] GV-19 literal {:016x} no reproducible; medido {:016x} ({} B de {} esperados)",
             PLAYABLE_DIGEST,
             first.playable_digest,
             ui_census::playable_text().len(),
             PLAYABLE_BYTES
-        );
+        ));
     }
 
-    println!(
+    out.push(format!(
         "[{}] pasada 2 independiente: windows={:016x} playable={:016x} hud={:016x} · idéntica={}",
         if pair_identical { "OK" } else { "FAIL" },
         second.windows_digest,
         second.playable_digest,
         second.hud_digest,
         pair_identical
-    );
+    ));
 
-    let pass = census_ok && shell_ok && playable_ok && hud_ok && digests_ok && pair_identical;
+    // ── block C: the 85/85 per-surface certification (M40/UI-4) ───────────
+    let (full_lines, full_ok) = full_block(&dir);
+    out.extend(full_lines);
+
+    // ── block D: the declared-record rule as rows, never as a panic ────────
+    // (the five `expect` calls of this probe: an `expect` abort is exit 101 with
+    // no row; a `Row` is a red line and a controlled exit).
+    let spop_spec = window_specs().find(|spec| spec.asset_retail == Some("SPOP.RCI"));
+    let spop_bytes = daggerfall_app::mode_a::arena2_path("SPOP.RCI")
+        .ok()
+        .and_then(|path| std::fs::read(path).ok());
+    let rci = rci_rows(spop_bytes.as_deref(), spop_spec);
+    let rci_ok = rci.iter().all(|row| row.ok);
+    out.extend(rci.iter().map(Row::line));
+
+    let pass = census_ok
+        && shell_ok
+        && playable_ok
+        && hud_ok
+        && digests_ok
+        && pair_identical
+        && full_ok
+        && rci_ok;
     let mut digest = first.combined();
     if !pair_identical {
         // Never print "×2 idéntico" over two different values: fold both.
@@ -285,13 +319,18 @@ pub fn run_ui_full_001() -> i32 {
             format!("{:016x}{:016x}", first.combined(), second.combined()).as_bytes(),
         );
     }
-    println!(
+    let stdout_digest = crate::m37_ui1_probe::sha256_hex(out.join("\n").as_bytes());
+    out.push(format!("DIGEST {stdout_digest}"));
+    out.push(format!(
         "VEREDICTO: PROBE-UI-FULL-001 {} · digest={digest:016x} ×2{}",
         if pass { "PASS" } else { "FAIL" },
         if pair_identical { " idéntico" } else { " NO idéntico" }
-    );
+    ));
     let code = i32::from(!pass);
-    println!("EXIT={code}");
+    out.push(format!("EXIT={code}"));
+    for line in &out {
+        println!("{line}");
+    }
     code
 }
 
@@ -478,6 +517,136 @@ fn rci_declared_record(bytes: &[u8], width: u16, height: u16) -> Result<(&[u8], 
     ))
 }
 
+/// One row of the probe's own instrumentation block:
+/// `ROW OK|RED check=<name> detail=<...>`.
+///
+/// The five `expect` calls this module used to carry aborted the measuring
+/// process with exit 101 instead of printing a red row (`DESIGN-AUDIT-276c7d94`
+/// §ARREGLAR-DESPUÉS). A failed check is now a **value**: it prints one red row
+/// and folds into the probe's controlled exit code.
+struct Row {
+    check: &'static str,
+    ok: bool,
+    detail: String,
+}
+
+impl Row {
+    fn new(check: &'static str, ok: bool, detail: impl Into<String>) -> Self {
+        Self {
+            check,
+            ok,
+            detail: detail.into(),
+        }
+    }
+
+    fn line(&self) -> String {
+        format!(
+            "ROW {} check={} detail={}",
+            if self.ok { "OK" } else { "RED" },
+            self.check,
+            self.detail.replace('\n', " ")
+        )
+    }
+}
+
+/// The declared-record rule as rows (`SPOP.RCI` = 9 × 22×22 = 4356 B).
+///
+/// * `rci-spec` — a playable [`WindowSpec`] declares the container and its rect;
+/// * `rci-declared-cell` — a 9-cell container slices at the declared cell, with
+///   record 0 at offset 0;
+/// * `rci-spec-hole` — a length that is not a multiple of the cell is refused,
+///   never decoded at an inferred size;
+/// * `rci-undersized` — empty/short buffers and a 0-cell rect are refused;
+/// * `rci-whole-container` — the whole container is never one record, and the
+///   declared cell decodes at exactly the declared width × height.
+///
+/// `asset` is the real `ARENA2` bytes; `None` is a red row (the rule could not
+/// be measured), never a silent skip.
+fn rci_rows(asset: Option<&[u8]>, spec: Option<&WindowSpec>) -> Vec<Row> {
+    let (width, height) = spec.map_or((22, 22), |spec| (spec.rect.width, spec.rect.height));
+    let cell = usize::from(width) * usize::from(height);
+    let mut rows: Vec<Row> = Vec::new();
+
+    rows.push(match spec {
+        Some(spec) => Row::new(
+            "rci-spec",
+            spec.asset_retail == Some("SPOP.RCI"),
+            format!("rect={}×{}", spec.rect.width, spec.rect.height),
+        ),
+        None => Row::new("rci-spec", false, "no WindowSpec declares SPOP.RCI"),
+    });
+
+    let synthetic = vec![0_u8; cell * 9];
+    rows.push(match rci_declared_record(&synthetic, width, height) {
+        Ok((surface, records)) => {
+            let offset = surface.as_ptr() as usize - synthetic.as_ptr() as usize;
+            Row::new(
+                "rci-declared-cell",
+                records == 9 && surface.len() == cell && offset == 0,
+                format!("records={records} cell={cell} offset={offset}"),
+            )
+        }
+        Err(err) => Row::new("rci-declared-cell", false, err),
+    });
+
+    let hole = cell + 16;
+    rows.push(match rci_declared_record(&vec![0_u8; hole], width, height) {
+        Ok((_, records)) => Row::new(
+            "rci-spec-hole",
+            false,
+            format!("{hole} B accepted as {records} record(s) of {cell} B"),
+        ),
+        Err(err) => Row::new("rci-spec-hole", err.contains("spec hole"), err),
+    });
+
+    let undersized = rci_declared_record(&[], width, height).is_err()
+        && rci_declared_record(&vec![0_u8; cell - 1], width, height).is_err()
+        && rci_declared_record(&vec![0_u8; cell], 0, 4).is_err();
+    rows.push(Row::new(
+        "rci-undersized",
+        undersized,
+        format!("empty/cell-1/0×4-rect refused={undersized}"),
+    ));
+
+    rows.push(match asset {
+        None => Row::new(
+            "rci-whole-container",
+            false,
+            "SPOP.RCI not readable from ARENA2: whole-container rule not measured",
+        ),
+        Some(bytes) => {
+            let one_record = decode_rci(bytes, width, height, false).is_err()
+                && decode_rci(bytes, width, height, true).is_err();
+            match rci_declared_record(bytes, width, height) {
+                Err(err) => Row::new("rci-whole-container", false, err),
+                Ok((surface, records)) => match decode_rci(surface, width, height, false) {
+                    Err(err) => Row::new(
+                        "rci-whole-container",
+                        false,
+                        format!("declared cell does not decode: {err}"),
+                    ),
+                    Ok(image) => Row::new(
+                        "rci-whole-container",
+                        one_record
+                            && records == 9
+                            && (image.width, image.height) == (width, height),
+                        format!(
+                            "container={} B records={records} cell={width}×{height} image={}×{} \
+                             whole-as-one-record={}",
+                            bytes.len(),
+                            image.width,
+                            image.height,
+                            if one_record { "refused" } else { "ACCEPTED" }
+                        ),
+                    ),
+                },
+            }
+        }
+    });
+
+    rows
+}
+
 /// `.VID`/`.FLC` are a **video class** — §4(ii) names only `IMG`/`CIF`/`FNT`/
 /// `RCI` — decoded through the W34-4 `decode_frames`. They are reported as
 /// their own number by [`measure`], never folded into the image count.
@@ -500,76 +669,605 @@ fn is_video_asset(asset: &str) -> bool {
     upper.ends_with(".VID") || upper.ends_with(".FLC")
 }
 
+// ── Block C — the 85/85 per-surface certification (M40/UI-4) ──────────────
+
+/// The seven `Infra` census rows as engine contracts of the closed M37 layer.
+///
+/// Each tuple is `(census name, axis id, axis module, focus not-applicable
+/// slug)`. The axis pair is re-checked against
+/// [`daggerfall_parser_bevy_bridge::ui_compat::AXES`] at run time: an infra row
+/// that cites a module the layer does not declare is *not* certified.
+const INFRA: [(&str, &str, &str, &str); 7] = [
+    ("ColorPicker", "A2", "palette", "engine-na:m34-spec-4.224-225"),
+    ("DaggerfallBaseWindow", "A1", "surface", "engine-na:m34-spec-4.224-225"),
+    ("DaggerfallPopupWindow", "A1", "surface", "engine-na:m34-spec-4.224-225"),
+    ("DaggerfallQuestPopupWindow", "A5", "navigation", "engine-na:m34-spec-4.224-225"),
+    ("HardStrings", "A4", "text", "engine-na:m34-spec-4.224-225"),
+    ("UIWindowFactory", "A5", "navigation", "engine-na:m34-spec-4.224-225"),
+    ("WindowMessages", "A6", "input", "engine-na:m34-spec-4.224-225"),
+];
+
+/// The eleven blocks: the eight playable blocks of M39 (`A`..`H`) plus the
+/// three census groups this milestone certifies (`I` createchar, `J` config,
+/// `K` infra).
+const FULL_BLOCKS: [char; 11] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'];
+
+/// One census surface, as block C certifies it.
+struct Fact {
+    ordinal: usize,
+    name: &'static str,
+    family: &'static str,
+    block: char,
+    nodes: usize,
+    glyphs: usize,
+    focus: usize,
+    na: Option<String>,
+    opaque: usize,
+    evidence: String,
+    registry: bool,
+    open_close: bool,
+}
+
+impl Fact {
+    /// `FULL <nnn> id=<Name> family=<F> block=<X> registry=<ok|missing>
+    /// open-close=<ok|leaked> nodes=N glyphs=G focus=F na=<slug|-> opaque=O
+    /// evidence=<hex16|contract:Ax:module:closed>`.
+    fn line(&self) -> String {
+        format!(
+            "FULL {:03} id={} family={} block={} registry={} open-close={} nodes={} glyphs={} focus={} na={} opaque={} evidence={}",
+            self.ordinal,
+            self.name,
+            self.family,
+            self.block,
+            if self.registry { "ok" } else { "missing" },
+            if self.open_close { "ok" } else { "leaked" },
+            self.nodes,
+            self.glyphs,
+            self.focus,
+            self.na.as_deref().unwrap_or("-"),
+            self.opaque,
+            self.evidence,
+        )
+    }
+}
+
+/// A `SURFACE` line of one family stage, normalized.
+struct RawFact {
+    name: String,
+    block: Option<char>,
+    nodes: usize,
+    glyphs: usize,
+    focus: usize,
+    opaque: usize,
+    digest: String,
+}
+
+/// One family stage: its emitted lines plus the rule that failed, if any.
+struct FamilyStage {
+    lines: Vec<String>,
+    error: Option<String>,
+}
+
+/// `key=value` of one whitespace-separated token, exact key match.
+fn field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    line.split_whitespace().find_map(|token| {
+        let (name, value) = token.split_once('=')?;
+        (name == key).then_some(value)
+    })
+}
+
+/// Numeric `key=value` of a line this probe does **not** own (M38/M39 stdout).
+///
+/// An absent or unreadable field is an `Err`, never a silent `0`: the old
+/// `unwrap_or(0)` turned a broken coupling into a green measurement
+/// (`DESIGN-AUDIT-276c7d94` §ARREGLAR-DESPUÉS, `count_of()`). The caller prints
+/// a `FAMILY-ROW-ERROR` row and folds it into its own exit code.
+fn count_of(line: &str, key: &str) -> Result<usize, String> {
+    let value = field(line, key).ok_or_else(|| format!("absent:{key}"))?;
+    value
+        .parse()
+        .map_err(|_| format!("unreadable:{key}={value}"))
+}
+
+/// First three whitespace tokens of a probe line, quoted in a red row instead
+/// of the whole record (deterministic and short).
+fn line_head(line: &str) -> String {
+    line.split_whitespace().take(3).collect::<Vec<_>>().join("_")
+}
+
+/// Parses a `SURFACE` line of either family grammar.
+///
+/// * M38 (`SURFACE C01 <Name> host=…`) — the key is the literal in column 2.
+/// * M39 (`SURFACE 001 id=<Name> block=X host=…`) — the key is the ordinal and
+///   the name is the `id=` value.
+///
+/// `Ok(None)` is "not a `SURFACE` line"; `Err` is a `SURFACE` line whose
+/// numeric fields are absent or unreadable — a red row, never a `0`.
+fn parse_surface(line: &str) -> Result<Option<RawFact>, String> {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.len() < 4 || tokens[0] != "SURFACE" {
+        return Ok(None);
+    }
+    let name = match field(line, "id") {
+        Some(name) => name.to_owned(),
+        None => match tokens.get(2) {
+            Some(name) => (*name).to_owned(),
+            None => return Err("absent:name".to_owned()),
+        },
+    };
+    Ok(Some(RawFact {
+        name,
+        block: field(line, "block").and_then(|value| value.chars().next()),
+        nodes: count_of(line, "nodes")?,
+        glyphs: count_of(line, "glyphs")?,
+        focus: count_of(line, "focus")?,
+        opaque: count_of(line, "opaque")?,
+        digest: field(line, "digest").unwrap_or("-").to_owned(),
+    }))
+}
+
+/// Runs the three family stages the composite gate composes.
+fn family_stages(dir: &Path) -> [FamilyStage; 3] {
+    let create = match crate::m38_ui2_probe::stage_create_lines(dir) {
+        Ok(lines) => FamilyStage { lines, error: None },
+        Err((rule, lines)) => FamilyStage {
+            lines,
+            error: Some(rule),
+        },
+    };
+    let config = match crate::m38_ui2_probe::stage_config_lines(dir) {
+        Ok(lines) => FamilyStage { lines, error: None },
+        Err((rule, lines)) => FamilyStage {
+            lines,
+            error: Some(rule),
+        },
+    };
+    let playable = match crate::m39_jugable_probe::stage_lines(dir) {
+        Ok((lines, _note)) => FamilyStage { lines, error: None },
+        Err(err) => FamilyStage {
+            lines: Vec::new(),
+            error: Some(err),
+        },
+    };
+    [create, config, playable]
+}
+
+/// Block C: 85 `FULL` lines, 11 `BLOCK` lines and the seven composite axes.
+///
+/// Returns `(lines, ok)`. A surface the family stage did not emit is still
+/// printed, with `evidence=-`, so a missing surface is a red row rather than an
+/// absent one.
+fn full_block(dir: &Path) -> (Vec<String>, bool) {
+    let census = ui_census::census();
+    let stages = family_stages(dir);
+    let (create, config, playable) = (&stages[0], &stages[1], &stages[2]);
+
+    // Shell facts — **two distinct measurements per surface**. The audit
+    // (`m34_ui_probe.rs:790-791`) caught `registry` and `open_close` being the
+    // same boolean printed twice, which counted one measurement as two
+    // surfaces. Now:
+    //  * `registered_ok` — the registry holds the window under its census name
+    //    (`contains` + `title`): a static containment fact;
+    //  * `open_close_ok` — opening it raises the stack by exactly one and
+    //    closing it returns the stack to the previous depth with the window
+    //    closed: a behavioural fact.
+    let mut registered_ok: Vec<bool> = vec![false; census.len()];
+    let mut open_close_ok: Vec<bool> = vec![false; census.len()];
+    let mut depth = usize::MAX;
+    let mut registered = 0usize;
+    if let Ok(mut shell) = UiShell::canonical() {
+        registered = shell.registry().len();
+        for (index, row) in census.iter().enumerate() {
+            let Some(id) = canonical_id_for(row.name) else {
+                continue;
+            };
+            registered_ok[index] =
+                shell.registry().contains(id) && shell.registry().title(id) == Some(row.name);
+            let before = shell.depth();
+            let opened = shell.open(id).is_ok();
+            let after_open = shell.depth();
+            shell.close(id);
+            open_close_ok[index] = opened
+                && after_open == before + 1
+                && shell.depth() == before
+                && !shell.is_open(id);
+        }
+        depth = shell.depth();
+    }
+    let registered_surfaces = registered_ok.iter().filter(|ok| **ok).count();
+    let navigable = open_close_ok.iter().filter(|ok| **ok).count();
+    let shell_ok = registered == CENSUS_SIZE
+        && registered_surfaces == CENSUS_SIZE
+        && navigable == CENSUS_SIZE
+        && depth == 0;
+
+    // Family evidence, keyed by census name. A `SURFACE` line whose numeric
+    // fields are absent or unreadable becomes a red `FAMILY-ROW-ERROR` row:
+    // the coupling to M38/M39 stdout fails loudly, never as a silent zero.
+    let mut by_name: BTreeMap<String, RawFact> = BTreeMap::new();
+    let mut focus_na: BTreeMap<String, String> = BTreeMap::new();
+    let mut parse_errors: Vec<String> = Vec::new();
+    for stage in [create, config, playable] {
+        for line in &stage.lines {
+            match parse_surface(line) {
+                Ok(Some(raw)) => {
+                    by_name.insert(raw.name.clone(), raw);
+                }
+                Ok(None) => {}
+                Err(err) => parse_errors.push(format!("{} {err}", line_head(line))),
+            }
+        }
+    }
+    for line in &playable.lines {
+        if line.starts_with("FOCUS ") {
+            if let (Some(ordinal), Some(reason)) =
+                (line.split_whitespace().nth(1), field(line, "not-applicable"))
+            {
+                focus_na.insert(ordinal.to_owned(), reason.to_owned());
+            }
+        }
+    }
+
+    let mut facts: Vec<Fact> = Vec::with_capacity(census.len());
+    for (index, row) in census.iter().enumerate() {
+        let ordinal = index + 1;
+        let family = match row.category {
+            WindowCategory::CreateChar => "CreateChar",
+            WindowCategory::Config => "Config",
+            WindowCategory::Infra => "Infra",
+            WindowCategory::Playable => "Playable",
+        };
+        let raw = by_name.get(row.name);
+        let block = match row.category {
+            WindowCategory::CreateChar => 'I',
+            WindowCategory::Config => 'J',
+            WindowCategory::Infra => 'K',
+            WindowCategory::Playable => raw.and_then(|raw| raw.block).unwrap_or('?'),
+        };
+        let (nodes, glyphs, focus, opaque, evidence, na) = if row.category == WindowCategory::Infra {
+            let infra = INFRA.iter().find(|(name, _, _, _)| *name == row.name);
+            let evidence = match infra {
+                Some((_, axis, module, _)) => {
+                    let closed = ui_compat::AXES
+                        .iter()
+                        .any(|(declared_axis, declared_module)| {
+                            declared_axis == axis && declared_module == module
+                        });
+                    format!(
+                        "contract:{axis}:{module}:{}",
+                        if closed { "closed" } else { "unknown" }
+                    )
+                }
+                None => "contract:undeclared".to_owned(),
+            };
+            (
+                0,
+                0,
+                0,
+                0,
+                evidence,
+                infra.map(|(_, _, _, reason)| (*reason).to_owned()),
+            )
+        } else {
+            match raw {
+                Some(raw) => (
+                    raw.nodes,
+                    raw.glyphs,
+                    raw.focus,
+                    raw.opaque,
+                    raw.digest.clone(),
+                    focus_na.get(&format!("{ordinal:03}")).cloned(),
+                ),
+                None => (0, 0, 0, 0, "-".to_owned(), None),
+            }
+        };
+        facts.push(Fact {
+            ordinal,
+            name: row.name,
+            family,
+            block,
+            nodes,
+            glyphs,
+            focus,
+            na,
+            opaque,
+            evidence,
+            registry: registered_ok[index],
+            open_close: open_close_ok[index],
+        });
+    }
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!(
+        "SHELL {} registered={} registered-named={} open-close={} depth={}",
+        if shell_ok { "OK" } else { "FAIL" },
+        registered,
+        registered_surfaces,
+        navigable,
+        depth
+    ));
+
+    for (label, probe, stage) in [
+        ("create", "PROBE-UI-CREATE-001", create),
+        ("config", "PROBE-UI-CONFIG-001", config),
+        ("playable", "PROBE-UI-JUGABLE-001", playable),
+    ] {
+        let surfaces = stage
+            .lines
+            .iter()
+            .filter(|line| line.starts_with("SURFACE "))
+            .count();
+        let axes_ok = stage
+            .lines
+            .iter()
+            .filter(|line| {
+                line.starts_with("AXIS ") && line.split_whitespace().nth(2) == Some("OK")
+            })
+            .count();
+        let digest = stage
+            .lines
+            .iter()
+            .find_map(|line| line.strip_prefix("DIGEST "))
+            .unwrap_or("-");
+        lines.push(format!(
+            "FAMILY {label} probe={probe} surfaces={surfaces} axes={axes_ok}/7 digest={digest} status={}",
+            if stage.error.is_none() { "OK" } else { "FAIL" }
+        ));
+        if let Some(error) = &stage.error {
+            lines.push(format!("FAMILY-ERROR {label} {}", error.replace(' ', "_")));
+        }
+    }
+
+    for fact in &facts {
+        lines.push(fact.line());
+    }
+
+    let mut blocks_ok = true;
+    let mut block_sum = 0usize;
+    for block in FULL_BLOCKS {
+        let rows: Vec<&Fact> = facts.iter().filter(|fact| fact.block == block).collect();
+        let focus: usize = rows.iter().map(|fact| fact.focus).sum();
+        let na = rows.iter().filter(|fact| fact.na.is_some()).count();
+        if rows.is_empty() {
+            blocks_ok = false;
+        }
+        block_sum += rows.len();
+        lines.push(format!(
+            "BLOCK {} surfaces={} focus={focus} na={na}",
+            block,
+            rows.len()
+        ));
+    }
+    blocks_ok &= block_sum == CENSUS_SIZE;
+
+    let renderable: Vec<&Fact> = facts
+        .iter()
+        .filter(|fact| fact.family != "Infra")
+        .collect();
+    let renderable_expected = CENSUS_SIZE - INFRA.len();
+    let composed = renderable
+        .iter()
+        .filter(|fact| fact.nodes > 0 || fact.glyphs > 0)
+        .count();
+    let raster = facts.iter().filter(|fact| fact.nodes > 0).count();
+    let opaque_min = renderable.iter().map(|fact| fact.opaque).min().unwrap_or(0);
+    let opaque_total: usize = renderable.iter().map(|fact| fact.opaque).sum();
+    let glyphs_min = renderable.iter().map(|fact| fact.glyphs).min().unwrap_or(0);
+    let glyphs_total: usize = renderable.iter().map(|fact| fact.glyphs).sum();
+
+    let mut a4_units = 0usize;
+    let mut a4_empty = 0usize;
+    let mut a4_family_ok = true;
+    let mut a6_intents = 0usize;
+    let mut a6_delivered = 0usize;
+    let mut a6_family_ok = true;
+    let mut a7_family_ok = true;
+    let mut family_axes_ok = 0usize;
+    let mut family_axes_total = 0usize;
+    let mut axis_errors: Vec<String> = Vec::new();
+    for stage in [create, config, playable] {
+        for line in &stage.lines {
+            if !line.starts_with("AXIS ") {
+                continue;
+            }
+            family_axes_total += 1;
+            let ok = line.split_whitespace().nth(2) == Some("OK");
+            if ok {
+                family_axes_ok += 1;
+            }
+            let axis = line.split_whitespace().nth(1).unwrap_or("");
+            match axis {
+                "A4" => {
+                    a4_family_ok &= ok;
+                    match field(line, "declarations").or_else(|| field(line, "lines")) {
+                        Some(value) => match value.parse::<usize>() {
+                            Ok(units) => a4_units += units,
+                            Err(_) => {
+                                axis_errors.push(format!("A4 unreadable:declarations={value}"))
+                            }
+                        },
+                        None => axis_errors.push("A4 absent:declarations".to_owned()),
+                    }
+                    match count_of(line, "empty") {
+                        Ok(empty) => a4_empty += empty,
+                        Err(err) => axis_errors.push(format!("A4 {err}")),
+                    }
+                }
+                "A6" => {
+                    a6_family_ok &= ok;
+                    match (count_of(line, "intents"), count_of(line, "delivered")) {
+                        (Ok(intents), Ok(delivered)) => {
+                            a6_intents += intents;
+                            a6_delivered += delivered;
+                        }
+                        (intents, delivered) => {
+                            for err in [intents.err(), delivered.err()].into_iter().flatten() {
+                                axis_errors.push(format!("A6 {err}"));
+                            }
+                        }
+                    }
+                }
+                "A7" => a7_family_ok &= ok,
+                _ => {}
+            }
+        }
+    }
+    // Red rows for the text coupling: printed by the probe, read by the gate
+    // (`FAMILY-ROW-ERROR` lines make `raster-fields` red, never a silent zero).
+    for error in parse_errors.iter().chain(axis_errors.iter()) {
+        lines.push(format!("FAMILY-ROW-ERROR {}", error.replace(' ', "_")));
+    }
+    let fields_ok = parse_errors.is_empty() && axis_errors.is_empty();
+
+    let focus_total: usize = facts.iter().map(|fact| fact.focus).sum();
+    let with_focus = facts.iter().filter(|fact| fact.focus > 0).count();
+    let na_list: Vec<String> = facts
+        .iter()
+        .filter(|fact| fact.focus == 0)
+        .map(|fact| format!("{:03}", fact.ordinal))
+        .collect();
+    // Focus is measured or contractually refused — never a silent zero.
+    let focus_shaped = facts
+        .iter()
+        .all(|fact| (fact.focus > 0) != fact.na.is_some());
+    let evidence_shaped = facts.iter().all(|fact| {
+        if fact.family == "Infra" {
+            fact.evidence.starts_with("contract:") && fact.evidence.ends_with(":closed")
+        } else {
+            fact.evidence.len() == 16
+                && fact.evidence.chars().all(|ch| ch.is_ascii_hexdigit())
+        }
+    });
+
+    let a1 = renderable.len() == renderable_expected && composed == renderable.len();
+    let a2 = opaque_min > 0;
+    let a3 = glyphs_min > 0;
+    let a5 = shell_ok && focus_shaped && focus_total > 0;
+    let a7 = a7_family_ok && family_axes_total == 21 && family_axes_ok == family_axes_total;
+
+    for (axis, ok, detail) in [
+        (
+            "A1",
+            a1,
+            format!(
+                "surfaces={} composed={}/{} raster={raster}",
+                facts.len(),
+                composed,
+                renderable.len()
+            ),
+        ),
+        (
+            "A2",
+            a2,
+            format!("renderable={} opaque-min={opaque_min} opaque-total={opaque_total}", renderable.len()),
+        ),
+        (
+            "A3",
+            a3,
+            format!("renderable={} glyphs-min={glyphs_min} glyphs-total={glyphs_total}", renderable.len()),
+        ),
+        (
+            "A4",
+            a4_family_ok && a4_empty == 0 && a4_units > 0,
+            format!("text-units={a4_units} empty={a4_empty}"),
+        ),
+        (
+            "A5",
+            a5,
+            format!(
+                "stack=85/85 closed=85 depth={depth} focus-rows={focus_total} surfaces-with-focus={with_focus} not-applicable={}",
+                na_list.join(",")
+            ),
+        ),
+        (
+            "A6",
+            a6_family_ok && a6_delivered > 0,
+            format!("intents={a6_intents} delivered={a6_delivered}"),
+        ),
+        (
+            "A7",
+            a7,
+            format!(
+                "families=3/3 repaint-stable={} family-axes={family_axes_ok}/{family_axes_total}",
+                if a7_family_ok { "agree" } else { "diverge" }
+            ),
+        ),
+    ] {
+        lines.push(format!(
+            "AXIS {axis} {} {detail}",
+            if ok { "OK" } else { "FAIL" }
+        ));
+    }
+
+    let axes_ok = a1 && a2 && a3 && a4_family_ok && a4_empty == 0 && a5 && a6_family_ok && a7;
+    let ok = shell_ok
+        && facts.len() == CENSUS_SIZE
+        && blocks_ok
+        && evidence_shaped
+        && fields_ok
+        && axes_ok
+        && family_axes_total == 21
+        && family_axes_ok == family_axes_total;
+    (lines, ok)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
-    /// A declared 22×22 `SPOP.RCI` window (the only multi-record asset class).
-    fn spop_spec() -> &'static WindowSpec {
-        window_specs()
-            .find(|spec| spec.asset_retail == Some("SPOP.RCI"))
-            .expect("SPOP.RCI is declared by a playable spec")
+    /// The declared `SPOP.RCI` spec as a value: `None` becomes a red row
+    /// downstream, never an `expect` abort.
+    fn spop_spec() -> Option<&'static WindowSpec> {
+        window_specs().find(|spec| spec.asset_retail == Some("SPOP.RCI"))
     }
 
-    /// `$DF_ARENA2` or `$HOME/Games/Daggerfall/app/ARENA2`; `None` when absent.
-    fn arena2_dir() -> Option<PathBuf> {
-        if let Ok(dir) = std::env::var("DF_ARENA2") {
-            return Some(PathBuf::from(dir));
-        }
-        std::env::var("HOME")
-            .ok()
-            .map(|home| PathBuf::from(home).join("Games/Daggerfall/app/ARENA2"))
-            .filter(|dir| dir.is_dir())
+    /// The red rows of a report as printable lines (empty ⇒ every check holds).
+    fn red_lines(rows: &[Row]) -> Vec<String> {
+        rows.iter().filter(|row| !row.ok).map(Row::line).collect()
     }
 
     #[test]
-    fn rci_declared_record_slices_the_declared_cell() {
+    fn rci_rows_hold_on_a_nine_record_container() -> Result<(), String> {
         let bytes = vec![0_u8; 484 * 9];
-        let (surface, records) = rci_declared_record(&bytes, 22, 22).expect("9 exact records");
-        assert_eq!(records, 9);
-        assert_eq!(surface.len(), 484);
-        assert_eq!(surface.as_ptr(), bytes.as_ptr(), "record 0 starts at offset 0");
+        let red = red_lines(&rci_rows(Some(&bytes), spop_spec()));
+        if red.is_empty() {
+            Ok(())
+        } else {
+            Err(red.join(" | "))
+        }
     }
 
     #[test]
-    fn rci_declared_record_rejects_a_spec_hole() {
-        // 500 B is not a multiple of the declared 22×22 = 484 B cell.
-        let err = rci_declared_record(&vec![0_u8; 500], 22, 22).unwrap_err();
-        assert!(err.contains("spec hole"), "{err}");
-        assert!(err.contains("484"), "{err}");
+    fn rci_rows_go_red_on_a_spec_hole_without_panicking() -> Result<(), String> {
+        // 500 B is not a multiple of the declared 22×22 = 484 B cell: the rule
+        // answers with a RED row (the old `expect` answered with exit 101).
+        let hole = vec![0_u8; 500];
+        let rows = rci_rows(Some(&hole), spop_spec());
+        let red = red_lines(&rows);
+        if red.is_empty() {
+            return Err("a 500 B container produced no RED row".to_owned());
+        }
+        if !red
+            .iter()
+            .any(|line| line.contains("check=rci-whole-container"))
+        {
+            return Err(format!(
+                "the hole was not measured on the container: {red:?}"
+            ));
+        }
+        Ok(())
     }
 
     #[test]
-    fn rci_declared_record_rejects_an_undersized_or_zero_cell() {
-        assert!(rci_declared_record(&[], 22, 22).is_err());
-        assert!(rci_declared_record(&vec![0_u8; 400], 22, 22).is_err());
-        assert!(rci_declared_record(&vec![0_u8; 484], 0, 4).is_err());
-    }
-
-    #[test]
-    fn a_hole_makes_the_asset_missing_not_absorbed() {
+    fn a_hole_makes_the_asset_missing_not_absorbed() -> Result<(), String> {
         // The decode layer returns `Err`, which is exactly what `measure`
         // counts as `assets_missing`: a wrong declared rect can never PASS.
         let hole = vec![0_u8; 500];
-        assert!(decode_retail_bytes(Path::new("."), "SPOP.RCI", &hole, spop_spec()).is_err());
-    }
-
-    #[test]
-    fn the_whole_container_is_never_a_single_record() {
-        let Some(dir) = arena2_dir() else {
-            eprintln!("SKIP the_whole_container_is_never_a_single_record: ARENA2 ausente");
-            return;
-        };
-        let bytes = std::fs::read(dir.join("SPOP.RCI")).expect("SPOP.RCI in ARENA2");
-        // The pre-fix pathology: a 4356 B container is not one 22×22 record,
-        // palettised or not.
-        assert!(decode_rci(&bytes, 22, 22, false).is_err());
-        assert!(decode_rci(&bytes, 22, 22, true).is_err());
-        let (surface, records) = rci_declared_record(&bytes, 22, 22).expect("declared cell");
-        assert_eq!(records, 9);
-        let image = decode_rci(surface, 22, 22, false).expect("declared record decodes");
-        assert_eq!((image.width, image.height), (22, 22));
+        let spec = spop_spec().ok_or("no WindowSpec declares SPOP.RCI")?;
+        if decode_retail_bytes(Path::new("."), "SPOP.RCI", &hole, spec).is_ok() {
+            return Err("a 500 B spec hole decoded as a declared record".to_owned());
+        }
+        Ok(())
     }
 
     #[test]

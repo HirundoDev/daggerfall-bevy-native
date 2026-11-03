@@ -200,6 +200,9 @@ pub const MIN_LEGAL_REP: i16 = -100;
 pub const MAX_LEGAL_REP: i16 = 100;
 /// `FindFactionByTypeAndRegion(15, …)` — the People faction of a region
 /// (`:2295-2296`).
+/// Retail region count: `RegionData[62]` (`PlayerEntity.cs:1580`).
+pub const REGION_COUNT_HINT: usize = 62;
+
 pub const PEOPLE_FACTION_TYPE: i32 = 15;
 
 /// `NotFoundException` default of `punishmentType` is `0`: banishment or
@@ -1298,9 +1301,95 @@ pub fn loan_default_crime(
     }
 }
 
+// ── M42/W42-4 · the five courtroom outcomes (SYS-LAW-001) ──────────────────
+
+/// The five outcomes the roadmap gate measures one by one (`SYS-LAW-001`,
+/// roadmap `docs/acknowledgments/roadmap-m18-m48.md:320`): fine and prison
+/// are the two halves of a type-2 sentence (`answer_guilty`); escape is the
+/// refused surrender (`SurrenderOutcome.court == false`, `:2313-2332`); bribe
+/// is the W42-4-layer rule SR-42-4-1 below (no retail source: the DFU court
+/// has no bribe path, so price and acceptance are declared, not ported);
+/// death is the dead player (`surrender_to_city_guards` returns `None`) and
+/// the `Executed` court state (`:278-295`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LawOutcome {
+    /// Guilty plea with no prison days left (`fine_paid = fine >> 1`).
+    Fine,
+    /// Guilty plea with prison days left (prison clock + reputation raise).
+    Prison,
+    /// Surrender refused: alive, no court, the guards keep chasing.
+    Escape,
+    /// Guard accepts the row price in gold and the crime clears (SR-42-4-1).
+    Bribe,
+    /// Dead player, or the `Executed` state with its region flag.
+    Death,
+}
+
+/// SR-42-4-1 — bribe price: the court row's `BASE_PENALTY_AMOUNTS`; `None`
+/// for [`Crimes::None`] (nothing to bribe away). Retail-free by declaration:
+/// no `PlayerEntity.cs` / `DaggerfallCourtWindow.cs` line prices a bribe.
+pub const fn bribe_price(crime: Crimes) -> Option<i32> {
+    match crime.court_index() {
+        Some(index) => Some(BASE_PENALTY_AMOUNTS[index]),
+        None => None,
+    }
+}
+
+/// Result of offering gold to the arresting guard (SR-42-4-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BribeOutcome {
+    /// Whether the guard took the gold.
+    pub accepted: bool,
+    /// Gold the guard keeps (the row price, 0 when refused).
+    pub gold_paid: i32,
+    /// Crime after the offer: `None` when accepted, unchanged otherwise.
+    pub crime_after: Crimes,
+}
+
+/// Offers `offered_gold` against the row price (SR-42-4-1). Accepted iff
+/// `offered_gold >= price`; on accept the crime clears to [`Crimes::None`].
+/// Returns `None` for [`Crimes::None`], which has no price. Pure: 0 Bevy,
+/// 0 I/O, 0 RNG — the price is a table, not a draw.
+pub fn bribe_guard(crime: Crimes, offered_gold: i32) -> Option<BribeOutcome> {
+    let price = bribe_price(crime)?;
+    if offered_gold >= price {
+        Some(BribeOutcome {
+            accepted: true,
+            gold_paid: price,
+            crime_after: Crimes::None,
+        })
+    } else {
+        Some(BribeOutcome {
+            accepted: false,
+            gold_paid: 0,
+            crime_after: crime,
+        })
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bribe_price_is_the_court_row_base_sr42_4_1() {
+        assert_eq!(bribe_price(Crimes::None), None);
+        assert_eq!(bribe_price(Crimes::Theft), Some(200));
+        assert_eq!(bribe_price(Crimes::Murder), Some(10_000));
+        assert_eq!(bribe_price(Crimes::LoanDefault), Some(100));
+    }
+
+    #[test]
+    fn bribe_guard_accepts_at_price_and_clears_the_crime() {
+        let accepted = bribe_guard(Crimes::Theft, 200).expect("row price");
+        assert!(accepted.accepted);
+        assert_eq!(accepted.gold_paid, 200);
+        assert_eq!(accepted.crime_after, Crimes::None);
+        let short = bribe_guard(Crimes::Theft, 199).expect("row price");
+        assert!(!short.accepted);
+        assert_eq!(short.gold_paid, 0);
+        assert_eq!(short.crime_after, Crimes::Theft);
+        assert_eq!(bribe_guard(Crimes::None, i32::MAX), None);
+    }
 
     /// Region 0 People faction (`type: 15`) with one ally and one enemy, so
     /// that the propagation of `change_reputation(..., propagate: true)` is

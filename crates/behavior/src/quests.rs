@@ -86,9 +86,13 @@ pub const SECONDS_PER_DAY: i64 = 86_400;
 pub const NOTE_STEP_BASE: u32 = 0x8000_0000;
 
 /// Semantic class of one opcode type. Each variant names a real
-/// `ActionTemplate` under `Assets/Scripts/Game/Questing/Actions/`; the anchor
-/// is repeated in the coverage table so a type can be audited without reading
-/// this enum.
+/// `ActionTemplate` under `Assets/Scripts/Game/Questing/Actions/`.
+///
+/// Coverage is measured from [`OPCODE_COVERAGE`], never claimed by this enum
+/// (GAP-M42-02): the table has 70 rows and reaches **53 of these 89 variants**;
+/// the remaining 36 have no `type_id` at all, the 16 M42 delta variants among
+/// them (`0/16`, see the delta block below). Adding a variant does not widen
+/// coverage — only a table row does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpcodeEffect {
     /// `log <id> step <step>` adds a journal entry
@@ -251,6 +255,54 @@ pub enum OpcodeEffect {
     LevelCompleted,
     /// Faction reputation check (`Actions/WhenReputeWith.cs:24`).
     FactionReputation,
+    /// ── M42 W42-5 delta A4 (CR-765daa10): the next 16 variants are
+    /// INSTRUMENT-ONLY, and this is measured, not asserted ──
+    ///
+    /// Census taken from the data (audit DESIGN-AUDIT-276c7d94, GAP-M42-08;
+    /// measurement inherited from HH-1 of CR-92028c0c / Engram 6189):
+    /// - reachable from a `type_id` of [`OPCODE_COVERAGE`]: **0 of 16** — the
+    ///   UESP catalogue is closed at 70 rows and no row maps to these variants
+    ///   (test `opcode_coverage_reaches_53_of_89_effects_and_no_delta_variant`
+    ///   re-derives it from the table);
+    /// - production consumers of [`QuestRequest::from_effect`],
+    ///   [`Quest::execute_opcode`] and [`QuestMachine`]: **0** outside this
+    ///   module and the `*_probe.rs` instrumentation;
+    /// - therefore 0 delta variant traverses [`Quest::tick`].
+    ///
+    /// They exist as declared vocabulary for the 82-action DFU census. No
+    /// coverage figure may be derived from their existence.
+    /// Player enters/exits a location trigger (`Actions/WhenPcEntersExits.cs:25`).
+    WhenPcEntersExits,
+    /// NPC available trigger (`Actions/WhenNpcIsAvailable.cs:25`).
+    WhenNpcIsAvailable,
+    /// Skill level trigger (`Actions/WhenSkillLevel.cs:23`).
+    WhenSkillLevel,
+    /// Clicked item trigger (`Actions/ClickedItem.cs:18`).
+    ClickedItem,
+    /// Clicked foe trigger (`Actions/ClickedFoe.cs:21`).
+    ClickedFoe,
+    /// Toting item and clicked NPC trigger (`Actions/TotingItemAndClickedNpc.cs:22`).
+    TotingItemAndClickedNpc,
+    /// Dropped item at place trigger (`Actions/DroppedItemAtPlace.cs:18`).
+    DroppedItemAtPlace,
+    /// Season trigger (`Actions/Season.cs:20`).
+    Season,
+    /// Climate trigger (`Actions/Climate.cs:24`).
+    Climate,
+    /// Cast magic effect verb (`Actions/CastEffectDo.cs:22`).
+    CastEffectDo,
+    /// Cast spell on foe verb (`Actions/CastSpellOnFoe.cs:30`).
+    CastSpellOnFoe,
+    /// Dialog link verb (`Actions/DialogLink.cs:20`).
+    DialogLink,
+    /// Kill foe verb (`Actions/KillFoe.cs:19`).
+    KillFoe,
+    /// Multi-option prompt verb (`Actions/PromptMulti.cs:25`).
+    PromptMulti,
+    /// Train player verb (`Actions/TrainPc.cs:22`).
+    TrainPc,
+    /// World update verb (`Actions/WorldUpdate.cs:20`).
+    WorldUpdate,
 }
 
 impl OpcodeEffect {
@@ -546,6 +598,20 @@ pub enum QuestRequest {
     /// `Actions/UnrestrainFoe.cs:20`, `Actions/Enemies.cs:20`,
     /// `Actions/RemoveFoe.cs:18`; M22).
     FoeCommand { effect: OpcodeEffect },
+    /// Cast a magic effect (`Actions/CastEffectDo.cs:22`).
+    CastEffectDo { effect: Option<String> },
+    /// Cast a spell on a foe (`Actions/CastSpellOnFoe.cs:30`).
+    CastSpellOnFoe { spell: Option<String> },
+    /// Register a dialog link (`Actions/DialogLink.cs:20`).
+    DialogLink { link: Option<String> },
+    /// Kill a foe (`Actions/KillFoe.cs:19`).
+    KillFoe { foe: Option<String> },
+    /// Multi-option prompt (`Actions/PromptMulti.cs:25`).
+    PromptMulti { message_id: u16 },
+    /// Train the player (`Actions/TrainPc.cs:22`).
+    TrainPc { skill: Option<String> },
+    /// World update (`Actions/WorldUpdate.cs:20`).
+    WorldUpdate { detail: Option<String> },
     /// Condition evaluated by the owning organ (inventory, place, combat,
     /// reputation, spell watch, level, clock window, faction); the target
     /// never guesses it.
@@ -647,7 +713,25 @@ impl QuestRequest {
             | OpcodeEffect::AttributeLevel
             | OpcodeEffect::LevelCompleted
             | OpcodeEffect::CastSpell
-            | OpcodeEffect::FactionReputation => Self::Condition { effect },
+            | OpcodeEffect::FactionReputation
+            | OpcodeEffect::WhenPcEntersExits
+            | OpcodeEffect::WhenNpcIsAvailable
+            | OpcodeEffect::WhenSkillLevel
+            | OpcodeEffect::ClickedItem
+            | OpcodeEffect::ClickedFoe
+            | OpcodeEffect::TotingItemAndClickedNpc
+            | OpcodeEffect::DroppedItemAtPlace
+            | OpcodeEffect::Season
+            | OpcodeEffect::Climate => Self::Condition { effect },
+            OpcodeEffect::CastEffectDo => Self::CastEffectDo { effect: named() },
+            OpcodeEffect::CastSpellOnFoe => Self::CastSpellOnFoe { spell: named() },
+            OpcodeEffect::DialogLink => Self::DialogLink { link: named() },
+            OpcodeEffect::KillFoe => Self::KillFoe { foe: named() },
+            OpcodeEffect::PromptMulti => Self::PromptMulti {
+                message_id: message.unwrap_or(NO_MESSAGE_ID),
+            },
+            OpcodeEffect::TrainPc => Self::TrainPc { skill: named() },
+            OpcodeEffect::WorldUpdate => Self::WorldUpdate { detail: named() },
             _ => return None,
         };
         Some(request)
@@ -2563,6 +2647,50 @@ mod tests {
             if row.effect.is_none() {
                 assert!(matches!(row.type_id, 0 | 5 | 0x3F | 0x40 | 0x48 | 0x4E | 0x57));
             }
+        }
+    }
+
+    /// GAP-M42-02 / GAP-M42-08 (CR-ed07f360): reachability is a property of
+    /// `OPCODE_COVERAGE`, measured here — growing the enum cannot move it.
+    #[test]
+    fn opcode_coverage_reaches_53_of_89_effects_and_no_delta_variant() {
+        let mut reachable: Vec<OpcodeEffect> = OPCODE_COVERAGE
+            .iter()
+            .filter_map(|row| row.effect)
+            .collect();
+        reachable.sort_by_key(|effect| *effect as u8);
+        reachable.dedup();
+        assert_eq!(
+            reachable.len(),
+            53,
+            "distinct effects reached by the 70 coverage rows"
+        );
+
+        // The 16 delta A4 variants (CR-765daa10) have no `type_id`: 0/16.
+        let delta = [
+            OpcodeEffect::WhenPcEntersExits,
+            OpcodeEffect::WhenNpcIsAvailable,
+            OpcodeEffect::WhenSkillLevel,
+            OpcodeEffect::ClickedItem,
+            OpcodeEffect::ClickedFoe,
+            OpcodeEffect::TotingItemAndClickedNpc,
+            OpcodeEffect::DroppedItemAtPlace,
+            OpcodeEffect::Season,
+            OpcodeEffect::Climate,
+            OpcodeEffect::CastEffectDo,
+            OpcodeEffect::CastSpellOnFoe,
+            OpcodeEffect::DialogLink,
+            OpcodeEffect::KillFoe,
+            OpcodeEffect::PromptMulti,
+            OpcodeEffect::TrainPc,
+            OpcodeEffect::WorldUpdate,
+        ];
+        assert_eq!(delta.len(), 16);
+        for effect in delta {
+            assert!(
+                !reachable.contains(&effect),
+                "{effect:?} is reachable from a type_id: OPCODE_COVERAGE changed"
+            );
         }
     }
 

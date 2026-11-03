@@ -22,7 +22,7 @@ mechanical, this index is the only part written for the split.
 | Status: what is actually done | [`status.md`](acknowledgments/status.md) | The full M0–M29 record plus the M30–M38 technical closures, evidence at each closure, the campaign re-audit and the known gaps |
 | Roadmap | [`roadmap.md`](acknowledgments/roadmap.md) | Stage table — what each stage closes, what is explicitly out of scope today |
 | The launcher | [`launcher.md`](acknowledgments/launcher.md) | Modes, flags, exit codes, the verified launcher behaviour |
-| Crates, data custody and determinism | [`crates-and-determinism.md`](acknowledgments/crates-and-determinism.md) | The 13 workspace members, Mode A vs. Mode B, determinism rules |
+| Crates, data custody and determinism | [`crates-and-determinism.md`](acknowledgments/crates-and-determinism.md) | The 19 workspace members, Mode A vs. Mode B, determinism rules |
 
 ## Where to look first
 

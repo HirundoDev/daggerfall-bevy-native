@@ -102,6 +102,36 @@ impl GameClock {
         self.year += carry_years as u32;
     }
 
+    /// Inverse of [`GameClock::total_minutes`]: the clock an absolute minute
+    /// count declares (`second = 0`, the granularity of the save's
+    /// `calendar.game_minutes`).
+    ///
+    /// It exists so a restored session can re-seed the clock from the slot
+    /// **exactly** instead of raising a fresh clock by a delta: `total_minutes`
+    /// skips the second, so `from_total_minutes(c.total_minutes()) == c` for
+    /// every clock with `second == 0` (property asserted in the tests).
+    pub fn from_total_minutes(total_minutes: u64) -> Self {
+        let minutes_per_year = MONTHS_PER_YEAR * DAYS_PER_MONTH * MINUTES_PER_DAY;
+        let minutes_per_month = DAYS_PER_MONTH * MINUTES_PER_DAY;
+        let mut rest = total_minutes;
+        let year = rest / minutes_per_year;
+        rest %= minutes_per_year;
+        let month = rest / minutes_per_month;
+        rest %= minutes_per_month;
+        let day = rest / MINUTES_PER_DAY;
+        rest %= MINUTES_PER_DAY;
+        let hour = rest / MINUTES_PER_HOUR;
+        let minute = rest % MINUTES_PER_HOUR;
+        Self {
+            year: year as u32,
+            month: month as u32,
+            day: day as u32,
+            hour: hour as u32,
+            minute: minute as u32,
+            second: 0,
+        }
+    }
+
     /// Minute of the day (0..1439).
     pub fn minute_of_day(&self) -> u64 {
         u64::from(self.hour) * MINUTES_PER_HOUR + u64::from(self.minute)
@@ -357,6 +387,22 @@ mod tests {
         // +6 months → month 12 → year 406 month 0.
         clock.raise_seconds(6 * 30 * 1440 * 60);
         assert_eq!((clock.year, clock.month, clock.day), (406, 0, 0));
+    }
+
+    /// `from_total_minutes` es la inversa exacta de `total_minutes` en la
+    /// granularidad del save (`second = 0`): el reloj reanudado cae en el mismo
+    /// minuto absoluto que el guardado, incluidos los bordes de día/mes/año.
+    #[test]
+    fn clock_from_total_minutes_round_trips_the_absolute_minute() {
+        let start = GameClock::classic_default();
+        assert_eq!(start.total_minutes(), 210_168_720, "classic start epoch minute");
+        assert_eq!(GameClock::from_total_minutes(start.total_minutes()), start);
+        // Bordes: último minuto del día, del mes y del año, y un minuto suelto.
+        for minutes in [0u64, 1, 719, 720, 1439, 1440, 43_199, 43_200, 518_399, 518_400, 210_169_081] {
+            let clock = GameClock::from_total_minutes(minutes);
+            assert_eq!(clock.total_minutes(), minutes, "round-trip of {minutes} min");
+            assert_eq!(clock.second, 0);
+        }
     }
 
     #[test]

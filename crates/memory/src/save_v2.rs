@@ -40,16 +40,19 @@ use crate::session_store::fnv1a64;
 /// Envelope magic (contract §3).
 pub const SAVE_MAGIC: [u8; 4] = *b"DFSV";
 /// Envelope version this build writes and accepts (contract §3).
-pub const SAVE_VERSION: u16 = 2;
+pub const SAVE_VERSION: u16 = 3;
 /// Longest section key the envelope accepts (bounded, closed keys).
 pub const MAX_KEY_LEN: usize = 32;
 
-/// The 12 canonical sections of M33 §3.3 as `(key, owner)` — the **public
+/// The 13 canonical sections of M33 §3.3 as `(key, owner)` — the **public
 /// spec table**, not a module internal.
 ///
 /// `memory` needs it to answer one question without knowing any module's
 /// types: *is the whole save available?* ([`SectionRegistry::coverage`]).
-pub const M33_SECTIONS: [(&str, &str); 12] = [
+/// `dungeon` is the v3 addition and sorts by key between `crime` and
+/// `economy`; the envelope keeps its sections in key order regardless of the
+/// order of this table.
+pub const M33_SECTIONS: [(&str, &str); 13] = [
     ("world", "M19/M20/M18"),
     ("clock", "heart"),
     ("character", "M20"),
@@ -57,6 +60,7 @@ pub const M33_SECTIONS: [(&str, &str); 12] = [
     ("effects", "M23/M24/M32"),
     ("guilds", "M27"),
     ("crime", "M28"),
+    ("dungeon", "M34/M44"),
     ("quests", "M29"),
     ("economy", "M30"),
     ("calendar", "M31/M18"),
@@ -796,10 +800,10 @@ mod tests {
     #[test]
     fn magic_and_version_are_the_contract_values() {
         assert_eq!(&SAVE_MAGIC, b"DFSV");
-        assert_eq!(SAVE_VERSION, 2);
+        assert_eq!(SAVE_VERSION, 3);
         let bytes = SaveStateV2::new().encode();
         assert_eq!(&bytes[..4], b"DFSV");
-        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 2);
+        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 3);
     }
 
     #[test]
@@ -812,11 +816,20 @@ mod tests {
             Err(SaveError::BadMagic { .. })
         ));
 
+        // The generation this build predates is refused by name, whatever the
+        // number: `1` is the previous wire version of the same envelope.
         let mut bytes = envelope().encode();
         bytes[4] = 1;
         assert_eq!(
             SaveStateV2::decode(&bytes, &registry),
             Err(SaveError::UnsupportedVersion { version: 1 })
+        );
+
+        let mut bytes = envelope().encode();
+        bytes[4] = 2;
+        assert_eq!(
+            SaveStateV2::decode(&bytes, &registry),
+            Err(SaveError::UnsupportedVersion { version: 2 })
         );
     }
 
@@ -892,10 +905,10 @@ mod tests {
     fn coverage_counts_only_attached_codecs() {
         let registry = registry();
         let coverage = registry.coverage(&M33_SECTIONS);
-        assert_eq!(coverage.total(), 12);
+        assert_eq!(coverage.total(), 13);
         assert_eq!(coverage.count(), 0);
         assert!(!coverage.complete());
-        assert_eq!(coverage.ratio(), "0/12");
+        assert_eq!(coverage.ratio(), "0/13");
     }
 
     #[test]

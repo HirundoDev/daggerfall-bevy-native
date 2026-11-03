@@ -78,6 +78,13 @@ pub fn run_windowed_m3(
         eye.z,
     );
 
+    // F1 (`CR-a602cafc`): la evidencia de arriba ya está publicada. Sin
+    // servidor gráfico NO se intenta la ventana — winit aborta con
+    // «Failed to build event loop» (rc=101) y ese pánico no es del producto.
+    if !crate::window_limb_ready("city") {
+        return Ok(());
+    }
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {

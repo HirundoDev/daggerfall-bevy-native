@@ -1152,18 +1152,16 @@ mod m39_block_cd_tests {
         assert_eq!(state.value("m39.bank.purchase_price").unwrap(), "ABSENT");
     }
 
-    /// End-to-end smoke over the real retail bank when the developer points
-    /// `DAGGERFALL_ARENA2` at it. Absent variable or directory skips the probe
-    /// (returns), so the synthetic suite stays hermetic.
+    /// End-to-end smoke over the real retail bank when the workstation has one.
+    /// The folder comes from the canonical resolver (data contract §4.1: the
+    /// deprecated `$DAGGERFALL_ARENA2` alias is rank 4 of *that* resolver); no
+    /// usable installation skips the test, so the synthetic suite stays
+    /// hermetic.
     #[test]
     fn real_retail_arena2_delivers_both_blocks_when_configured() {
-        let Ok(arena2) = std::env::var("DAGGERFALL_ARENA2") else {
+        let Some(arena2) = crate::m37_ui1_probe::arena2_dir() else {
             return;
         };
-        let arena2 = PathBuf::from(arena2);
-        if !arena2.is_dir() {
-            return;
-        }
         let mut state = M39State::new(&empty_assets(), &arena2).expect("state over real retail");
         for name in BLOCK_C_NAMES.iter().chain(BLOCK_D_NAMES.iter()) {
             interact(&mut state, name).unwrap_or_else(|error| panic!("{name}: {error}"));

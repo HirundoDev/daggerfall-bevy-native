@@ -112,6 +112,7 @@ pub mod guild;
 pub mod law;
 pub mod locomotion;
 pub mod magic;
+pub mod mainquest;
 pub mod mobile_enemies;
 pub mod nav_graph;
 pub mod npc_ai;

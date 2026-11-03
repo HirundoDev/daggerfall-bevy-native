@@ -62,12 +62,7 @@ pub enum InkRole {
 impl InkRole {
     /// Every role, in declaration order.
     pub fn all() -> [InkRole; 4] {
-        [
-            Self::Primary,
-            Self::Secondary,
-            Self::Disabled,
-            Self::Alert,
-        ]
+        [Self::Primary, Self::Secondary, Self::Disabled, Self::Alert]
     }
 
     /// The palette index this role writes.
@@ -145,10 +140,7 @@ impl PaletteIdentity {
 /// recorded derivation is exactly `1..=255` — so it is legitimate and the
 /// surface is accepted. The guard protects against defaults, not against
 /// measurements.
-pub fn palette_identity(
-    asset: &str,
-    assets: &UiAssets,
-) -> Result<PaletteIdentity, UiCompatError> {
+pub fn palette_identity(asset: &str, assets: &UiAssets) -> Result<PaletteIdentity, UiCompatError> {
     let entry = assets
         .image(asset)
         .ok_or(UiCompatError::Palette(RULE_PALETTE_ASSET))?;
@@ -279,7 +271,11 @@ mod tests {
         let pick = palette_identity("PICK03I0.IMG", &assets).expect("measured pick identity");
         assert_eq!(pick.family, PaletteFamily::Hud);
         assert_eq!(pick.range, (1, 255));
-        assert_ne!(pick.range, (0, 254), "the Hud ceiling is not this asset's window");
+        assert_ne!(
+            pick.range,
+            (0, 254),
+            "the Hud ceiling is not this asset's window"
+        );
         let pick_surface = surface_in(&assets, "PICK03I0.IMG");
         assert_eq!(ink_for(&pick_surface, InkRole::Primary), Ok(PRIMARY_INK));
         assert_eq!(PRIMARY_INK, 127);
@@ -294,7 +290,10 @@ mod tests {
         assert_eq!(reject_substituted_default("PICK03I0.IMG", (1, 255)), Ok(()));
         // … and no other window is touched by it.
         assert_eq!(reject_substituted_default("MAIN00I0.IMG", (0, 254)), Ok(()));
-        assert_eq!(reject_substituted_default("MASK99I0.IMG", (144, 158)), Ok(()));
+        assert_eq!(
+            reject_substituted_default("MASK99I0.IMG", (144, 158)),
+            Ok(())
+        );
     }
 
     /// A2 rule 2 — an ink outside the asset window is a `PaletteViolation`.
@@ -345,7 +344,9 @@ mod tests {
         assert_eq!(ink_contrast(&hud, hud.palette.background()), 0);
         assert_eq!(ink_contrast(&hud, PRIMARY_INK), PRIMARY_INK as u32);
         assert_eq!(ink_contrast(&hud, ALERT_INK), ALERT_INK as u32);
-        assert!(InkRole::all().iter().all(|role| ink_contrast(&hud, role.index()) > 0));
+        assert!(InkRole::all()
+            .iter()
+            .all(|role| ink_contrast(&hud, role.index()) > 0));
         assert!(image(2, 2, 1).width == 2);
     }
 }

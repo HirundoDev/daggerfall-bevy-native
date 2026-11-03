@@ -38,7 +38,7 @@ pub(crate) struct Arch3dIndex {
     archive: bridge::BsaArchive,
     data: Vec<u8>,
     by_id: HashMap<u32, usize>,
-    cache: HashMap<u32, Option<bridge::MeshSpec>>,
+    cache: HashMap<u32, Option<bridge::ResolvedModel>>,
 }
 
 impl Arch3dIndex {
@@ -59,16 +59,25 @@ impl Arch3dIndex {
         })
     }
 
-    pub(crate) fn resolve(&mut self, model_id: u32) -> Option<bridge::MeshSpec> {
+    /// Geometry **and** embedded facade doors of one ARCH3D record, from ONE
+    /// read of the bytes (`bridge::model_at`, FG-01 / `GAP-FG01-02`).
+    pub(crate) fn resolve_model(&mut self, model_id: u32) -> Option<bridge::ResolvedModel> {
         if let Some(cached) = self.cache.get(&model_id) {
             return cached.clone();
         }
-        let spec = self
+        let model = self
             .by_id
             .get(&model_id)
-            .and_then(|idx| bridge::mesh_spec_at(&self.archive, &self.data, *idx).ok());
-        self.cache.insert(model_id, spec.clone());
-        spec
+            .and_then(|idx| bridge::model_at(&self.archive, &self.data, *idx).ok().map(
+                |(spec, doors)| bridge::ResolvedModel { spec, doors },
+            ));
+        self.cache.insert(model_id, model.clone());
+        model
+    }
+
+    /// Geometry only (interior assembly and other spec consumers).
+    pub(crate) fn resolve(&mut self, model_id: u32) -> Option<bridge::MeshSpec> {
+        self.resolve_model(model_id).map(|model| model.spec)
     }
 
     fn resolved_count(&self) -> usize {
@@ -245,7 +254,7 @@ fn compose_city(
     city: RetailBlocks,
     arch: &mut Arch3dIndex,
 ) -> bridge::RetailCity {
-    bridge::build_retail_city(city.width, city.height, &city.blocks, &mut |id| arch.resolve(id))
+    bridge::build_retail_city(city.width, city.height, &city.blocks, &mut |id| arch.resolve_model(id))
 }
 
 /// Retail sources (Mode A) already loaded: MAPS + BLOCKS + selection.
@@ -261,16 +270,12 @@ struct RetailSources {
 }
 
 fn load_sources() -> Result<RetailSources, String> {
-    let path_checker = daggerfall_inventory::path_checker::PathChecker::new();
-    if path_checker.use_custom_universe() {
-        return Err("custom universe (PathChecker) not supported in this probe".into());
-    }
     let maps_path = crate::mode_a_arena2_path("MAPS.BSA")?;
     let blocks_path = crate::mode_a_arena2_path("BLOCKS.BSA")?;
     let arch_path = crate::mode_a_arena2_path("ARCH3D.BSA")?;
-    println!("[OK] mode_a MAPS.BSA: {} ({} bytes)", maps_path.display(), std::fs::metadata(&maps_path).map(|m| m.len()).unwrap_or(0));
-    println!("[OK] mode_a BLOCKS.BSA: {} ({} bytes)", blocks_path.display(), std::fs::metadata(&blocks_path).map(|m| m.len()).unwrap_or(0));
-    println!("[OK] mode_a ARCH3D.BSA: {} ({} bytes)", arch_path.display(), std::fs::metadata(&arch_path).map(|m| m.len()).unwrap_or(0));
+    crate::m30_probe::sink_line_cited(&format!("[OK] mode_a MAPS.BSA: {} ({} bytes)", maps_path.display(), std::fs::metadata(&maps_path).map(|m| m.len()).unwrap_or(0)), MODE_A_MAPS_CITE);
+    crate::m30_probe::sink_line_cited(&format!("[OK] mode_a BLOCKS.BSA: {} ({} bytes)", blocks_path.display(), std::fs::metadata(&blocks_path).map(|m| m.len()).unwrap_or(0)), MODE_A_BLOCKS_CITE);
+    crate::m30_probe::sink_line_cited(&format!("[OK] mode_a ARCH3D.BSA: {} ({} bytes)", arch_path.display(), std::fs::metadata(&arch_path).map(|m| m.len()).unwrap_or(0)), MODE_A_ARCH_CITE);
     let maps_data = std::fs::read(&maps_path).map_err(|e| format!("MAPS.BSA read: {e}"))?;
     let blocks_data = std::fs::read(&blocks_path).map_err(|e| format!("BLOCKS.BSA read: {e}"))?;
     // ARCH3D is opened here to validate presence; specs are resolved on demand.
@@ -370,6 +375,36 @@ pub(crate) fn compose_capital_with_pixel() -> Result<CapitalCity, String> {
         map_pixel: [pixel_x, pixel_y],
         city: compose_city(city, &mut arch),
     })
+}
+
+/// **M-SHELL (SH-05/SH-06)**: identity of the composed capital and the map
+/// pixels of the other settlements of its region, in ONE `MAPS.BSA` pass.
+///
+/// - identity = `(region, location_id, block)` of the record
+///   [`compose_capital_with_pixel`] selects (`block = 0`: the capital is
+///   composed from its exterior blocks, not from a numbered interior);
+/// - pixels = `MAPTABLE.017` coordinates of every location of the region with
+///   a resolvable pixel (`x > 0 && y > 0`), in file order — the travel
+///   destination is chosen from these, 0 invented coordinates.
+#[cfg(feature = "window")]
+pub(crate) fn shell_settlements() -> Result<((u16, u16, u16), Vec<[i32; 2]>), String> {
+    let sources = load_sources()?;
+    let idx = sources
+        .locations
+        .iter()
+        .position(|l| l.name == CAPITAL_CITY)
+        .ok_or("Daggerfall capital not found in MAPS.BSA")?;
+    let region: u16 = REGION_DAGGERFALL
+        .parse()
+        .map_err(|err| format!("region {REGION_DAGGERFALL}: {err}"))?;
+    let mut pixels = Vec::with_capacity(sources.table.len());
+    for table in &sources.table {
+        let (x, y) = crate::m18_probe::map_pixel(table);
+        if x > 0 && y > 0 {
+            pixels.push([x, y]);
+        }
+    }
+    Ok(((region, sources.locations[idx].location_id, 0), pixels))
 }
 
 /// Retail capital composed from ARENA2 (used by both probes + the window).
@@ -619,3 +654,16 @@ pub fn run_seed_001() -> i32 {
         1
     }
 }
+
+// ── custody citations (W43: every `[OK]` of an evidence stream cites) ──────
+//
+// The three `mode_a` custody events cite the line that emits them, so a
+// `src=` can never outlive the code it points at: the citation is resolved
+// against this file by `SYS-ECONOMY-001` / `SYS-BANK-001`.
+
+/// `[OK] mode_a MAPS.BSA` — emitted by [`load_sources`].
+const MODE_A_MAPS_CITE: &str = "crates/app/src/m10_probe.rs:271";
+/// `[OK] mode_a BLOCKS.BSA` — emitted by [`load_sources`].
+const MODE_A_BLOCKS_CITE: &str = "crates/app/src/m10_probe.rs:272";
+/// `[OK] mode_a ARCH3D.BSA` — emitted by [`load_sources`].
+const MODE_A_ARCH_CITE: &str = "crates/app/src/m10_probe.rs:273";

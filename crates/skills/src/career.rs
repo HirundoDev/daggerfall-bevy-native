@@ -40,6 +40,20 @@ pub enum Tolerance {
     CriticalWeakness,
 }
 
+impl Tolerance {
+    /// Stable name, identical to the `DFCareer.Tolerance` member
+    /// (`DFCareer.cs:229-236`), used by the census/probe rows.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Tolerance::Normal => "Normal",
+            Tolerance::Immune => "Immune",
+            Tolerance::Resistant => "Resistant",
+            Tolerance::LowTolerance => "LowTolerance",
+            Tolerance::CriticalWeakness => "CriticalWeakness",
+        }
+    }
+}
+
 /// Elements with tolerance, in `DFCareer` order (masks
 /// `1,2,4,8,16,32,64`, `DFCareer.cs:375-393`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +109,20 @@ impl Element {
             Element::Frost => 4,
             Element::Shock => 5,
             Element::Disease => 6,
+        }
+    }
+
+    /// Stable name, identical to the `DFCareer.EffectFlags` member
+    /// (`DFCareer.cs:398-408`).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Element::Paralysis => "Paralysis",
+            Element::Magic => "Magic",
+            Element::Poison => "Poison",
+            Element::Fire => "Fire",
+            Element::Frost => "Frost",
+            Element::Shock => "Shock",
+            Element::Disease => "Disease",
         }
     }
 }

@@ -158,8 +158,13 @@ fn synthetic_texture_chain_reaches_bevy_image_and_material() {
     let mut app = headless_app();
     let image_handle = {
         let mut images = app.world_mut().resource_mut::<Assets<Image>>();
-        bridge::image_from_rgba(&rgba, decoded.width as u32, decoded.height as u32, &mut images)
-            .expect("RGBA of the decoded record is accepted")
+        bridge::image_from_rgba(
+            &rgba,
+            decoded.width as u32,
+            decoded.height as u32,
+            &mut images,
+        )
+        .expect("RGBA of the decoded record is accepted")
     };
     let material_handle = {
         let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
@@ -172,7 +177,9 @@ fn synthetic_texture_chain_reaches_bevy_image_and_material() {
 
     // 3. The Image is the decoded texture, pixel by pixel.
     let images = app.world().resource::<Assets<Image>>();
-    let image = images.get(&image_handle).expect("image lives in Assets<Image>");
+    let image = images
+        .get(&image_handle)
+        .expect("image lives in Assets<Image>");
     assert_eq!(
         (image.width(), image.height()),
         (decoded.width as u32, decoded.height as u32),
@@ -345,9 +352,15 @@ fn negative_controls_reject_bad_texture_paths() {
         flat.base_color_texture, None,
         "the error path yields NO textured material"
     );
-    assert_ne!(flat.base_color, Color::WHITE, "flat color is not the tint-white");
+    assert_ne!(
+        flat.base_color,
+        Color::WHITE,
+        "flat color is not the tint-white"
+    );
     assert!(
-        materials.iter().all(|(_, m)| m.base_color_texture.is_none()),
+        materials
+            .iter()
+            .all(|(_, m)| m.base_color_texture.is_none()),
         "no textured material exists after the two rejected buffers"
     );
 
@@ -369,15 +382,14 @@ fn negative_controls_reject_bad_texture_paths() {
 
     // (c) Texture key absent from the map → no textured material.
     let image_handle = render_material(&golden, 2, 2, &mut app).expect("valid buffer renders");
-    let textures: HashMap<u32, Handle<Image>> = HashMap::from([
-        (bridge::mesh_spec::texture_key(2, 0), {
+    let textures: HashMap<u32, Handle<Image>> =
+        HashMap::from([(bridge::mesh_spec::texture_key(2, 0), {
             let materials = app.world().resource::<Assets<StandardMaterial>>();
             materials
                 .get(&image_handle)
                 .and_then(|m| m.base_color_texture.clone())
                 .expect("the valid buffer produced a texture handle")
-        }),
-    ]);
+        })]);
     assert!(textures.contains_key(&2000));
     assert!(
         !textures.contains_key(&bridge::mesh_spec::texture_key(3, 0)),
@@ -395,7 +407,9 @@ fn negative_controls_reject_bad_texture_paths() {
         }
     };
     let materials = app.world().resource::<Assets<StandardMaterial>>();
-    let missing = materials.get(&missing_key_material).expect("fallback material");
+    let missing = materials
+        .get(&missing_key_material)
+        .expect("fallback material");
     assert_eq!(
         missing.base_color_texture, None,
         "a group whose key is absent from the map gets no textured material"
@@ -476,8 +490,13 @@ fn retail_texture_007_record0_matches_pinned_pixels() {
     let mut app = headless_app();
     let image_handle = {
         let mut images = app.world_mut().resource_mut::<Assets<Image>>();
-        bridge::image_from_rgba(&rgba, decoded.width as u32, decoded.height as u32, &mut images)
-            .expect("retail RGBA is accepted")
+        bridge::image_from_rgba(
+            &rgba,
+            decoded.width as u32,
+            decoded.height as u32,
+            &mut images,
+        )
+        .expect("retail RGBA is accepted")
     };
     let material_handle = {
         let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
@@ -494,7 +513,10 @@ fn retail_texture_007_record0_matches_pinned_pixels() {
         (image.width(), image.height()),
         (decoded.width as u32, decoded.height as u32)
     );
-    assert_eq!(image.texture_descriptor.format, TextureFormat::Rgba8UnormSrgb);
+    assert_eq!(
+        image.texture_descriptor.format,
+        TextureFormat::Rgba8UnormSrgb
+    );
     let data = image.data.as_deref().expect("CPU-side RGBA bytes");
     assert_eq!(data.len(), 64 * 64 * 4);
 

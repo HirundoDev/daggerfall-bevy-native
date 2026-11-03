@@ -386,6 +386,56 @@ pub enum PlayerMod {
     Reaction,
 }
 
+impl PlayerMod {
+    /// The six mods in declaration order, the field order of
+    /// `PlayerEntity.cs:172-177`.
+    pub const ALL: [PlayerMod; 6] = [
+        PlayerMod::ResistPoison,
+        PlayerMod::ResistDisease,
+        PlayerMod::ResistMagic,
+        PlayerMod::AvoidHit,
+        PlayerMod::Fatigue,
+        PlayerMod::Reaction,
+    ];
+
+    /// Declaration index `0..=5`.
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// Stored-field name, identical to the `PlayerEntity` member
+    /// (`PlayerEntity.cs:172-177`).
+    pub const fn name(self) -> &'static str {
+        match self {
+            PlayerMod::ResistPoison => "ResistPoison",
+            PlayerMod::ResistDisease => "ResistDisease",
+            PlayerMod::ResistMagic => "ResistMagic",
+            PlayerMod::AvoidHit => "AvoidHit",
+            PlayerMod::Fatigue => "Fatigue",
+            PlayerMod::Reaction => "Reaction",
+        }
+    }
+
+    /// `BIOG` command token (`BiogFile.cs:373-428`).
+    pub const fn code(self) -> &'static str {
+        match self {
+            PlayerMod::ResistPoison => "RP",
+            PlayerMod::ResistDisease => "RD",
+            PlayerMod::ResistMagic => "MR",
+            PlayerMod::AvoidHit => "TH",
+            PlayerMod::Fatigue => "FT",
+            PlayerMod::Reaction => "RR",
+        }
+    }
+
+    /// Reverse of [`Self::code`]: an **exact** token, no prefix matching (the
+    /// prefix rule of `BiogFile.cs` stays in [`parse_effect`], which feeds the
+    /// first two characters here).
+    pub fn from_code(code: &str) -> Option<PlayerMod> {
+        Self::ALL.into_iter().find(|kind| kind.code() == code)
+    }
+}
+
 /// Classifies an effect line, in the same branch order as
 /// `ApplyPlayerEffect` (`BiogFile.cs:248-445`): skill → `GP` → `IT` → `r`/`rf`
 /// → `RP/RD/MR/TH/FT/RR` → `#`/`!`/`?` → `AE`/`AF`/`AO` → unknown.
@@ -481,17 +531,10 @@ pub fn parse_effect(line: &str) -> BiographyEffect {
     BiographyEffect::Unknown(line.to_string())
 }
 
-/// `RP/RD/MR/TH/FT/RR` → player mod (§6.3).
+/// `RP/RD/MR/TH/FT/RR` → player mod (§6.3): the source tests the two-character
+/// prefix (`BiogFile.cs:373-428`), so the token is cut to `..2` first.
 fn player_mod(command: &str) -> Option<PlayerMod> {
-    match command.get(..2)? {
-        "RP" => Some(PlayerMod::ResistPoison),
-        "RD" => Some(PlayerMod::ResistDisease),
-        "MR" => Some(PlayerMod::ResistMagic),
-        "TH" => Some(PlayerMod::AvoidHit),
-        "FT" => Some(PlayerMod::Fatigue),
-        "RR" => Some(PlayerMod::Reaction),
-        _ => None,
-    }
+    PlayerMod::from_code(command.get(..2)?)
 }
 
 /// `^\d+\.` with any separator (`BiogFile.cs:110-119`) → number and text.

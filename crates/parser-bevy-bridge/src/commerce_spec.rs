@@ -140,11 +140,7 @@ pub fn interact_target(
     range: f32,
 ) -> Option<InteractHit> {
     let chest = merchant.chest();
-    let delta = [
-        chest[0] - eye[0],
-        chest[1] - eye[1],
-        chest[2] - eye[2],
-    ];
+    let delta = [chest[0] - eye[0], chest[1] - eye[1], chest[2] - eye[2]];
     let chest_dist = (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
     if chest_dist > range + RANGE_EPS_M {
         return None;

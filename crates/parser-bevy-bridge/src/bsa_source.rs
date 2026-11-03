@@ -63,6 +63,24 @@ pub fn mesh_spec_at(
     Ok(mesh_record_to_spec(record)?)
 }
 
+/// Reads record `index` **once** and returns both the visible [`MeshSpec`] and
+/// the facade doors the record embeds ([`crate::convert::DoorSpec`], planes
+/// with base texture archive 74).
+///
+/// FG-01 (`GAP-FG01-02`): the retail `.RMB` carries no building doors — they
+/// live in the building model. One read gives both so the caller cannot end up
+/// with a mesh and a door set parsed from different bytes.
+pub fn model_at(
+    archive: &BsaArchive,
+    data: &[u8],
+    index: usize,
+) -> Result<(MeshSpec, Vec<crate::convert::DoorSpec>), MeshSpecAtError> {
+    let record = entry_data(archive, data, index)?;
+    let spec = mesh_record_to_spec(record)?;
+    let doors = crate::convert::model_doors_from_record(record)?;
+    Ok((spec, doors))
+}
+
 /// First `max` records of ARCH3D.BSA that convert to visible geometry
 /// (≥1 triangle) **and are solid** ([`crate::city_spec::landmark_is_solid`]), in
 /// directory order — deterministic selection of the city landmarks
@@ -80,10 +98,7 @@ pub fn mesh_spec_at(
 /// convertible (`44005`) has an open 11 m passage along the `+X` axis at
 /// `z=40` that the flank ray and the `r=0.3` march thread through
 /// (HH-1 evidence `m10-yneg-partial`); 0 relaxation of checks.
-pub fn solid_convertible_blocks(
-    data: &[u8],
-    max: usize,
-) -> Result<Vec<(u32, MeshSpec)>, String> {
+pub fn solid_convertible_blocks(data: &[u8], max: usize) -> Result<Vec<(u32, MeshSpec)>, String> {
     let archive = parse_bsa(data).map_err(|e| format!("invalid ARCH3D.BSA: {e}"))?;
     let mut solid = Vec::new();
     for (index, entry) in archive.entries.iter().enumerate() {
@@ -101,9 +116,7 @@ pub fn solid_convertible_blocks(
         }
     }
     if solid.is_empty() {
-        return Err(
-            "no ARCH3D.BSA record converts to visible solid geometry".into(),
-        );
+        return Err("no ARCH3D.BSA record converts to visible solid geometry".into());
     }
     Ok(solid)
 }

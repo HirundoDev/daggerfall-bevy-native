@@ -44,7 +44,7 @@
 //! ranges; it is **not** serialized by [`RetailCity::canonical_bytes`], whose
 //! bytes stay frozen (P-2, golden `2b8d8fa5a18c0602`).
 
-use crate::convert::UNITS_PER_METER;
+use crate::convert::{DoorSpec, UNITS_PER_METER};
 use crate::mesh_spec::MeshSpec;
 use crate::stream_policy::CellKey;
 use daggerfall_parser_rs::rmb::MapBlockRecord;
@@ -57,6 +57,23 @@ pub const RETAIL_BLOCK_M: f32 = 4096.0 / UNITS_PER_METER;
 pub const ROTATION_DIVISOR: f32 = 5.688_889;
 /// Native Y offset of misc props (`DFU:RMBLayout.cs` `propsOffsetY = -4f`).
 const PROPS_OFFSET_Y: f32 = -4.0;
+
+/// One ARCH3D record as the composition consumes it: the visible geometry
+/// **and** the facade doors the record embeds (planes with base texture
+/// archive 74, [`DoorSpec`]).
+///
+/// `GAP-FG01-02`: the retail `.RMB` carries no building doors (`0` exterior
+/// doors in 9005/9005 sub-records); the doors of a retail building live in its
+/// model. Both halves come from **one** read of the record
+/// ([`crate::bsa_source::model_at`]) so the mesh and the door set can never be
+/// parsed from different bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedModel {
+    /// Visible geometry of the record (meters, Bevy handedness).
+    pub spec: MeshSpec,
+    /// Facade doors in the **model's local frame** (same frame as `spec`).
+    pub doors: Vec<DoorSpec>,
+}
 
 /// Resolved retail building (one `BuildingDataList[i]` + its `sub-record[i]`).
 #[derive(Debug, Clone, PartialEq)]
@@ -85,7 +102,9 @@ pub struct RetailBuilding {
     pub position: [f32; 3],
     /// Y rotation in radians (Bevy frame).
     pub yaw_rad: f32,
-    /// Positions of its doors (Bevy frame, meters).
+    /// Positions of its doors in the world (Bevy frame, meters): the `.RMB`
+    /// sub-record doors first (0 in retail data) and then the facade doors of
+    /// every exterior model placed for this building (`GAP-FG01-02`).
     pub doors: Vec<[f32; 3]>,
 }
 
@@ -310,14 +329,23 @@ fn push_ground_quad(
 ///
 /// `blocks` carries (cell_x, cell_y, record) for each cell of the
 /// `width_blocks × height_blocks` grid (gaps are omitted). `resolve_model`
-/// maps an ARCH3D record → [`MeshSpec`] (caller's Mode A custody; without a
-/// spec the building is still composed with its data and the model is counted in
+/// maps an ARCH3D record → [`ResolvedModel`] (geometry **and** embedded facade
+/// doors; caller's Mode A custody — without a spec the building is still
+/// composed with its data and the model is counted in
 /// [`RetailCity::unresolved_models`]).
+///
+/// **Doors (FG-01 / `GAP-FG01-02`):** every placed exterior model contributes
+/// its own facade doors to the building that instantiates it —
+/// `world = model_world_pos + rot_y(centre, sub_yaw + model_yaw)`, the *same*
+/// transform [`push_placed`] applies to the model's vertices (so the door frame
+/// is the vertex frame: no extra axis or Y flip is introduced here). The
+/// `.RMB` door list (`sub.exterior.doors`) is empty in retail data; it is kept
+/// first and in input order, the model doors follow in record order.
 pub fn build_retail_city(
     width_blocks: usize,
     height_blocks: usize,
     blocks: &[(usize, usize, MapBlockRecord)],
-    resolve_model: &mut dyn FnMut(u32) -> Option<MeshSpec>,
+    resolve_model: &mut dyn FnMut(u32) -> Option<ResolvedModel>,
 ) -> RetailCity {
     let h = height_blocks.max(1);
     let mut buildings_out: Vec<RetailBuilding> = Vec::new();
@@ -378,59 +406,12 @@ pub fn build_retail_city(
             let sub_yaw = (sub.y_rotation as f32 / ROTATION_DIVISOR).to_radians();
 
             // First model = the building model (RMBLayout.GetBuildingData).
-            let model_id = sub
-                .exterior
-                .models
-                .first()
-                .map_or(0, |m| m.model_id);
+            let model_id = sub.exterior.models.first().map_or(0, |m| m.model_id);
 
-            // Exterior models placed in the sub-record frame
-            // (RMBLayout.AddModels: local model (XPos, −YPos, ZPos)×scale).
-            for model in &sub.exterior.models {
-                let local = [
-                    model.x_pos as f32 / UNITS_PER_METER,
-                    -model.y_pos as f32 / UNITS_PER_METER,
-                    -model.z_pos as f32 / UNITS_PER_METER,
-                ];
-                let rotated = rot_y(local, sub_yaw);
-                let world = [pos[0] + rotated[0], pos[1] + rotated[1], pos[2] + rotated[2]];
-                let model_yaw = (model.y_rotation as f32 / ROTATION_DIVISOR).to_radians();
-                match resolve_model(model.model_id) {
-                    Some(spec) => {
-                        push_placed(
-                            &mut bp,
-                            &mut bn,
-                            &mut bi,
-                            &mut butex,
-                            &mut btex,
-                            &spec,
-                            world,
-                            sub_yaw + model_yaw,
-                        );
-                    }
-                    None => unresolved += 1,
-                }
-            }
-
-            // Block misc props (RMBLayout.AddProps): no rotation,
-            // (XPos, −YPos + propsOffsetY, ZPos + RMBDimension)×scale.
-            for model in &record.misc_3d_models {
-                let local = [
-                    model.x_pos as f32 / UNITS_PER_METER,
-                    (-model.y_pos as f32 + PROPS_OFFSET_Y) / UNITS_PER_METER,
-                    -(model.z_pos as f32 + 4096.0) / UNITS_PER_METER,
-                ];
-                let world = [origin_x + local[0], local[1], origin_z + local[2]];
-                match resolve_model(model.model_id) {
-                    Some(spec) => {
-                        push_placed(&mut bp, &mut bn, &mut bi, &mut butex, &mut btex, &spec, world, 0.0);
-                    }
-                    None => unresolved += 1,
-                }
-            }
-
-            // Building doors (sub-record frame, no Y flip).
-            let doors = sub
+            // Building doors of the `.RMB` (`sub.exterior.doors`): 0 in every
+            // retail sub-record (measured, `scripts/fg01-door-census.py`), kept
+            // first and in input order so no data path is lost.
+            let mut doors: Vec<[f32; 3]> = sub
                 .exterior
                 .doors
                 .iter()
@@ -441,9 +422,85 @@ pub fn build_retail_city(
                         -d.z_pos as f32 / UNITS_PER_METER,
                     ];
                     let rotated = rot_y(local, sub_yaw);
-                    [pos[0] + rotated[0], pos[1] + rotated[1], pos[2] + rotated[2]]
+                    [
+                        pos[0] + rotated[0],
+                        pos[1] + rotated[1],
+                        pos[2] + rotated[2],
+                    ]
                 })
                 .collect();
+
+            // Exterior models placed in the sub-record frame
+            // (RMBLayout.AddModels: local model (XPos, −YPos, ZPos)×scale).
+            for model in &sub.exterior.models {
+                let local = [
+                    model.x_pos as f32 / UNITS_PER_METER,
+                    -model.y_pos as f32 / UNITS_PER_METER,
+                    -model.z_pos as f32 / UNITS_PER_METER,
+                ];
+                let rotated = rot_y(local, sub_yaw);
+                let world = [
+                    pos[0] + rotated[0],
+                    pos[1] + rotated[1],
+                    pos[2] + rotated[2],
+                ];
+                let model_yaw = (model.y_rotation as f32 / ROTATION_DIVISOR).to_radians();
+                match resolve_model(model.model_id) {
+                    Some(resolved) => {
+                        push_placed(
+                            &mut bp,
+                            &mut bn,
+                            &mut bi,
+                            &mut butex,
+                            &mut btex,
+                            &resolved.spec,
+                            world,
+                            sub_yaw + model_yaw,
+                        );
+                        // Facade doors of THIS model (`GAP-FG01-02`): the door
+                        // centre is in the model frame already in Bevy
+                        // handedness (same as `resolved.spec`), so it takes the
+                        // placement transform of the vertices verbatim —
+                        // `world + rot_y(centre, sub_yaw + model_yaw)`.
+                        for door in &resolved.doors {
+                            let r = rot_y(door.centre, sub_yaw + model_yaw);
+                            doors.push([world[0] + r[0], world[1] + r[1], world[2] + r[2]]);
+                        }
+                    }
+                    None => unresolved += 1,
+                }
+            }
+
+            // Block misc props (RMBLayout.AddProps): no rotation,
+            // (XPos, −YPos + propsOffsetY, ZPos + RMBDimension)×scale.
+            // Props are street furniture of the block, not building facades:
+            // their 74-planes (if any) do NOT become building doors.
+            for model in &record.misc_3d_models {
+                let local = [
+                    model.x_pos as f32 / UNITS_PER_METER,
+                    (-model.y_pos as f32 + PROPS_OFFSET_Y) / UNITS_PER_METER,
+                    -(model.z_pos as f32 + 4096.0) / UNITS_PER_METER,
+                ];
+                let world = [origin_x + local[0], local[1], origin_z + local[2]];
+                match resolve_model(model.model_id) {
+                    Some(resolved) => {
+                        push_placed(
+                            &mut bp,
+                            &mut bn,
+                            &mut bi,
+                            &mut butex,
+                            &mut btex,
+                            &resolved.spec,
+                            world,
+                            0.0,
+                        );
+                    }
+                    None => unresolved += 1,
+                }
+            }
+
+            // Building doors: `.RMB` doors + the facade doors of every placed
+            // exterior model (built above, in that order).
 
             buildings_out.push(RetailBuilding {
                 block_x: *bx,
@@ -515,7 +572,7 @@ pub fn build_retail_cell(
     height_blocks: usize,
     cell: CellKey,
     record: MapBlockRecord,
-    resolve_model: &mut dyn FnMut(u32) -> Option<MeshSpec>,
+    resolve_model: &mut dyn FnMut(u32) -> Option<ResolvedModel>,
 ) -> RetailCity {
     let bx =
         usize::try_from(cell.x).expect("build_retail_cell: cell.x is a grid coordinate (>= 0)");
@@ -635,7 +692,9 @@ fn concat_specs(a: &MeshSpec, b: &MeshSpec) -> MeshSpec {
     let mut uvs = Vec::with_capacity(positions.len());
     let mut face_textures = Vec::with_capacity(positions.len());
     for spec in [a, b] {
-        if spec.uvs.len() == spec.positions.len() && spec.face_textures.len() == spec.positions.len() {
+        if spec.uvs.len() == spec.positions.len()
+            && spec.face_textures.len() == spec.positions.len()
+        {
             uvs.extend_from_slice(&spec.uvs);
             face_textures.extend_from_slice(&spec.face_textures);
         } else {
@@ -658,7 +717,7 @@ fn concat_specs(a: &MeshSpec, b: &MeshSpec) -> MeshSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daggerfall_parser_rs::rmb::{BlockPosition, BlockData, SubRecord};
+    use daggerfall_parser_rs::rmb::{BlockData, BlockPosition, SubRecord};
 
     /// Synthetic spec: horizontal 4×4 m quad centered at the origin.
     fn quad_spec() -> MeshSpec {
@@ -682,11 +741,14 @@ mod tests {
             ..Default::default()
         };
         rec.block_positions = vec![
-            BlockPosition { x_pos: 2048, z_pos: 1024, y_rotation: 0 };
+            BlockPosition {
+                x_pos: 2048,
+                z_pos: 1024,
+                y_rotation: 0
+            };
             32
         ];
-        let mut buildings =
-            vec![daggerfall_parser_rs::maps::BuildingData::default(); 32];
+        let mut buildings = vec![daggerfall_parser_rs::maps::BuildingData::default(); 32];
         buildings[0].building_type = 15;
         buildings[0].quality = 12;
         buildings[0].name_seed = 7;
@@ -720,8 +782,11 @@ mod tests {
         rec
     }
 
-    fn resolve(_: u32) -> Option<MeshSpec> {
-        Some(quad_spec())
+    fn resolve(_: u32) -> Option<ResolvedModel> {
+        Some(ResolvedModel {
+            spec: quad_spec(),
+            doors: Vec::new(),
+        })
     }
 
     #[test]
@@ -735,14 +800,20 @@ mod tests {
         // → (51.2, 0, 102.4 − 76.8 = 25.6) m. (Tolerance: 102.4 and 76.8 are
         // not dyadic in f32; the subtraction rounds ~1e-6 away from the decimal.)
         for (axis, (got, want)) in b.position.iter().zip([51.2, 0.0, 25.6]).enumerate() {
-            assert!((got - want).abs() < 1e-4, "position[{axis}] = {got}, expected {want}");
+            assert!(
+                (got - want).abs() < 1e-4,
+                "position[{axis}] = {got}, expected {want}"
+            );
         }
         assert_eq!(b.building_type, 15);
         assert_eq!(b.model_id, 4405);
         assert_eq!(b.doors.len(), 1);
         // Local door (64,0,128) → relative (1.6, 0, −3.2) → (52.8, 0, 22.4).
         for (axis, (got, want)) in b.doors[0].iter().zip([52.8, 0.0, 22.4]).enumerate() {
-            assert!((got - want).abs() < 1e-4, "door[{axis}] = {got}, expected {want}");
+            assert!(
+                (got - want).abs() < 1e-4,
+                "door[{axis}] = {got}, expected {want}"
+            );
         }
         assert_eq!(city.unresolved_models, 0);
         assert!(city.buildings_mesh.triangle_count() > 0);
@@ -750,6 +821,55 @@ mod tests {
         let (gmin, gmax) = city.ground.bounds().unwrap();
         assert_eq!(gmin, [0.0, 0.0, 0.0]);
         assert_eq!(gmax, [RETAIL_BLOCK_M, 0.0, RETAIL_BLOCK_M]);
+    }
+
+    /// FG-01 (`GAP-FG01-02`): the facade doors of every placed exterior model
+    /// land in `RetailBuilding.doors`, transformed by the **same** placement
+    /// transform the model vertices take (`world + rot_y(centre, sub_yaw +
+    /// model_yaw)`), after the (empty in retail data) `.RMB` doors.
+    #[test]
+    fn model_doors_land_in_the_building_frame() {
+        let mut rec = one_building_record();
+        // Sub-record yaw 90° (Da: 90 × RotationDivisor ⇒ 90°).
+        rec.sub_records[0].y_rotation = (90.0 * ROTATION_DIVISOR).round() as i32;
+        let model_doors = vec![
+            DoorSpec {
+                centre: [1.0, 0.5, -2.0],
+                normal: [0.0, 0.0, -1.0],
+                texture_archive: 74,
+                texture_record: 0,
+            },
+            DoorSpec {
+                centre: [3.0, 0.5, -2.0],
+                normal: [0.0, 0.0, -1.0],
+                texture_archive: 74,
+                texture_record: 1,
+            },
+        ];
+        let mut resolve = move |_: u32| {
+            Some(ResolvedModel {
+                spec: quad_spec(),
+                doors: model_doors.clone(),
+            })
+        };
+        let city = build_retail_city(1, 1, &[(0, 0, rec)], &mut resolve);
+        let b = &city.buildings[0];
+        // 1 `.RMB` door (fixture) + the 2 doors of the placed model.
+        assert_eq!(b.doors.len(), 3, "doors: {}", b.doors.len());
+        // `.RMB` door (64,0,128) → (1.6, 0, −3.2) rotated 90° → (−3.2, 0, −1.6)
+        // → building (51.2, 0, 25.6) ⇒ (48.0, 0, 24.0).
+        // Model door centres are already in the model (vertex) frame: the
+        // transform of the vertices is applied verbatim (no extra axis flip).
+        for (got, want) in
+            b.doors
+                .iter()
+                .zip([[48.0, 0.0, 24.0], [49.2, 0.5, 24.6], [49.2, 0.5, 22.6]])
+        {
+            for (axis, (g, w)) in got.iter().zip(want).enumerate() {
+                assert!((g - w).abs() < 1e-4, "door[{axis}] = {g}, expected {w}");
+            }
+        }
+        assert_eq!(city.unresolved_models, 0);
     }
 
     #[test]
@@ -775,7 +895,7 @@ mod tests {
     #[test]
     fn unresolved_model_degrades_honestly() {
         let rec = one_building_record();
-        let mut none = |_id: u32| None;
+        let mut none = |_id: u32| -> Option<ResolvedModel> { None };
         let city = build_retail_city(1, 1, &[(0, 0, rec)], &mut none);
         assert_eq!(city.unresolved_models, 1);
         assert_eq!(city.buildings.len(), 1);
@@ -823,7 +943,10 @@ mod tests {
             let cell_city = build_retail_cell(2, 2, key, rec.clone(), &mut resolve);
             let from_global = cell_canonical_bytes(&global, key);
             let from_cell = cell_canonical_bytes(&cell_city, key);
-            assert!(!from_global.is_empty(), "block {i} present in the global city");
+            assert!(
+                !from_global.is_empty(),
+                "block {i} present in the global city"
+            );
             assert_eq!(
                 from_global, from_cell,
                 "P-1 parity of block ({bx},{by}): global vs per-cell composition"
@@ -841,12 +964,36 @@ mod tests {
         let rec = one_building_record();
         let city = build_retail_city(1, 1, &[(0, 0, rec)], &mut resolve);
         assert!(
-            cell_canonical_bytes(&city, CellKey { x: 9, z: 9, level: 0 }).is_empty(),
+            cell_canonical_bytes(
+                &city,
+                CellKey {
+                    x: 9,
+                    z: 9,
+                    level: 0
+                }
+            )
+            .is_empty(),
             "wrong coordinates ⇒ empty, never fabricated bytes"
         );
-        assert!(cell_canonical_bytes(&city, CellKey { x: -1, z: 0, level: 0 }).is_empty());
+        assert!(cell_canonical_bytes(
+            &city,
+            CellKey {
+                x: -1,
+                z: 0,
+                level: 0
+            }
+        )
+        .is_empty());
         assert!(
-            cell_canonical_bytes(&city, CellKey { x: 0, z: 0, level: 1 }).is_empty(),
+            cell_canonical_bytes(
+                &city,
+                CellKey {
+                    x: 0,
+                    z: 0,
+                    level: 1
+                }
+            )
+            .is_empty(),
             "a retail city is single-level: level != 0 has no cell here"
         );
     }
@@ -858,8 +1005,22 @@ mod tests {
         rec_b.sub_records[0].x_pos = 1024;
         let blocks = vec![(0usize, 0usize, rec_a), (1, 0, rec_b)];
         let city = build_retail_city(2, 1, &blocks, &mut resolve);
-        let a = cell_canonical_bytes(&city, CellKey { x: 0, z: 0, level: 0 });
-        let b = cell_canonical_bytes(&city, CellKey { x: 1, z: 0, level: 0 });
+        let a = cell_canonical_bytes(
+            &city,
+            CellKey {
+                x: 0,
+                z: 0,
+                level: 0,
+            },
+        );
+        let b = cell_canonical_bytes(
+            &city,
+            CellKey {
+                x: 1,
+                z: 0,
+                level: 0,
+            },
+        );
         assert!(!a.is_empty() && !b.is_empty());
         assert_ne!(a, b, "different blocks serialize differently");
     }
@@ -869,12 +1030,7 @@ mod tests {
         let rec_a = one_building_record();
         let mut rec_b = one_building_record();
         rec_b.sub_records[0].x_pos = 1024;
-        let city = build_retail_city(
-            2,
-            1,
-            &[(0, 0, rec_a), (1, 0, rec_b)],
-            &mut resolve,
-        );
+        let city = build_retail_city(2, 1, &[(0, 0, rec_a), (1, 0, rec_b)], &mut resolve);
         assert_eq!(city.block_ranges.len(), 2);
         let r0 = city.block_ranges[0];
         let r1 = city.block_ranges[1];
@@ -896,19 +1052,21 @@ mod tests {
     fn block_ranges_count_unresolved_per_block() {
         let rec_a = one_building_record();
         let rec_b = one_building_record();
-        let mut none = |_id: u32| None;
-        let city = build_retail_city(
-            2,
-            1,
-            &[(0, 0, rec_a), (1, 0, rec_b)],
-            &mut none,
-        );
+        let mut none = |_id: u32| -> Option<ResolvedModel> { None };
+        let city = build_retail_city(2, 1, &[(0, 0, rec_a), (1, 0, rec_b)], &mut none);
         assert_eq!(city.unresolved_models, 2);
         assert_eq!(city.block_ranges[0].unresolved, 1, "per-block attribution");
         assert_eq!(city.block_ranges[1].unresolved, 1);
         // The empty geometry still serializes (honest degradation is part
         // of the cell's canonical form).
-        let cell = cell_canonical_bytes(&city, CellKey { x: 0, z: 0, level: 0 });
+        let cell = cell_canonical_bytes(
+            &city,
+            CellKey {
+                x: 0,
+                z: 0,
+                level: 0,
+            },
+        );
         assert!(!cell.is_empty());
     }
 
@@ -917,15 +1075,7 @@ mod tests {
         let rec = one_building_record();
         let mut rec2 = one_building_record();
         rec2.buildings[0].building_type = 9;
-        let city = build_retail_city(
-            2,
-            1,
-            &[(0, 0, rec), (1, 0, rec2)],
-            &mut resolve,
-        );
-        assert_eq!(
-            city.building_type_histogram(),
-            vec![(9, 1), (15, 1)]
-        );
+        let city = build_retail_city(2, 1, &[(0, 0, rec), (1, 0, rec2)], &mut resolve);
+        assert_eq!(city.building_type_histogram(), vec![(9, 1), (15, 1)]);
     }
 }

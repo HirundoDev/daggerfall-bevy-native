@@ -173,15 +173,25 @@ impl SfxBank {
         })
     }
 
-    /// Opens the bank from the Mode A ARENA2 (`crate::mode_a::arena2_path`).
+    /// Opens the bank from the resolved data directory (data contract §4.6),
+    /// keeping the provenance of the bytes it read.
     pub fn from_arena2() -> Result<Self, AudioError> {
-        let path = crate::mode_a::arena2_path(SOUND_BANK_FILE).map_err(|reason| {
-            AudioError::MissingFile {
-                name: SOUND_BANK_FILE.to_string(),
-                reason,
-            }
+        let root = crate::mode_a::data_root().map_err(|reason| AudioError::MissingFile {
+            name: SOUND_BANK_FILE.to_string(),
+            reason,
         })?;
-        Self::open(&path)
+        let (data, provenance) = root
+            .open(&root.rel(SOUND_BANK_FILE))
+            .map_err(|err| AudioError::MissingFile {
+                name: SOUND_BANK_FILE.to_string(),
+                reason: err.message(),
+            })?;
+        let bank = snd::SoundBank::parse(&data)?;
+        Ok(Self {
+            path: provenance.path,
+            data,
+            bank,
+        })
     }
 
     /// File this bank was read from (evidence).
@@ -240,15 +250,25 @@ impl MusicBank {
         })
     }
 
-    /// Opens the bank from the Mode A ARENA2 (`crate::mode_a::arena2_path`).
+    /// Opens the bank from the resolved data directory (data contract §4.6),
+    /// keeping the provenance of the bytes it read.
     pub fn from_arena2() -> Result<Self, AudioError> {
-        let path = crate::mode_a::arena2_path(MUSIC_BANK_FILE).map_err(|reason| {
-            AudioError::MissingFile {
-                name: MUSIC_BANK_FILE.to_string(),
-                reason,
-            }
+        let root = crate::mode_a::data_root().map_err(|reason| AudioError::MissingFile {
+            name: MUSIC_BANK_FILE.to_string(),
+            reason,
         })?;
-        Self::open(&path)
+        let (data, provenance) = root
+            .open(&root.rel(MUSIC_BANK_FILE))
+            .map_err(|err| AudioError::MissingFile {
+                name: MUSIC_BANK_FILE.to_string(),
+                reason: err.message(),
+            })?;
+        let archive = bsa::parse(&data)?;
+        Ok(Self {
+            path: provenance.path,
+            data,
+            archive,
+        })
     }
 
     /// File this bank was read from (evidence).

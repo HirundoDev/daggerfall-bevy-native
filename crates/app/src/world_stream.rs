@@ -77,7 +77,7 @@ pub struct ArchSpecs {
     archive: bridge::BsaArchive,
     data: Vec<u8>,
     by_id: std::collections::HashMap<u32, usize>,
-    cache: Mutex<std::collections::HashMap<u32, Option<bridge::MeshSpec>>>,
+    cache: Mutex<std::collections::HashMap<u32, Option<bridge::ResolvedModel>>>,
 }
 
 impl ArchSpecs {
@@ -99,27 +99,31 @@ impl ArchSpecs {
         })
     }
 
-    /// Spec of one ARCH3D record (`None` when unresolvable — honest
-    /// degradation, same rule as the synchronous composition).
-    pub fn resolve(&self, model_id: u32) -> Option<bridge::MeshSpec> {
+    /// Geometry **and** embedded facade doors of one ARCH3D record (`None` when
+    /// unresolvable — honest degradation, same rule as the synchronous
+    /// composition). One read feeds both halves (`bridge::model_at`), so a
+    /// streamed cell and its doors can never come from different bytes.
+    pub fn resolve_model(&self, model_id: u32) -> Option<bridge::ResolvedModel> {
         let cached = self
             .cache
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(&model_id)
             .cloned();
-        if let Some(spec) = cached {
-            return spec;
+        if let Some(model) = cached {
+            return model;
         }
-        let spec = self
+        let model = self
             .by_id
             .get(&model_id)
-            .and_then(|idx| bridge::mesh_spec_at(&self.archive, &self.data, *idx).ok());
+            .and_then(|idx| bridge::model_at(&self.archive, &self.data, *idx).ok().map(
+                |(spec, doors)| bridge::ResolvedModel { spec, doors },
+            ));
         self.cache
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(model_id, spec.clone());
-        spec
+            .insert(model_id, model.clone());
+        model
     }
 }
 
@@ -554,7 +558,7 @@ fn stream_commit(
         let width = window.source.0.width_blocks;
         let height = window.source.0.height_blocks;
         let task = pool.spawn(async move {
-            let mut resolve = |model_id: u32| source.0.arch.resolve(model_id);
+            let mut resolve = |model_id: u32| source.0.arch.resolve_model(model_id);
             let city = bridge::build_retail_cell(width, height, task_key, record, &mut resolve);
             let digest = rdi::fnv1a64(&bridge::cell_canonical_bytes(&city, task_key));
             CellComposed {

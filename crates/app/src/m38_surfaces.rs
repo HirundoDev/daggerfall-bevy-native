@@ -632,6 +632,46 @@ pub fn config_surfaces() -> Result<Vec<SurfaceWindow>, UiCompatError> {
     Ok(out)
 }
 
+/// One configuration page, as the shell's options panel navigates it.
+///
+/// `page` is the stable census id in lowercase (the `page=ID` of the shell
+/// contract only admits `[a-z0-9-]{1,24}`) and `key` is the page's own control:
+/// its first declared `ReadModel` path with dots turned into dashes
+/// (`config.effects.count` → `config-effects-count`). Nothing is synthesized:
+/// a page without a declared value is not a page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigPageRef {
+    /// Stable census id, lowercase (`cfg01`…).
+    pub page: String,
+    /// Key of the control the page exposes.
+    pub key: String,
+}
+
+/// The eleven configuration pages in id order, with their control key.
+///
+/// The shell opens its options panel on these pages one at a time; an error
+/// here is the census' own `UiCompatError` (never a substitute page).
+pub fn config_pages() -> Result<Vec<ConfigPageRef>, UiCompatError> {
+    let mut out = Vec::with_capacity(CONFIG_SURFACE_COUNT);
+    for window in config_surfaces()? {
+        let key = window
+            .texts
+            .iter()
+            .find_map(|text| match &text.decl.source {
+                TextSource::ReadModel(path) => Some(path.replace('.', "-")),
+                TextSource::Rsc(_) | TextSource::Literal(_) => None,
+            })
+            .ok_or(UiCompatError::Text(
+                "surfaces: a configuration page declares no ReadModel value",
+            ))?;
+        out.push(ConfigPageRef {
+            page: window.id.to_ascii_lowercase(),
+            key,
+        });
+    }
+    Ok(out)
+}
+
 // ── text: resolution, view clipping, glyph runs ────────────────────────────
 
 impl SurfaceWindow {

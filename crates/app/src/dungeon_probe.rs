@@ -318,6 +318,22 @@ pub fn run_dungeon_001() -> i32 {
         first.elapsed_ms, second.elapsed_ms
     );
 
+    // M44 (CR-bd972066): the instrument of route. The dungeon is **entered**,
+    // not counted: the interior grid of a real location is assembled and an
+    // A* route is computed with `behavior::nav_graph` across the block seams
+    // (`bridge::nav_build::measure_dungeon_nav`). `entered` is the number of
+    // steps that route actually traverses — computed, never a constant.
+    match entered_steps(&dungeons) {
+        Ok((entered, detail)) => {
+            crate::dun_canal::emit(&detail);
+            crate::dun_canal::emit(&format!("dungeon entered={entered}"));
+        }
+        Err(reason) => crate::dun_canal::emit(&format!("dungeon unmeasured — {reason}")),
+    }
+    // The canal publishes the geometry/state/eligibility sections (fixed
+    // order: geometry → state → eligibility) into stdout and `$DF_DUN_STATE`.
+    crate::dun_canal::emit_all();
+
     let checks: [(&str, bool); 12] = [
         ("dungeons", census.dungeons == EXPECTED_DUNGEONS),
         (
@@ -356,4 +372,80 @@ pub fn run_dungeon_001() -> i32 {
         if exit == 0 { "PASS" } else { "FAIL" }
     );
     exit
+}
+
+/// M44 (`CR-bd972066-59e6-4768-9985-de75f69f6798`) — the **instrument of
+/// route**.
+///
+/// Assembles one dungeon interior end to end — `MAPDITEM` → grid → the real
+/// `.RDB` cells of `BLOCKS.BSA` → the block meshes of `ARCH3D.BSA` — and
+/// measures a real A* route with `daggerfall_behavior::nav_graph` across the
+/// block seams (`parser-bevy-bridge::nav_build::measure_dungeon_nav`). Returns
+/// the traversed **steps** and the evidence line that explains them.
+///
+/// The subject is the first multi-block dungeon of the index: index order, no
+/// sampling, no clock, no RNG — two processes route the same bytes. The three
+/// archives are opened at runtime in Mode A custody (0 retail bytes in git);
+/// an unreadable archive is an error, never a silent `0`.
+fn entered_steps(dungeons: &[RetailDungeon]) -> Result<(usize, String), String> {
+    use daggerfall_parser_bevy_bridge::bsa_source::{self, BsaArchive};
+    use daggerfall_parser_bevy_bridge::nav_build::{
+        measure_dungeon_nav, NavBuildConfig, NavmeshSources,
+    };
+
+    let dungeon = dungeons
+        .iter()
+        .find(|dungeon| dungeon.layout.blocks.len() >= 2)
+        .ok_or_else(|| "no multi-block dungeon in the index".to_string())?;
+
+    let read = |name: &str| -> Result<Vec<u8>, String> {
+        let path = crate::mode_a_arena2_path(name)?;
+        std::fs::read(&path).map_err(|e| format!("{} ({e})", path.display()))
+    };
+    let maps_data = read("MAPS.BSA")?;
+    let blocks_data = read("BLOCKS.BSA")?;
+    let arch_data = read("ARCH3D.BSA")?;
+    let maps: BsaArchive =
+        bsa_source::parse_bsa(&maps_data).map_err(|e| format!("MAPS.BSA: {e:?}"))?;
+    let blocks: BsaArchive =
+        bsa_source::parse_bsa(&blocks_data).map_err(|e| format!("BLOCKS.BSA: {e:?}"))?;
+    let arch: BsaArchive =
+        bsa_source::parse_bsa(&arch_data).map_err(|e| format!("ARCH3D.BSA: {e:?}"))?;
+
+    let mut blocks_index = std::collections::BTreeMap::new();
+    for (index, entry) in blocks.entries.iter().enumerate() {
+        if let bsa_source::Entry::Named { name, .. } = entry {
+            blocks_index.insert(name.to_ascii_uppercase(), index);
+        }
+    }
+
+    let sources = NavmeshSources {
+        maps: &maps,
+        maps_data: &maps_data,
+        blocks: &blocks,
+        blocks_data: &blocks_data,
+        arch: &arch,
+        arch_data: &arch_data,
+        blocks_index: &blocks_index,
+    };
+    let measurement =
+        measure_dungeon_nav(&sources, dungeon.location_id, &NavBuildConfig::default())?;
+    let entered = measurement.cross_path.steps;
+    let detail = format!(
+        "dungeon route location_id={} region={:03} idx={} placed={} built={} nodes={} seams={} \
+         outcome={} steps={} crossings={} door_crossings={} digest={:016x}",
+        measurement.location_id,
+        dungeon.region_index,
+        dungeon.location_index,
+        measurement.placed,
+        measurement.built,
+        measurement.nodes,
+        measurement.seams,
+        measurement.cross_path.outcome,
+        entered,
+        measurement.cross_path.crossings,
+        measurement.cross_path.door_crossings,
+        measurement.cross_path.digest
+    );
+    Ok((entered, detail))
 }

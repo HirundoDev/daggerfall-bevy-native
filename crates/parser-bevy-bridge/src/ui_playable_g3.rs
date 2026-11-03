@@ -334,7 +334,11 @@ mod tests {
         let mut declared = ids();
         declared.sort_unstable();
         let text = declared.join("\n");
-        assert_eq!(text.len(), 660, "23 ids joined by '\\n' (no trailing newline)");
+        assert_eq!(
+            text.len(),
+            660,
+            "23 ids joined by '\\n' (no trailing newline)"
+        );
         assert_eq!(fnv1a64(text.as_bytes()), 0x6102_05d4_6ba7_4118);
     }
 
@@ -344,7 +348,10 @@ mod tests {
             .iter()
             .filter(|spec| spec.asset_retail.is_none_or(asset_is_generic))
             .count();
-        assert_eq!(generic, 0, "generic_widget=0 is audited against asset_retail");
+        assert_eq!(
+            generic, 0,
+            "generic_widget=0 is audited against asset_retail"
+        );
     }
 
     #[test]
@@ -436,9 +443,13 @@ mod tests {
     fn decode_retail(asset: &str, spec: &WindowSpec, bytes: &[u8]) -> Result<(), String> {
         let upper = asset.to_ascii_uppercase();
         if upper.ends_with(".IMG") {
-            decode_img_file(bytes).map(|_| ()).map_err(|err| err.to_string())
+            decode_img_file(bytes)
+                .map(|_| ())
+                .map_err(|err| err.to_string())
         } else if upper.ends_with(".FNT") {
-            FntFile::parse(bytes).map(|_| ()).map_err(|err| err.to_string())
+            FntFile::parse(bytes)
+                .map(|_| ())
+                .map_err(|err| err.to_string())
         } else if upper.ends_with(".RCI") {
             let (width, height) = (spec.rect.width, spec.rect.height);
             let raw = usize::from(width) * usize::from(height);
@@ -463,7 +474,9 @@ mod tests {
     #[test]
     fn retail_assets_decode_from_arena2() {
         let Some(dir) = arena2_dir() else {
-            eprintln!("SKIP retail_assets_decode_from_arena2: ARENA2 absent (DF_ARENA2 / $HOME/Games/…)");
+            eprintln!(
+                "SKIP retail_assets_decode_from_arena2: ARENA2 absent (DF_ARENA2 / $HOME/Games/…)"
+            );
             return;
         };
         let mut decoded = 0;
@@ -471,8 +484,8 @@ mod tests {
             let asset = spec.asset_retail.expect("retail asset");
             let path = arena2_path(&dir, asset)
                 .unwrap_or_else(|| panic!("{}: {asset} absent from ARENA2", spec.id));
-            let bytes = std::fs::read(&path)
-                .unwrap_or_else(|err| panic!("{}: {asset}: {err}", spec.id));
+            let bytes =
+                std::fs::read(&path).unwrap_or_else(|err| panic!("{}: {asset}: {err}", spec.id));
             decode_retail(asset, spec, &bytes)
                 .unwrap_or_else(|err| panic!("{}: {asset}: {err}", spec.id));
             if is_video(asset) {

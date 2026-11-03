@@ -21,6 +21,7 @@
 
 use daggerfall_behavior::crafting::recipe_hash;
 use daggerfall_behavior::magic::EffectSettings;
+use daggerfall_inventory::items::{is_ingredient, Item};
 
 /// Default `TextureRecord` (archive 205) for a potion
 /// (`PotionRecipe.cs:34,61-68`).
@@ -359,6 +360,21 @@ pub fn brew(cauldron_ids: &[i32]) -> Option<Potion> {
     })
 }
 
+/// Brews from a cauldron of item **instances**, applying the source's
+/// `is_ingredient` filter before hashing
+/// (`DaggerfallPotionMakerWindow.cs:314-317`): a non-ingredient in the
+/// cauldron contributes no id, so a sword dropped in cannot poison the recipe
+/// key. The predicate is M21's
+/// [`daggerfall_inventory::items::is_ingredient`] — never re-derived here.
+pub fn brew_cauldron(cauldron: &[&Item]) -> Option<Potion> {
+    let ids: Vec<i32> = cauldron
+        .iter()
+        .filter(|item| is_ingredient(item))
+        .map(|item| item.template_index as i32)
+        .collect();
+    brew(&ids)
+}
+
 /// Outcome of drinking a brewed potion: the resolved M23 effect key and its
 /// rolled magnitude. A bottled potion only *declares* its `EffectSettings`
 /// (§4.3 — the effect application is M23).
@@ -466,6 +482,25 @@ mod tests {
         assert_eq!(texture("waterBreathing"), 32);
         assert_eq!(texture("healing"), 15);
         assert_eq!(texture("purification"), 35);
+    }
+
+    /// §3.3 cauldron filter: a non-ingredient instance contributes no id, so
+    /// `{Longsword, 59, 30, 27}` still brews `stamina`, while the unfiltered
+    /// hash over all four ids matches nothing.
+    #[test]
+    fn cauldron_drops_non_ingredients() {
+        use daggerfall_inventory::items::ItemTemplate;
+        let item = |index: usize| Item::from_template(&ItemTemplate::empty(index));
+        let sword = item(120);
+        let water = item(59);
+        let aloe = item(30);
+        let ginkgo = item(27);
+        let potion = brew_cauldron(&[&sword, &water, &aloe, &ginkgo]).expect("stamina brews");
+        assert_eq!(potion.recipe.display_name_key, "stamina");
+        assert_eq!(potion.price, 25);
+        assert!(brew(&[120, 59, 30, 27]).is_none());
+        // A cauldron with no ingredient at all brews nothing.
+        assert!(brew_cauldron(&[&sword]).is_none());
     }
 
     /// Demo §6.3: the 3 stamina ingredients in any order brew `stamina`

@@ -824,6 +824,87 @@ pub fn weapon_skill(group_index: usize) -> WeaponSkill {
     }
 }
 
+// ── material classes (M41/W41-5) ──────────────────────────────────────────
+
+/// Number of weapon material classes (`WeaponMaterialTypes`,
+/// `ItemEnums.cs:64-77`): the index into [`WEIGHT_MUL`], [`VALUE_MUL`],
+/// [`COND_MUL`], [`TO_HIT_MOD`] and [`DAMAGE_MOD`].
+pub const MATERIAL_COUNT: usize = 10;
+
+/// Every weapon material class: [`MATERIAL_COUNT`] bits set (`0x03ff`).
+pub const MATERIAL_ALL: u16 = (1_u16 << MATERIAL_COUNT) - 1;
+
+/// Material names in `WeaponMaterialTypes` order (`ItemEnums.cs:64-77`;
+/// transcription of spec M21 §2.2, measured 2026-10-27).
+pub const MATERIAL_NAMES: [&str; MATERIAL_COUNT] = [
+    "Iron",
+    "Steel",
+    "Silver",
+    "Elven",
+    "Dwarven",
+    "Mithril",
+    "Adamantium",
+    "Ebony",
+    "Orcish",
+    "Daedric",
+];
+
+/// Armour material codes and labels: the three branches of
+/// `ApplyArmorMaterial` (`ItemBuilder.cs:488-507`: `Leather` `0x0000`,
+/// `Chain` `0x0100`, `Chain2` `0x0103`) followed by the ten plates
+/// `0x0200 + material` that fall into `SetItemPropertiesByMaterial`.
+pub const ARMOR_MATERIALS: [(i32, &str); 13] = [
+    (0x0000, "Leather"),
+    (0x0100, "Chain"),
+    (0x0103, "Chain2"),
+    (0x0200, "Iron"),
+    (0x0201, "Steel"),
+    (0x0202, "Silver"),
+    (0x0203, "Elven"),
+    (0x0204, "Dwarven"),
+    (0x0205, "Mithril"),
+    (0x0206, "Adamantium"),
+    (0x0207, "Ebony"),
+    (0x0208, "Orcish"),
+    (0x0209, "Daedric"),
+];
+
+/// Mask of the [`MATERIAL_COUNT`] weapon material classes `template_index`
+/// admits: bit `k` set ⟺ material `k` of the weapon table is applied to the
+/// template by its class entry point.
+///
+/// DFU assigns a material only to weapons (`ItemBuilder.CreateWeapon`,
+/// `ItemBuilder.cs:414-427`, ending in `SetItemPropertiesByMaterial`) and to
+/// armour (`CreateArmor`, `:488-507`, the same table through
+/// `0x0200 + plate`); every other item class is built with no material at
+/// all. The mask names which of the two public entry points
+/// ([`apply_weapon_material`] / [`apply_armor_material`]) is defined for a
+/// template, so callers (item census, loot material roll) stop re-deriving the
+/// class gate. Arrows (template 131) live in [`ItemGroup::Weapons`] and carry
+/// the mask like any weapon; it is inert there because
+/// [`ItemTemplate::has_no_encumbrance`] zeroes their weight.
+pub fn template_material_mask(template_index: usize) -> u16 {
+    match template_group(template_index) {
+        ItemGroup::Weapons | ItemGroup::Armor => MATERIAL_ALL,
+        _ => 0,
+    }
+}
+
+/// Name of weapon material `material` (`ItemEnums.cs:64-77`). `None` outside
+/// `0..MATERIAL_COUNT`: `WeaponMaterialTypes` has no "none" member.
+pub fn material_name(material: usize) -> Option<&'static str> {
+    MATERIAL_NAMES.get(material).copied()
+}
+
+/// Label of armour material `code` (`ItemBuilder.cs:488-507`). `None` for a
+/// code the source never assigns.
+pub fn armor_material_name(code: i32) -> Option<&'static str> {
+    ARMOR_MATERIALS
+        .iter()
+        .find(|(known, _)| *known == code)
+        .map(|(_, name)| *name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1333,6 +1414,42 @@ mod tests {
         for (index, skill) in expected.iter().enumerate() {
             assert_eq!(weapon_skill(index), *skill, "group index {index}");
         }
+
         assert_eq!(weapon_skill(19), WeaponSkill::None);
+    }
+
+    #[test]
+    fn material_mask_follows_the_class_entry_point() {
+        // Weapons and armour take a material; nothing else does.
+        assert_eq!(template_material_mask(102), MATERIAL_ALL); // Cuirass
+        assert_eq!(template_material_mask(120), MATERIAL_ALL); // Longsword
+        assert_eq!(template_material_mask(131), MATERIAL_ALL); // Arrow (inert)
+        assert_eq!(template_material_mask(0), 0); // Ruby
+        assert_eq!(template_material_mask(140), 0); // potion-ish item class
+        assert_eq!(MATERIAL_ALL, 0x03ff);
+    }
+
+    #[test]
+    fn material_names_are_ten_and_unique() {
+        assert_eq!(MATERIAL_NAMES.len(), MATERIAL_COUNT);
+        assert_eq!(material_name(0), Some("Iron"));
+        assert_eq!(material_name(9), Some("Daedric"));
+        assert_eq!(material_name(10), None);
+        let mut seen: Vec<&str> = MATERIAL_NAMES.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), MATERIAL_COUNT);
+    }
+
+    #[test]
+    fn armour_material_codes_are_the_thirteen_branches() {
+        assert_eq!(ARMOR_MATERIALS.len(), 13);
+        assert_eq!(armor_material_name(0x0000), Some("Leather"));
+        assert_eq!(armor_material_name(0x0100), Some("Chain"));
+        assert_eq!(armor_material_name(0x0103), Some("Chain2"));
+        assert_eq!(armor_material_name(0x0200), Some("Iron"));
+        assert_eq!(armor_material_name(0x0209), Some("Daedric"));
+        assert_eq!(armor_material_name(0x020a), None);
+        assert_eq!(armor_material_name(0x0001), None);
     }
 }

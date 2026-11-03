@@ -124,10 +124,7 @@ pub fn clothed_flat_record(record: u16) -> u16 {
     // The table is flat by construction (test `topless_substitutes_are_clothed`);
     // the loop costs nothing and makes a future chained entry safe.
     for _ in 0..TOPLESS_SUBSTITUTE.len() {
-        match TOPLESS_SUBSTITUTE
-            .iter()
-            .find(|(from, _)| *from == current)
-        {
+        match TOPLESS_SUBSTITUTE.iter().find(|(from, _)| *from == current) {
             Some((_, to)) => current = *to,
             None => break,
         }
@@ -184,68 +181,316 @@ pub struct RegionInfo {
 /// versioned in `reference/dfu-spec/` (see `NOTICE`, Daggerfall
 /// Unity section): no new game byte is added (INV-L99-6).
 pub const REGIONS: [RegionInfo; 62] = [
-    RegionInfo { index: 0, name: "Alik'r Desert", bank: BankType::Redguard },
-    RegionInfo { index: 1, name: "Dragontail Mountains", bank: BankType::Redguard },
-    RegionInfo { index: 2, name: "Glenpoint Foothills", bank: BankType::Breton },
-    RegionInfo { index: 3, name: "Daggerfall Bluffs", bank: BankType::Breton },
-    RegionInfo { index: 4, name: "Yeorth Burrowland", bank: BankType::Breton },
-    RegionInfo { index: 5, name: "Dwynnen", bank: BankType::Breton },
-    RegionInfo { index: 6, name: "Ravennian Forest", bank: BankType::Breton },
-    RegionInfo { index: 7, name: "Devilrock", bank: BankType::Redguard },
-    RegionInfo { index: 8, name: "Malekna Forest", bank: BankType::Redguard },
-    RegionInfo { index: 9, name: "Isle of Balfiera", bank: BankType::Breton },
-    RegionInfo { index: 10, name: "Bantha", bank: BankType::Redguard },
-    RegionInfo { index: 11, name: "Dak'fron", bank: BankType::Redguard },
-    RegionInfo { index: 12, name: "Islands in the Western Iliac Bay", bank: BankType::Breton },
-    RegionInfo { index: 13, name: "Tamarilyn Point", bank: BankType::Breton },
-    RegionInfo { index: 14, name: "Lainlyn Cliffs", bank: BankType::Redguard },
-    RegionInfo { index: 15, name: "Bjoulsae River", bank: BankType::Breton },
-    RegionInfo { index: 16, name: "Wrothgarian Mountains", bank: BankType::Breton },
-    RegionInfo { index: 17, name: "Daggerfall", bank: BankType::Breton },
-    RegionInfo { index: 18, name: "Glenpoint", bank: BankType::Breton },
-    RegionInfo { index: 19, name: "Betony", bank: BankType::Breton },
-    RegionInfo { index: 20, name: "Sentinel", bank: BankType::Redguard },
-    RegionInfo { index: 21, name: "Anticlere", bank: BankType::Breton },
-    RegionInfo { index: 22, name: "Lainlyn", bank: BankType::Redguard },
-    RegionInfo { index: 23, name: "Wayrest", bank: BankType::Breton },
-    RegionInfo { index: 24, name: "Gen Tem High Rock village", bank: BankType::Breton },
-    RegionInfo { index: 25, name: "Gen Rai Hammerfell village", bank: BankType::Redguard },
-    RegionInfo { index: 26, name: "Orsinium Area", bank: BankType::Breton },
-    RegionInfo { index: 27, name: "Skeffington Wood", bank: BankType::Breton },
-    RegionInfo { index: 28, name: "Hammerfell bay coast", bank: BankType::Redguard },
-    RegionInfo { index: 29, name: "Hammerfell sea coast", bank: BankType::Redguard },
-    RegionInfo { index: 30, name: "High Rock bay coast", bank: BankType::Breton },
-    RegionInfo { index: 31, name: "High Rock sea coast", bank: BankType::Breton },
-    RegionInfo { index: 32, name: "Northmoor", bank: BankType::Breton },
-    RegionInfo { index: 33, name: "Menevia", bank: BankType::Breton },
-    RegionInfo { index: 34, name: "Alcaire", bank: BankType::Breton },
-    RegionInfo { index: 35, name: "Koegria", bank: BankType::Breton },
-    RegionInfo { index: 36, name: "Bhoriane", bank: BankType::Breton },
-    RegionInfo { index: 37, name: "Kambria", bank: BankType::Breton },
-    RegionInfo { index: 38, name: "Phrygias", bank: BankType::Breton },
-    RegionInfo { index: 39, name: "Urvaius", bank: BankType::Breton },
-    RegionInfo { index: 40, name: "Ykalon", bank: BankType::Breton },
-    RegionInfo { index: 41, name: "Daenia", bank: BankType::Breton },
-    RegionInfo { index: 42, name: "Shalgora", bank: BankType::Breton },
-    RegionInfo { index: 43, name: "Abibon-Gora", bank: BankType::Redguard },
-    RegionInfo { index: 44, name: "Kairou", bank: BankType::Redguard },
-    RegionInfo { index: 45, name: "Pothago", bank: BankType::Redguard },
-    RegionInfo { index: 46, name: "Myrkwasa", bank: BankType::Redguard },
-    RegionInfo { index: 47, name: "Ayasofya", bank: BankType::Redguard },
-    RegionInfo { index: 48, name: "Tigonus", bank: BankType::Redguard },
-    RegionInfo { index: 49, name: "Kozanset", bank: BankType::Redguard },
-    RegionInfo { index: 50, name: "Satakalaam", bank: BankType::Redguard },
-    RegionInfo { index: 51, name: "Totambu", bank: BankType::Redguard },
-    RegionInfo { index: 52, name: "Mournoth", bank: BankType::Redguard },
-    RegionInfo { index: 53, name: "Ephesus", bank: BankType::Redguard },
-    RegionInfo { index: 54, name: "Santaki", bank: BankType::Redguard },
-    RegionInfo { index: 55, name: "Antiphyllos", bank: BankType::Redguard },
-    RegionInfo { index: 56, name: "Bergama", bank: BankType::Redguard },
-    RegionInfo { index: 57, name: "Gavaudon", bank: BankType::Breton },
-    RegionInfo { index: 58, name: "Tulune", bank: BankType::Breton },
-    RegionInfo { index: 59, name: "Glenumbra Moors", bank: BankType::Breton },
-    RegionInfo { index: 60, name: "Ilessan Hills", bank: BankType::Breton },
-    RegionInfo { index: 61, name: "Cybiades", bank: BankType::Redguard },
+    RegionInfo {
+        index: 0,
+        name: "Alik'r Desert",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 1,
+        name: "Dragontail Mountains",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 2,
+        name: "Glenpoint Foothills",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 3,
+        name: "Daggerfall Bluffs",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 4,
+        name: "Yeorth Burrowland",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 5,
+        name: "Dwynnen",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 6,
+        name: "Ravennian Forest",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 7,
+        name: "Devilrock",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 8,
+        name: "Malekna Forest",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 9,
+        name: "Isle of Balfiera",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 10,
+        name: "Bantha",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 11,
+        name: "Dak'fron",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 12,
+        name: "Islands in the Western Iliac Bay",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 13,
+        name: "Tamarilyn Point",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 14,
+        name: "Lainlyn Cliffs",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 15,
+        name: "Bjoulsae River",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 16,
+        name: "Wrothgarian Mountains",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 17,
+        name: "Daggerfall",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 18,
+        name: "Glenpoint",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 19,
+        name: "Betony",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 20,
+        name: "Sentinel",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 21,
+        name: "Anticlere",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 22,
+        name: "Lainlyn",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 23,
+        name: "Wayrest",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 24,
+        name: "Gen Tem High Rock village",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 25,
+        name: "Gen Rai Hammerfell village",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 26,
+        name: "Orsinium Area",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 27,
+        name: "Skeffington Wood",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 28,
+        name: "Hammerfell bay coast",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 29,
+        name: "Hammerfell sea coast",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 30,
+        name: "High Rock bay coast",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 31,
+        name: "High Rock sea coast",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 32,
+        name: "Northmoor",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 33,
+        name: "Menevia",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 34,
+        name: "Alcaire",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 35,
+        name: "Koegria",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 36,
+        name: "Bhoriane",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 37,
+        name: "Kambria",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 38,
+        name: "Phrygias",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 39,
+        name: "Urvaius",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 40,
+        name: "Ykalon",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 41,
+        name: "Daenia",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 42,
+        name: "Shalgora",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 43,
+        name: "Abibon-Gora",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 44,
+        name: "Kairou",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 45,
+        name: "Pothago",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 46,
+        name: "Myrkwasa",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 47,
+        name: "Ayasofya",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 48,
+        name: "Tigonus",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 49,
+        name: "Kozanset",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 50,
+        name: "Satakalaam",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 51,
+        name: "Totambu",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 52,
+        name: "Mournoth",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 53,
+        name: "Ephesus",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 54,
+        name: "Santaki",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 55,
+        name: "Antiphyllos",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 56,
+        name: "Bergama",
+        bank: BankType::Redguard,
+    },
+    RegionInfo {
+        index: 57,
+        name: "Gavaudon",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 58,
+        name: "Tulune",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 59,
+        name: "Glenumbra Moors",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 60,
+        name: "Ilessan Hills",
+        bank: BankType::Breton,
+    },
+    RegionInfo {
+        index: 61,
+        name: "Cybiades",
+        bank: BankType::Redguard,
+    },
 ];
 
 /// Region by index (0…61).
@@ -281,10 +526,26 @@ pub struct Occupation {
 
 /// Occupations of the city population (retail `TEXT.RSC` ids).
 pub const OCCUPATIONS: [Occupation; 4] = [
-    Occupation { key: "merchant", text_id: 4657, text: "merchant" },
-    Occupation { key: "mage", text_id: 4653, text: "mage" },
-    Occupation { key: "priest", text_id: 4442, text: "priest" },
-    Occupation { key: "assassin", text_id: 4446, text: "assassin" },
+    Occupation {
+        key: "merchant",
+        text_id: 4657,
+        text: "merchant",
+    },
+    Occupation {
+        key: "mage",
+        text_id: 4653,
+        text: "mage",
+    },
+    Occupation {
+        key: "priest",
+        text_id: 4442,
+        text: "priest",
+    },
+    Occupation {
+        key: "assassin",
+        text_id: 4446,
+        text: "assassin",
+    },
 ];
 
 /// Source of the caption text.
@@ -1028,7 +1289,9 @@ mod tests {
         let fixture = Fixture::new();
         let world = fixture.world();
         let city = CityLayout::new(3);
-        assert!(spawn_city_guards(&world, &city, 0, true).unwrap().is_empty());
+        assert!(spawn_city_guards(&world, &city, 0, true)
+            .unwrap()
+            .is_empty());
         assert!(spawn_city_guards(&world, &city, 1, false)
             .unwrap()
             .is_empty());

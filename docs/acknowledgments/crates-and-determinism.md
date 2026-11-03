@@ -2,11 +2,16 @@
 
 *Case file split from [`docs/ACKNOWLEDGMENTS.md`](../ACKNOWLEDGMENTS.md): the body was moved verbatim; only relative link targets and heading levels were rebased.*
 
-## Crates (13 workspace members)
+## Crates (19 workspace members)
 
 | Crate | Responsibility |
 |---|---|
 | `daggerfall-app` | Bevy application, CLI, systems, probe dispatch |
+| `daggerfall-game-core` | In-process public contract for main and side projects: `GameCorePlugin`, the law-type prelude, the `Input -> Simulate -> Publish -> Drain -> Present` schedule contract |
+| `daggerfall-content-api` | Content contract: in-process query plus a side-namespaced overlay over a versioned (1.0) schema |
+| `daggerfall-game-runtime-api` | Runtime control contract: UDS-only status/control/probes, authenticated by kernel peer credentials |
+| `daggerfall-content-runtime` | Content bundle contract: immutable, offline-verifiable, side-namespaced bundles with zero executable payload |
+| `daggerfall-promotion-gate` | Promotion gate: the plan §4.3 steps, typed failure causes and an append-only promotion ledger |
 | `daggerfall-nervous` | Organ bus and event vocabulary |
 | `daggerfall-heart` | Calendar/time (`DaggerfallDateTime` model), session orchestration |
 | `daggerfall-memory` | Session snapshot format, save/load, chunk map |
@@ -17,8 +22,9 @@
 | `daggerfall-crafting` | Enchantment and alchemy on top of the M23 effect registry and M21 item instances |
 | `daggerfall-combat` | Melee attack resolution, enemy melee timer and death sequence (M22) |
 | `daggerfall-antibodies` | Invariants and guardrails |
-| `daggerfall_parser_rs` | Clean-room parsers: BSA containers, `ARCH3D`, `BLOCKS`/`.RMB`/`.RDB`, `MAPS`, `WOODS.WLD`, climates, textures/palettes, images, MIDI, `DAGGER.SND`, `TEXT.RSC`, `NAMEGEN.DAT`, DFRandom |
+| `daggerfall-parser-rs` | Clean-room parsers: BSA containers, `ARCH3D`, `BLOCKS`/`.RMB`/`.RDB`, `MAPS`, `WOODS.WLD`, climates, textures/palettes, images, MIDI, `DAGGER.SND`, `TEXT.RSC`, `NAMEGEN.DAT`, DFRandom |
 | `daggerfall-parser-bevy-bridge` | Pure `MeshSpec`/material/UV/Image conversion into Bevy handles |
+| `daggerfall-side-contract` | Deterministic side-contract bundle tool: `--generate`/`--verify`/`--check`/`--sync`/`--diff`, one canonical verdict row per run |
 
 The parser is a **leaf**: zero engine dependencies, testable in isolation, with no knowledge of
 Bevy. The bridge is pure where it matters (`MeshRecord → MeshSpec`) and only touches Bevy at the

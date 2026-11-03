@@ -13,9 +13,7 @@
 //! **combined** mesh; specific layer: street checks (spawn on the
 //! street, full end-to-end traversal, block collision).
 
-use crate::city_spec::{
-    build_city_mesh, street_spawn, CityLayout, CityMesh, CITY_BLOCK_M,
-};
+use crate::city_spec::{build_city_mesh, street_spawn, CityLayout, CityMesh, CITY_BLOCK_M};
 use crate::collision_grid::{first_geometry_hit, CollisionGrid, DEFAULT_CELL_M};
 use crate::mesh_spec::MeshSpec;
 use crate::view_probe::{
@@ -199,13 +197,7 @@ pub fn run_city_probe(city: &CityMesh, layout: &CityLayout, gap: usize) -> CityP
                 stopped_before_center = true;
                 break;
             }
-            let step = swept_step_oracle(
-                &city.combined,
-                &index,
-                pos,
-                outcome.pos,
-                PLAYER_RADIUS_M,
-            );
+            let step = swept_step_oracle(&city.combined, &index, pos, outcome.pos, PLAYER_RADIUS_M);
             flank_samples += step.samples;
             if step.blocked() {
                 flank_traversals += 1;
@@ -362,7 +354,11 @@ mod tests {
             assert!(check.ok, "check {} FAIL: {}", check.id, check.detail);
         }
         assert!(report.pass, "PROBE-CITY-001 must PASS: {report:?}");
-        assert_eq!(report.checks.len(), 9, "generic layer (5) + street layer (4)");
+        assert_eq!(
+            report.checks.len(),
+            9,
+            "generic layer (5) + street layer (4)"
+        );
     }
 
     #[test]
@@ -373,8 +369,14 @@ mod tests {
         assert_eq!(a.pass, b.pass);
         assert_eq!(a.checks.len(), b.checks.len());
         assert_eq!(
-            a.checks.iter().map(|c| c.detail.as_str()).collect::<Vec<_>>(),
-            b.checks.iter().map(|c| c.detail.as_str()).collect::<Vec<_>>(),
+            a.checks
+                .iter()
+                .map(|c| c.detail.as_str())
+                .collect::<Vec<_>>(),
+            b.checks
+                .iter()
+                .map(|c| c.detail.as_str())
+                .collect::<Vec<_>>(),
             "same input → same report (determinism)"
         );
     }
@@ -388,12 +390,30 @@ mod tests {
         let mut normals = Vec::new();
         let mut indices = Vec::new();
         let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
-            ([0.0, -1.0, 0.0], [[-s, 0.0, s], [s, 0.0, s], [s, 0.0, -s], [-s, 0.0, -s]]),
-            ([0.0, 1.0, 0.0], [[-s, h, -s], [s, h, -s], [s, h, s], [-s, h, s]]),
-            ([0.0, 0.0, -1.0], [[s, 0.0, -s], [-s, 0.0, -s], [-s, h, -s], [s, h, -s]]),
-            ([0.0, 0.0, 1.0], [[-s, 0.0, s], [s, 0.0, s], [s, h, s], [-s, h, s]]),
-            ([-1.0, 0.0, 0.0], [[-s, 0.0, -s], [-s, 0.0, s], [-s, h, s], [-s, h, -s]]),
-            ([1.0, 0.0, 0.0], [[s, 0.0, s], [s, 0.0, -s], [s, h, -s], [s, h, s]]),
+            (
+                [0.0, -1.0, 0.0],
+                [[-s, 0.0, s], [s, 0.0, s], [s, 0.0, -s], [-s, 0.0, -s]],
+            ),
+            (
+                [0.0, 1.0, 0.0],
+                [[-s, h, -s], [s, h, -s], [s, h, s], [-s, h, s]],
+            ),
+            (
+                [0.0, 0.0, -1.0],
+                [[s, 0.0, -s], [-s, 0.0, -s], [-s, h, -s], [s, h, -s]],
+            ),
+            (
+                [0.0, 0.0, 1.0],
+                [[-s, 0.0, s], [s, 0.0, s], [s, h, s], [-s, h, s]],
+            ),
+            (
+                [-1.0, 0.0, 0.0],
+                [[-s, 0.0, -s], [-s, 0.0, s], [-s, h, s], [-s, h, -s]],
+            ),
+            (
+                [1.0, 0.0, 0.0],
+                [[s, 0.0, s], [s, 0.0, -s], [s, h, -s], [s, h, s]],
+            ),
         ];
         for (normal, quad) in faces {
             let base = positions.len() as u32;

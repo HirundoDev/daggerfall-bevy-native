@@ -10,7 +10,11 @@
 //!     3 combined) adds up to 18, not 24; the six boundary states (empty,
 //!     UTF-8, negatives, max census, clock boundary, enchanted item) close the
 //!     declared total without inventing module ownership.
-//!   - **B** the S0 census: `85` lines, `1705` B, `f793b743974d7f39`.
+//!   - **B** the `S0` census of the v2 golden (`85` lines, `1705` B,
+//!     `f793b743974d7f39`) **and** the live writer's document for that same
+//!     state: `FX-1`, the 13-section v3 text (`89` lines, `1794` B,
+//!     `a1199cefed185b41`, spec §3) — the fixture's census and the emitted
+//!     census are reported apart, never conflated.
 //!   - **C** five corruption mutations, each one **must fail** (anti-false-
 //!     positive rule: a reader that accepts a mutation breaks the check).
 //!   - **D** two complete passes ⇒ the same digest, printed `×2`.
@@ -18,10 +22,11 @@
 //!
 //!   `EXIT=0 ⟺ A∧B∧C∧D∧E`; `EXIT=1` on any FAIL. 0 ARENA2 dependence.
 //! - **`PROBE-SAVE-MIGRATION-001`** — three v1 fixtures embedded as text
-//!   (0 retail bytes): each migrates to a valid v2 and
+//!   (0 retail bytes): each migrates to a valid **v3** document and
 //!   `migrate(migrate(x)) == migrate(x)`; GV-05/GV-09 census printed;
-//!   `EXIT=1` when a valid v1 is rejected or a migrated v2 does not re-parse
-//!   (§6.2 — GV-09 gated against the corrected literal, corrección #23).
+//!   `EXIT=1` when a valid v1 is rejected or a migrated v3 does not re-parse
+//!   (§6.2 — GV-09 gated against the measured v3 literal: the corrected v2
+//!   census plus the four `dungeon_*` families).
 //! - **`PROBE-SAVEGAME-READ-001`** (Mode A, read-only) — retail `MAPSAVE.SAV`
 //!   layout + `SAVE00I0.IMG` header + the classic census. Each classic file
 //!   (`SAVETREE.DAT`, `SAVEVARS.DAT`, `IMAGE.RAW`) has **three** declared
@@ -530,6 +535,12 @@ fn synthetic_states() -> Vec<(&'static str, SaveGameV2)> {
     s.inventory.items[0].enchantment_slots = 3;
     s.inventory.items[0].enchants = vec![(1, 100), (2, 200), (3, 300)];
     s.inventory.items[0].enchantment_points = 60;
+    // M44 (CR-bd972066-59e6-4768-9985-de75f69f6798): the dungeon tail of the
+    // session the probe walked — the four `dungeon_*` families of the state
+    // machine, the eligibility tokens and the loot row. It is the same value
+    // the canal's `load` row digests, so the artifact and the published row
+    // can only agree when they describe the same tail.
+    s.dungeon = crate::dungeon_state::session_section();
     states.push(("enchanted-item", s));
 
     states
@@ -600,9 +611,33 @@ fn block_a(workspace: &Path) -> bool {
     ok
 }
 
-/// Block B — the S0 census against the spec §4 literals.
+/// Block B — two censuses, never conflated:
+///
+/// - the **`S0` v2 golden** as the product source holds it (`85` / `1705` /
+///   `f793b743974d7f39`, spec §4): recomputed from the fixture's own bytes, so
+///   an edit to the golden is caught here;
+/// - the **live writer's** document for that same state: `FX-1`, the
+///   thirteen-section v3 text of spec §3 (`89` / `1794` / `a1199cefed185b41`).
+///   Its oracle is the migration algorithm — `writer(S0) == migrate(S0)` — so
+///   the row is a real agreement, not a literal this probe typed twice.
 fn block_b() -> bool {
-    println!("\n-- B · S0 census --");
+    println!("\n-- B · S0 census (v2 golden) + live writer (FX-1, v3) --");
+    let s0_lines = S0_TEXT.lines().count();
+    let s0_bytes = S0_TEXT.len();
+    let s0_checksum = S0_TEXT
+        .lines()
+        .next_back()
+        .and_then(|line| line.strip_prefix("checksum="))
+        .unwrap_or("");
+    let s0_ok = s0_lines == 85 && s0_bytes == 1705 && s0_checksum == "f793b743974d7f39";
+    if s0_ok {
+        println!("[OK] S0 lines={s0_lines} bytes={s0_bytes} checksum={s0_checksum}");
+    } else {
+        println!(
+            "[FAIL] S0 lines={s0_lines} bytes={s0_bytes} checksum={s0_checksum} want lines=85 bytes=1705 checksum=f793b743974d7f39"
+        );
+    }
+
     let doc = SaveGameV2::sample();
     let text = doc.to_text();
     let lines = text.lines().count();
@@ -612,16 +647,17 @@ fn block_b() -> bool {
         .next_back()
         .and_then(|line| line.strip_prefix("checksum="))
         .unwrap_or("");
-    let golden = text == S0_TEXT;
-    let ok = lines == 85 && bytes == 1705 && checksum == "f793b743974d7f39" && golden;
-    if ok {
-        println!("[OK] S0 lines={lines} bytes={bytes} checksum={checksum}");
+    let golden = matches!(migrate_text(S0_TEXT), Ok(fx1) if text == fx1);
+    let writer_ok =
+        lines == 89 && bytes == 1794 && checksum == "a1199cefed185b41" && golden;
+    if writer_ok {
+        println!("[OK] FX-1 lines={lines} bytes={bytes} checksum={checksum}");
     } else {
         println!(
-            "[FAIL] S0 lines={lines} bytes={bytes} checksum={checksum} golden={golden} want lines=85 bytes=1705 checksum=f793b743974d7f39"
+            "[FAIL] FX-1 lines={lines} bytes={bytes} checksum={checksum} writer==migrate(S0)={golden} want lines=89 bytes=1794 checksum=a1199cefed185b41"
         );
     }
-    ok
+    s0_ok && writer_ok
 }
 
 /// Block C — five mutations; each one must be rejected (anti-false-positive:
@@ -983,7 +1019,7 @@ pub fn run_save_migration_001() -> i32 {
     let mut migrated_ok = 0usize;
     let mut idempotent_ok = 0usize;
     let mut clock_only_ok = true;
-    println!("\n-- migration (v1 → v2 → v2) --");
+    println!("\n-- migration (v1 → v3 → v3) --");
     for (name, fixture) in fixtures {
         let v2 = match migrate_text(fixture) {
             Ok(v2) => v2,
@@ -995,7 +1031,7 @@ pub fn run_save_migration_001() -> i32 {
         let parsed = match SaveGameV2::from_text(&v2) {
             Ok(parsed) => parsed,
             Err(error) => {
-                println!("FAIL {name} - migrated v2 does not re-parse: {error}");
+                println!("FAIL {name} - migrated v3 does not re-parse: {error}");
                 continue;
             }
         };
@@ -1005,7 +1041,7 @@ pub fn run_save_migration_001() -> i32 {
         let again = match migrate_text(&v2) {
             Ok(again) => again,
             Err(error) => {
-                println!("FAIL {name} - v2→v2 migration failed: {error}");
+                println!("FAIL {name} - v3→v3 migration failed: {error}");
                 continue;
             }
         };
@@ -1021,15 +1057,17 @@ pub fn run_save_migration_001() -> i32 {
             .and_then(|line| line.strip_prefix("checksum="))
             .unwrap_or("");
         println!(
-            "[OK] {name} - v1→v2 ok v2 parses idempotent={idempotent} lines={lines} bytes={} checksum={checksum}",
+            "[OK] {name} - v1→v3 ok v3 parses idempotent={idempotent} lines={lines} bytes={} checksum={checksum}",
             v2.len()
         );
         migrated.push(v2);
     }
 
-    // GV-09 — census of fixture (i) migrated: HARD GATE against the
-    // corrected literal (spec §6.2 corrección #23 — the pre-(18) literal
-    // lacked `vampire_clan=0` + `lycanthropy=0` = +2 lines / +29 B).
+    // GV-09 — census of fixture (i) migrated: HARD GATE against the measured
+    // v3 literal. v3 adds the four `dungeon_*` families to the corrected v2
+    // body (`73 / 1324 / 1cc138db8a7e7c95`, spec §6.2 corrección #23), which
+    // is `+4` lines and `+89` B with a fresh seal — the numbers below are the
+    // ones this probe prints, never typed from memory.
     let mut gv09 = false;
     if let Some(v2) = migrated.first() {
         let lines = v2.lines().count();
@@ -1039,9 +1077,9 @@ pub fn run_save_migration_001() -> i32 {
             .next_back()
             .and_then(|line| line.strip_prefix("checksum="))
             .unwrap_or("");
-        gv09 = lines == 73 && bytes == 1324 && checksum == "1cc138db8a7e7c95";
+        gv09 = lines == 77 && bytes == 1413 && checksum == "9f9eb853eb005f9b";
         println!(
-            "[{}] GV-09: lines={lines} bytes={bytes} checksum={checksum} (want 73/1324/1cc138db8a7e7c95 · corrección #23)",
+            "[{}] GV-09: lines={lines} bytes={bytes} checksum={checksum} (want 77/1413/9f9eb853eb005f9b · v3: v2 census + 4 dungeon families)",
             verdict(gv09)
         );
     }
@@ -1064,11 +1102,11 @@ pub fn run_save_migration_001() -> i32 {
     let pass = migrated_ok == 3 && idempotent_ok == 3 && clock_only_ok && gv05 && gv09 && digest_ok;
     if migrated_ok == 3 && idempotent_ok == 3 && gv09 && digest_ok {
         println!(
-            "[OK] migration: 3/3 v1→v2 · v2→v2 idempotente 3/3 · GV-09 3/3 · digest={digest_one:016x} ×2"
+            "[OK] migration: 3/3 v1→v3 · v3→v3 idempotente 3/3 · GV-09 PASS · digest={digest_one:016x} ×2"
         );
     } else {
         println!(
-            "[FAIL] migration: {migrated_ok}/3 v1→v2 · v2→v2 idempotente {idempotent_ok}/3 · GV-09 {} · digest1={digest_one:016x} digest2={digest_two:016x}",
+            "[FAIL] migration: {migrated_ok}/3 v1→v3 · v3→v3 idempotente {idempotent_ok}/3 · GV-09 {} · digest1={digest_one:016x} digest2={digest_two:016x}",
             verdict(gv09)
         );
     }

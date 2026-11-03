@@ -17,7 +17,9 @@
 //!     and the weather of the destination climate after the trip.
 //! - **`PROBE-WEATHER-001`**: A W1-W13 (`vectors=13 ok=13`); B 10 000 draws
 //!   per (climate, season) cell with `WeatherRng` seeded `0x0038A1E6`,
-//!   `max_abs_delta < 0.02` against the normalized table, digest ×2.
+//!   `max_abs_delta_ppm <= 20 000` (the 2 % band) against the normalized
+//!   table, measured in integer ppm, plus the digest of the frozen draw
+//!   record — identical across runs and across processes.
 //! - **`PROBE-CALENDAR-001`**: A L1-L12 + season + birth sign
 //!   (`vectors=14 ok=14`); B 360 consecutive days from 405-05-00: per-moon
 //!   phase counts, `sum=360` per moon, Masser Full/New in 11..=12, digest ×2.
@@ -30,9 +32,10 @@ use daggerfall_heart::calendar::{self, LUNAR_PHASES, LunarPhase, Season};
 use daggerfall_heart::clock::GameClock;
 use daggerfall_heart::travel::{self, ArrivalFlags, Transport, TravelOptions, UniformTerrain};
 use daggerfall_heart::weather::{
-    self, CLIMATES, Climate, WEATHER_SEED, WEATHER_TYPES, WeatherClimateSeason, WeatherRng,
-    WeatherState, WeatherType,
+    self, CLIMATES, Climate, FREQUENCY_BAND_PPM, WEATHER_SEED, WEATHER_TYPES, WeatherClimateSeason,
+    WeatherRng, WeatherState, WeatherType,
 };
+use daggerfall_heart::weather_light::{self, MapClimate};
 use daggerfall_parser_rs::climate::ClimateMap;
 
 /// Retail census: `CLIMATE.PAK` exact size (SPEC-M31 §5-C).
@@ -75,6 +78,13 @@ fn say(out: &mut String, line: impl AsRef<str>) {
     println!("{line}");
     out.push_str(line);
     out.push('\n');
+}
+
+/// Appends a line to the digest record **without** printing it, so the record
+/// can keep the frozen encoding of a line whose stdout form changed.
+fn note(record: &mut String, line: impl AsRef<str>) {
+    record.push_str(line.as_ref());
+    record.push('\n');
 }
 
 /// FNV-1a 64 (offset basis `0xcbf2_9ce4_8422_2325`, prime `0x100000001b3`).
@@ -140,6 +150,540 @@ fn verdict(ok: bool) -> &'static str {
         "FAIL"
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEPTH ROWS + SINK (W43-3 / W43-5)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Citations of the depth rows: the line each row actually measures, so
+/// `m43_gate_lib.citations_verdict` can resolve it from disk and
+/// `citations_guard` can doctor it.
+const SRC_TRAVEL_MODES: &str = "crates/heart/src/travel.rs:177";
+/// `calculate_trip_cost` (`:159-174` mirror).
+const SRC_TRAVEL_COST: &str = "crates/heart/src/travel.rs:361";
+/// `road_encounter_roll`.
+const SRC_TRAVEL_ENCOUNTER: &str = "crates/heart/src/travel.rs:423";
+/// `calendar::holiday::HOLIDAY_NAMES`.
+const SRC_CALENDAR_HOLIDAYS: &str = "crates/heart/src/calendar.rs:244";
+/// `date_of_day_of_year`.
+const SRC_CALENDAR_VECTORS: &str = "crates/heart/src/calendar.rs:182";
+/// `calendar::holiday::HOLIDAY_EFFECTS`.
+const SRC_CALENDAR_EFFECTS: &str = "crates/heart/src/calendar.rs:306";
+/// `calendar::holiday::effect`.
+const SRC_CALENDAR_NEGATIVE: &str = "crates/heart/src/calendar.rs:372";
+/// `WEATHER_TABLE` (`:184-229`): the declared retail row every matrix cell reads.
+const SRC_WEATHER_MATRIX: &str = "crates/heart/src/weather.rs:184";
+/// `weather_light` (`:187-224`): the per-state light the three censuses read.
+const SRC_WEATHER_LIGHT: &str = "crates/heart/src/weather_light.rs:187";
+/// `sunlight_scale` (`:450-465`).
+const SRC_WEATHER_SUNLIGHT: &str = "crates/heart/src/weather.rs:450";
+/// `shadow_strength` (`:468-485`).
+const SRC_WEATHER_SHADOW: &str = "crates/heart/src/weather.rs:468";
+/// `fog_density` (`:439-447`).
+const SRC_WEATHER_FOG: &str = "crates/heart/src/weather.rs:439";
+/// `WeatherType::is_raining` (`:89-92`): the wet-set predicate.
+const SRC_WEATHER_WET: &str = "crates/heart/src/weather.rs:89";
+
+/// Sources this binary was **built** from: `include_bytes!` bakes the exact
+/// bytes in, so the printed fingerprint is the build's and not the tree's —
+/// `m43_gate_lib.sources_verdict` recomputes it from disk and rejects a
+/// pristine binary over a regressed source.
+const BUILT_SOURCES: [(&str, &[u8]); 5] = [
+    (
+        "crates/heart/src/travel.rs",
+        include_bytes!("../../heart/src/travel.rs"),
+    ),
+    (
+        "crates/heart/src/calendar.rs",
+        include_bytes!("../../heart/src/calendar.rs"),
+    ),
+    (
+        "crates/heart/src/weather.rs",
+        include_bytes!("../../heart/src/weather.rs"),
+    ),
+    (
+        "crates/heart/src/weather_light.rs",
+        include_bytes!("../../heart/src/weather_light.rs"),
+    ),
+    ("crates/app/src/m31_probe.rs", include_bytes!("m31_probe.rs")),
+];
+
+/// Hexadecimal `sha256` (only the `DIGEST` line and the fingerprint need it).
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// `sha256` over the sorted `<path>\0<sha256(bytes)>` lines.
+fn source_fingerprint() -> String {
+    let mut parts: Vec<String> = BUILT_SOURCES
+        .iter()
+        .map(|(path, bytes)| format!("{path}\u{0}{}", sha256_hex(bytes)))
+        .collect();
+    parts.sort();
+    sha256_hex(parts.join("\n").as_bytes())
+}
+
+/// Comma-joined build paths, printed so the gate fingerprints the same set.
+fn source_paths() -> String {
+    BUILT_SOURCES
+        .iter()
+        .map(|(path, _)| *path)
+        .collect::<Vec<&str>>()
+        .join(",")
+}
+
+/// Closes a probe with the two lines the gate binds: `SOURCES` (build ↔ tree)
+/// then `DIGEST` (`sha256` over every byte printed before it). Called on every
+/// exit path — including the ARENA2 `EXIT=2` — so missing retail data stays an
+/// environment verdict and never becomes a `[MISSING]` row.
+fn close_probe(out: &mut String) {
+    say(
+        out,
+        format!(
+            "SOURCES fingerprint={} paths={}",
+            source_fingerprint(),
+            source_paths()
+        ),
+    );
+    let digest = sha256_hex(out.as_bytes());
+    say(out, format!("DIGEST {digest}"));
+}
+
+/// Declared transport modifiers and ocean minutes of the contract
+/// (`TravelTimeCalculator.cs:71-77` foot/horse/cart, `:136-138` ocean). The
+/// declarations are the retail constants, **not** read back from
+/// `travel::*`: a mutated constant must move `mismatches`.
+const TRAVEL_MODES: [(&str, u32); 5] = [
+    ("Foot", 256),
+    ("Horse", 128),
+    ("Cart", 192),
+    ("OceanFoot", 255),
+    ("OceanShip", 51),
+];
+
+/// Retail per-pixel formula (`TravelTimeCalculator.cs:142-144`, SPEC §1.2):
+/// `(((102 * transportModifier) >> 8) * (512 - terrainModifier)) >> 8`.
+fn retail_minutes_per_pixel(terrain_modifier: u32, transport_modifier: u32) -> u32 {
+    (((102 * transport_modifier) >> 8) * (512 - terrain_modifier)) >> 8
+}
+
+/// `W43-3` — time vectors per travel mode: the modifier the transport exposes
+/// **and** the minutes the retail formula yields over one reference terrain.
+/// Transit over the reference terrain (`terrainMovementModifiers[0]`,
+/// `TravelTimeCalculator.cs:33`).
+fn travel_mode_rows(out: &mut String) -> bool {
+    let terrain = travel::TERRAIN_MOVEMENT_MODIFIERS[0];
+    let mut mismatches = 0usize;
+    let mut census: Vec<&str> = Vec::with_capacity(TRAVEL_MODES.len());
+    for (name, declared) in TRAVEL_MODES {
+        census.push(name);
+        let transport = match name {
+            "Foot" => Some(Transport::Foot),
+            "Horse" => Some(Transport::Horse),
+            "Cart" => Some(Transport::Cart),
+            _ => None,
+        };
+        let (engine_modifier, engine_minutes, declared_minutes) = match transport {
+            Some(transport) => (
+                transport.modifier(),
+                travel::minutes_per_pixel(terrain, transport),
+                retail_minutes_per_pixel(terrain, declared),
+            ),
+            None => {
+                let ship = name == "OceanShip";
+                (declared, travel::ocean_minutes(ship), declared)
+            }
+        };
+        if engine_modifier != declared || engine_minutes != declared_minutes {
+            mismatches += 1;
+            say(
+                out,
+                format!(
+                    "[FAIL] TRAVEL-MODES {name} modifier declared={declared} engine={engine_modifier} minutes declared={declared_minutes} engine={engine_minutes}"
+                ),
+            );
+        }
+    }
+    let ok = mismatches == 0 && census.len() == TRAVEL_MODES.len();
+    say(
+        out,
+        format!(
+            "{} TRAVEL-MODES - cases={} census={} mismatches={mismatches} src={SRC_TRAVEL_MODES}",
+            if ok { "[OK]" } else { "[FAIL]" },
+            TRAVEL_MODES.len(),
+            census.join(";")
+        ),
+    );
+    ok
+}
+
+/// Declared trip-cost formula (`TravelTimeCalculator.cs:159-174`, SPEC §1.3),
+/// transcribed as the oracle: `pieces` charges the inn, `total` adds the ship
+/// fare. The engine implements the same formula in `travel.rs`, so a mutated
+/// engine formula moves `price_mismatches`.
+fn retail_trip_cost(
+    minutes: u64,
+    ocean_pixels: u32,
+    sleep_inn: bool,
+    free_tavern_rooms: bool,
+    has_ship: bool,
+    travel_ship: bool,
+) -> (i64, i64) {
+    let hours = minutes.div_ceil(60) as i64;
+    let mut pieces: i64 = 0;
+    if sleep_inn && !free_tavern_rooms {
+        pieces = 5 * ((hours - i64::from(ocean_pixels)) / 24);
+        if pieces < 0 {
+            pieces = 0;
+        }
+        pieces += 5;
+    }
+    let mut total = pieces;
+    if ocean_pixels > 0 && !has_ship && travel_ship {
+        total += 25 * (i64::from(ocean_pixels) / 24 + 1);
+    }
+    (pieces, total)
+}
+
+/// `W43-3` — trip cost per mode plus the vessel price: each mode walks a real
+/// route, the engine prices the trip and the declared formula prices the same
+/// measured trip. The ship fare is checked as its own number so a wrong
+/// `total` cannot hide behind a wrong `pieces`.
+fn travel_cost_rows(out: &mut String) -> bool {
+    const LAND: UniformTerrain = UniformTerrain(227);
+    const SEA: UniformTerrain = UniformTerrain(223);
+    let options = TravelOptions::default();
+    let mut mismatches = 0usize;
+    let mut census: Vec<&str> = Vec::with_capacity(4);
+    for (name, by_sea, transport, travel_ship) in [
+        ("Foot", false, Transport::Foot, false),
+        ("Horse", false, Transport::Horse, false),
+        ("Cart", false, Transport::Cart, false),
+        ("Ship", true, Transport::Foot, true),
+    ] {
+        census.push(name);
+        let trip = TravelOptions {
+            travel_ship,
+            ..options
+        };
+        let route = if by_sea {
+            travel::calculate_travel_time(&SEA, (0, 0), (0, 30), transport, &trip)
+        } else {
+            travel::calculate_travel_time(&LAND, (0, 0), (0, 100), transport, &trip)
+        };
+        let report = match route {
+            Ok(report) => report,
+            Err(error) => {
+                say(out, format!("[FAIL] TRAVEL-COST-MODES {name}: {error}"));
+                return false;
+            }
+        };
+        let engine = travel::calculate_trip_cost(
+            report.minutes,
+            report.ocean_pixels,
+            true,
+            false,
+            false,
+            travel_ship,
+        );
+        let (pieces, total) = retail_trip_cost(
+            report.minutes,
+            report.ocean_pixels,
+            true,
+            false,
+            false,
+            travel_ship,
+        );
+        let vessel_engine = engine.total - engine.pieces;
+        let vessel_declared = if travel_ship {
+            25 * (i64::from(report.ocean_pixels) / 24 + 1)
+        } else {
+            0
+        };
+        if (engine.pieces, engine.total) != (pieces, total) || vessel_engine != vessel_declared {
+            mismatches += 1;
+            say(
+                out,
+                format!(
+                    "[FAIL] TRAVEL-COST-MODES {name} minutes={} ocean={} declared=({pieces},{total},{vessel_declared}) engine=({},{},{vessel_engine})",
+                    report.minutes, report.ocean_pixels, engine.pieces, engine.total
+                ),
+            );
+        }
+    }
+    let ok = mismatches == 0;
+    say(
+        out,
+        format!(
+            "{} TRAVEL-COST-MODES - cases={} census={} price_mismatches={mismatches} src={SRC_TRAVEL_COST}",
+            if ok { "[OK]" } else { "[FAIL]" },
+            census.len(),
+            census.join(";")
+        ),
+    );
+    ok
+}
+
+/// The fixed route both encounter rows walk: 40 segments of 12 pixels.
+fn encounter_route() -> Vec<(i32, i32)> {
+    (0..=40).map(|step| (step * 12, step * 5)).collect()
+}
+
+/// `W43-3` — the road encounter roll is deterministic ×2 on the same seed and
+/// touches only the pixels the trip pays for. Every kind bucket must resolve an
+/// M25 encounter table: the roll decides *whether*, M25 decides **what**
+/// (`REQ-L99-058`).
+fn travel_encounter_rows(out: &mut String) -> bool {
+    let route = encounter_route();
+    let first = travel::road_encounter_roll(travel::TRAVEL_SEED, &route);
+    let replay = travel::road_encounter_roll(travel::TRAVEL_SEED, &route);
+    let digest_first = fnv1a64(travel::encounters_text(&first).as_bytes());
+    let digest_replay = fnv1a64(travel::encounters_text(&replay).as_bytes());
+    let identical = digest_first == digest_replay;
+    let buckets_resolve = (0..travel::ROAD_ENCOUNTER_KINDS)
+        .all(|kind| daggerfall_behavior::encounters::table(kind as usize).is_some());
+    let ok = identical && !first.is_empty() && buckets_resolve;
+    say(
+        out,
+        format!(
+            "{} TRAVEL-ENCOUNTER - seed={:#010x} encounters={} digest={digest_first:016x} digest2={digest_replay:016x} identical={} src={SRC_TRAVEL_ENCOUNTER}",
+            if ok { "[OK]" } else { "[FAIL]" },
+            travel::TRAVEL_SEED,
+            first.len(),
+            identical
+        ),
+    );
+    ok
+}
+
+/// `W43-3` — the same roll on a different seed must differ: a constant roll
+/// would pass the ×2 row and still be worthless.
+fn travel_encounter_negative_rows(out: &mut String) -> bool {
+    let route = encounter_route();
+    let seed_a = travel::TRAVEL_SEED;
+    let seed_b = travel::TRAVEL_SEED ^ 1;
+    let digest_a = fnv1a64(travel::encounters_text(&travel::road_encounter_roll(seed_a, &route)).as_bytes());
+    let digest_b = fnv1a64(travel::encounters_text(&travel::road_encounter_roll(seed_b, &route)).as_bytes());
+    let differs = digest_a != digest_b && seed_a != seed_b;
+    say(
+        out,
+        format!(
+            "{} TRAVEL-ENCOUNTER-NEGATIVE - seed_a={seed_a:#010x} seed_b={seed_b:#010x} digest_a={digest_a:016x} digest_b={digest_b:016x} differs={differs} src={SRC_TRAVEL_ENCOUNTER}",
+            if differs { "[OK]" } else { "[FAIL]" }
+        ),
+    );
+    differs
+}
+
+/// Retail `DaysPerMonth` (`DaggerfallDateTime.cs:629-633`): the declared
+/// constant the holiday date vectors invert, **not** `calendar::DAYS_PER_MONTH`.
+const RETAIL_DAYS_PER_MONTH: u64 = 30;
+
+/// `W43-5` — the 53-holiday census. The `dayOfYear` population is the table
+/// the bank probe already consumes (`behavior::economy::holidays::DAY`); the
+/// names are `calendar::holiday`'s (the retail enum lives nowhere else). The
+/// two must agree index by index: a missing name is not a shorter census, it
+/// is a red row.
+fn calendar_holiday_rows(out: &mut String) -> bool {
+    let days = daggerfall_behavior::economy::holidays::DAY;
+    let mut census: Vec<String> = Vec::with_capacity(days.len());
+    let mut unnamed = 0usize;
+    for (index, day) in days.iter().enumerate() {
+        match calendar::holiday::name(index as i32 + 1) {
+            Some(name) => census.push(format!("{name}:{day}")),
+            None => unnamed += 1,
+        }
+    }
+    let count = calendar::holiday::COUNT;
+    let ok = unnamed == 0 && days.len() == count && census.len() == count;
+    say(
+        out,
+        format!(
+            "{} CALENDAR-HOLIDAYS - count={} census={} src={SRC_CALENDAR_HOLIDAYS}",
+            if ok { "[OK]" } else { "[FAIL]" },
+            count,
+            census.join(";")
+        ),
+    );
+    ok
+}
+
+/// `W43-5` — one golden date vector per holiday: the `(month, day)` the retail
+/// formula declares and the round trip `dayOfYear → (Month, Day) → dayOfYear`.
+fn calendar_holiday_vector_rows(out: &mut String) -> bool {
+    let days = daggerfall_behavior::economy::holidays::DAY;
+    let mut ok_count = 0usize;
+    let mut fail_count = 0usize;
+    for (index, day) in days.iter().enumerate() {
+        let day_of_year_value = u64::from(*day);
+        let expected = (
+            (day_of_year_value - 1) / RETAIL_DAYS_PER_MONTH + 1,
+            (day_of_year_value - 1) % RETAIL_DAYS_PER_MONTH + 1,
+        );
+        let actual = calendar::holiday::date_of_holiday(day_of_year_value);
+        let round_trip = calendar::date_of_day_of_year(day_of_year_value).map(|(month, day)| {
+            let mut clock = GameClock::classic_default();
+            clock.month = month;
+            clock.day = day;
+            calendar::day_of_year(&clock)
+        });
+        if actual == Some(expected) && round_trip == Some(day_of_year_value) {
+            ok_count += 1;
+        } else {
+            fail_count += 1;
+            say(
+                out,
+                format!(
+                    "[FAIL] CALENDAR-HOLIDAY-VECTORS id={} dayOfYear={day_of_year_value} declared={expected:?} engine={actual:?} round_trip={round_trip:?}",
+                    index + 1
+                ),
+            );
+        }
+    }
+    let ok = fail_count == 0 && ok_count == days.len();
+    say(
+        out,
+        format!(
+            "{} CALENDAR-HOLIDAY-VECTORS - vectors={} ok={ok_count} fail={fail_count} src={SRC_CALENDAR_VECTORS}",
+            if ok { "[OK]" } else { "[FAIL]" },
+            days.len()
+        ),
+    );
+    ok
+}
+
+/// `W43-5` — every holiday declares an effect and the declaration is
+/// **measured** against the consumer that implements it: `room_cost` for the
+/// free night, `halves_purchase` for the three half-price festivals,
+/// `identify_cost` for Witches' Festival, `guild::Holiday` for the cure
+/// service. A `None` declaration is measured too (all consumers must stay at
+/// their ordinary day), so "no effect" is a proven statement, not a gap.
+fn calendar_holiday_effect_rows(out: &mut String) -> bool {
+    use daggerfall_behavior::economy::{self, holidays, ItemGroup};
+    use daggerfall_behavior::guild::Holiday as CureHoliday;
+    use daggerfall_heart::calendar::holiday::HolidayEffect;
+
+    let days = holidays::DAY;
+    let cure_holiday = |id: i32| match id {
+        holidays::SOUTH_WINDS_PRAYER => CureHoliday::SouthWindsPrayer,
+        holidays::FIRST_HARVEST => CureHoliday::FirstHarvest,
+        holidays::SECOND_HARVEST => CureHoliday::SecondHarvest,
+        holidays::NORTH_WINDS_FESTIVAL => CureHoliday::NorthWindsFestival,
+        _ => CureHoliday::None,
+    };
+    let mut declared_count = 0usize;
+    let mut undeclared = 0usize;
+    for (index, day) in days.iter().enumerate() {
+        let id = index as i32 + 1;
+        let declared = match calendar::holiday::effect(id) {
+            Some(effect) => effect,
+            None => {
+                undeclared += 1;
+                continue;
+            }
+        };
+        let normal_shop = holidays::halves_purchase(id, false, false, ItemGroup::Books);
+        let mages_shop = holidays::halves_purchase(id, true, true, ItemGroup::Books);
+        let weapons_shop = holidays::halves_purchase(id, false, false, ItemGroup::Weapons);
+        let free_identify = economy::identify_cost(1_000, id) == 0;
+        let free_room = economy::room_cost(1, i64::from(*day)) == 0;
+        let cure = cure_holiday(id);
+        // The merchant clause of `halves_purchase` ignores the item group
+        // (`economy.rs:590-601`), so only the weapon festival is told apart
+        // from the normal-shop one by the group it actually prices.
+        let no_discount = !normal_shop && !mages_shop && !weapons_shop;
+        let no_cure_effect = !cure.free_cure() && !cure.halves_cure();
+        let no_other_service = !free_identify && !free_room && no_cure_effect;
+        let measured = match declared {
+            HolidayEffect::None => no_discount && no_other_service,
+            HolidayEffect::FreeRoom => free_room && no_discount && !free_identify && no_cure_effect,
+            HolidayEffect::HalfPriceNormalShop => normal_shop && !mages_shop,
+            HolidayEffect::HalfPriceMagesGuild => mages_shop && !normal_shop,
+            HolidayEffect::HalfPriceWeapons => weapons_shop && !normal_shop && !mages_shop,
+            HolidayEffect::FreeIdentify => {
+                free_identify && no_discount && !free_room && no_cure_effect
+            }
+            HolidayEffect::FreeCure => {
+                cure.free_cure() && !cure.halves_cure() && no_discount && !free_identify && !free_room
+            }
+            HolidayEffect::HalfCure => {
+                cure.halves_cure() && !cure.free_cure() && no_discount && !free_identify && !free_room
+            }
+        };
+        if measured {
+            declared_count += 1;
+        } else {
+            undeclared += 1;
+            say(
+                out,
+                format!(
+                    "[FAIL] CALENDAR-HOLIDAY-EFFECTS id={id} dayOfYear={day} declared={} measured={measured}",
+                    declared.name()
+                ),
+            );
+        }
+    }
+    let holidays_total = calendar::holiday::COUNT;
+    let ok = undeclared == 0 && declared_count == holidays_total;
+    say(
+        out,
+        format!(
+            "{} CALENDAR-HOLIDAY-EFFECTS - holidays={holidays_total} declared={declared_count} undeclared={undeclared} src={SRC_CALENDAR_EFFECTS}",
+            if ok { "[OK]" } else { "[FAIL]" }
+        ),
+    );
+    ok
+}
+
+/// `W43-5` — the negative: walking all 360 days through
+/// `GetHolidayId(gameMinutes, region)` (`FormulaHelper.cs:1803-1840`) must flag
+/// exactly the 53 declared days — no day without a holiday may be reported and
+/// no holiday may be missed in a region that celebrates it.
+fn calendar_holiday_negative_rows(out: &mut String) -> bool {
+    use daggerfall_behavior::economy::holidays;
+
+    let mut false_positives = 0usize;
+    let mut checked = 0usize;
+    for day in 1..=360u32 {
+        checked += 1;
+        // `dayOfYear = gameMinutes % 518400 / 1440 + 1`.
+        let game_minutes = u64::from(day - 1) * holidays::MINUTES_PER_DAY;
+        let expected: Vec<(usize, i32)> = holidays::DAY
+            .iter()
+            .enumerate()
+            .filter(|(_, holiday_day)| u32::from(**holiday_day) == day)
+            .map(|(index, _)| (index, index as i32 + 1))
+            .collect();
+        if expected.is_empty() {
+            if holidays::get_holiday_id(game_minutes, 0) != 0 {
+                false_positives += 1;
+            }
+            continue;
+        }
+        for (index, id) in expected {
+            let region = holidays::REGION[index];
+            let region_index = if region == 0xFF {
+                0
+            } else {
+                i32::from(region) - 1
+            };
+            if holidays::get_holiday_id(game_minutes, region_index) != id {
+                false_positives += 1;
+            }
+        }
+    }
+    let ok = checked == 360 && false_positives == 0;
+    say(
+        out,
+        format!(
+            "{} CALENDAR-HOLIDAY-NEGATIVE - checked={checked} false_positives={false_positives} src={SRC_CALENDAR_NEGATIVE}",
+            if ok { "[OK]" } else { "[FAIL]" }
+        ),
+    );
+    ok
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PROBE-TRAVEL-001
@@ -667,6 +1211,13 @@ pub fn run_travel_001() -> i32 {
     );
     let mut ok = fail_count == 0;
 
+    // ── Depth rows (W43-3): time per mode, cost per mode, encounters ×2 ───
+    say(&mut out, "\n-- A2 · depth rows (W43-3) --");
+    ok &= travel_mode_rows(&mut out);
+    ok &= travel_cost_rows(&mut out);
+    ok &= travel_encounter_rows(&mut out);
+    ok &= travel_encounter_negative_rows(&mut out);
+
     // ── B/C/D need ARENA2: inaccessible ⇒ EXIT=2 (never a false PASS) ──────
     let climate = match load_climate_map() {
         Ok(climate) => climate,
@@ -675,6 +1226,7 @@ pub fn run_travel_001() -> i32 {
                 &mut out,
                 format!("ARENA2 not accessible: {reason} (EXIT=2 by SPEC-M31 §5)"),
             );
+            close_probe(&mut out);
             return 2;
         }
     };
@@ -683,6 +1235,7 @@ pub fn run_travel_001() -> i32 {
         Ok(census_ok) => ok &= census_ok,
         Err(reason) => {
             say(&mut out, format!("ARENA2 not accessible: {reason} (EXIT=2)"));
+            close_probe(&mut out);
             return 2;
         }
     }
@@ -690,17 +1243,22 @@ pub fn run_travel_001() -> i32 {
         Ok(neighbour) => ok &= run_travel_demo(&mut out, &climate, &neighbour),
         Err(reason) => {
             say(&mut out, format!("ARENA2 not accessible: {reason} (EXIT=2)"));
+            close_probe(&mut out);
             return 2;
         }
     }
 
     let digest = fnv1a64(out.as_bytes());
     say(&mut out, format!("digest={digest:016x}"));
-    println!(
-        "TRAVEL-001 {} - vectors={} ok={ok_count} fail={fail_count}",
-        verdict(ok),
-        vectors.len()
+    say(
+        &mut out,
+        format!(
+            "TRAVEL-001 {} - vectors={} ok={ok_count} fail={fail_count}",
+            verdict(ok),
+            vectors.len()
+        ),
     );
+    close_probe(&mut out);
     if ok { 0 } else { 1 }
 }
 
@@ -741,6 +1299,199 @@ fn weather_vectors() -> Vec<Vector> {
     vectors
 }
 
+/// `ROUND_HALF_UP` of `value * factor` (the gate's `scaled()`,
+/// `m43_gate_lib.py:238-256`): every census is an integer, so G5 keeps floats
+/// off stdout.
+fn quantized(value: f64, factor: f64) -> i64 {
+    (value * factor + 0.5).floor() as i64
+}
+
+/// `[OK] WEATHER-MATRIX` — one row per season: the 7 states × 10 raw
+/// `CLIMATE.PAK` values (223..=232) with the *engine's* normalized odds
+/// (`WeatherClimateSeason::odds`, `weather.rs:243-256`) in permille
+/// (declared percent ×10, half-up). The retail declaration the gate compares
+/// these cells against is the gate's own transcription, never the probe's.
+fn weather_matrix_rows(out: &mut String) -> bool {
+    let mut ok = true;
+    for season in [
+        Season::Fall,
+        Season::Spring,
+        Season::Summer,
+        Season::Winter,
+    ] {
+        let mut census = Vec::with_capacity(70);
+        for value in 223u8..=232 {
+            let climate = Climate::from_climate_value(value)
+                .expect("223..=232 are the weather-table climate values");
+            let row = WeatherClimateSeason::new(climate, season);
+            for weather in WEATHER_TYPES {
+                census.push(format!(
+                    "{value}:{}={}",
+                    weather.name(),
+                    quantized(row.odds()[weather.index()], 10.0)
+                ));
+            }
+        }
+        let cells = census.len();
+        ok &= cells == 70;
+        say(
+            out,
+            format!(
+                "[OK] WEATHER-MATRIX - season={} states=7 climates=10 cells={cells} pass={cells} total=70 census={} src={SRC_WEATHER_MATRIX}",
+                season.name(),
+                census.join(";")
+            ),
+        );
+    }
+    ok
+}
+
+/// `[OK] WEATHER-LIGHT-{GROUND,FOG,WET}` — the three `weather_light` fields
+/// over the whole 7 × 10 grid: ground illumination (`sunlight_scale`, permille),
+/// fog density (permille) and the wet effect (`shadow_strength` after
+/// `exp(-50·density)`, ten-thousandths — the W12/W13 scale).
+fn weather_light_rows(out: &mut String) -> bool {
+    let mut ground = Vec::with_capacity(70);
+    let mut fog = Vec::with_capacity(70);
+    let mut wet = Vec::with_capacity(70);
+    for value in 223u8..=232 {
+        let climate = MapClimate::from_index(value)
+            .expect("223..=232 are the canonical map-climate indices");
+        for weather in WEATHER_TYPES {
+            let light = weather_light::light_for(weather, climate);
+            ground.push(format!(
+                "{value}:{}={}",
+                weather.name(),
+                quantized(light.sunlight_scale, 1_000.0)
+            ));
+            fog.push(format!(
+                "{value}:{}={}",
+                weather.name(),
+                quantized(light.fog_density, 1_000.0)
+            ));
+            wet.push(format!(
+                "{value}:{}={}",
+                weather.name(),
+                quantized(
+                    light.shadow_strength * (-50.0 * light.fog_density).exp(),
+                    10_000.0
+                )
+            ));
+        }
+    }
+    let ok = ground.len() == 70 && fog.len() == 70 && wet.len() == 70;
+    for (id, cells) in [
+        ("WEATHER-LIGHT-GROUND", &ground),
+        ("WEATHER-LIGHT-FOG", &fog),
+        ("WEATHER-LIGHT-WET", &wet),
+    ] {
+        say(
+            out,
+            format!(
+                "[OK] {id} - states=7 climates=10 cells={} census={} src={SRC_WEATHER_LIGHT}",
+                cells.len(),
+                cells.join(";")
+            ),
+        );
+    }
+    ok
+}
+
+/// `[OK] WEATHER-EFFECTS-*` — the four effect tables per state: sunlight and
+/// shadow scales (permille), fog density (permille) and the wet set measured
+/// from the predicates (`is_raining`/`is_storming`/`is_snowing`) with its
+/// complement enumerated.
+fn weather_effect_rows(out: &mut String) -> bool {
+    let sunlight = WEATHER_TYPES
+        .iter()
+        .map(|weather| {
+            format!(
+                "{}:{}",
+                weather.name(),
+                quantized(weather::sunlight_scale(*weather, false), 1_000.0)
+            )
+        })
+        .collect::<Vec<String>>();
+    let shadow = WEATHER_TYPES
+        .iter()
+        .map(|weather| {
+            format!(
+                "{}:{}",
+                weather.name(),
+                quantized(weather::shadow_strength(*weather, false), 1_000.0)
+            )
+        })
+        .collect::<Vec<String>>();
+    let fog = WEATHER_TYPES
+        .iter()
+        .map(|weather| {
+            format!(
+                "{}:{}",
+                weather.name(),
+                quantized(weather::fog_density(*weather), 1_000.0)
+            )
+        })
+        .collect::<Vec<String>>();
+    let is_wet = |weather: &WeatherType| {
+        weather.is_raining() || weather.is_storming() || weather.is_snowing()
+    };
+    let wet = WEATHER_TYPES
+        .iter()
+        .filter(|weather| is_wet(weather))
+        .map(|weather| weather.name())
+        .collect::<Vec<&str>>();
+    let dry = WEATHER_TYPES
+        .iter()
+        .filter(|weather| !is_wet(weather))
+        .map(|weather| weather.name())
+        .collect::<Vec<&str>>();
+    say(
+        out,
+        format!(
+            "[OK] WEATHER-EFFECTS-SUNLIGHT - states=7 census={} src={SRC_WEATHER_SUNLIGHT}",
+            sunlight.join(";")
+        ),
+    );
+    say(
+        out,
+        format!(
+            "[OK] WEATHER-EFFECTS-SHADOW - states=7 census={} src={SRC_WEATHER_SHADOW}",
+            shadow.join(";")
+        ),
+    );
+    say(
+        out,
+        format!(
+            "[OK] WEATHER-EFFECTS-FOG - states=7 census={} src={SRC_WEATHER_FOG}",
+            fog.join(";")
+        ),
+    );
+    say(
+        out,
+        format!(
+            "[OK] WEATHER-EFFECTS-WET - states=7 wet={} dry={} src={SRC_WEATHER_WET}",
+            wet.join(","),
+            dry.join(",")
+        ),
+    );
+    wet.len() + dry.len() == WEATHER_TYPES.len()
+}
+
+/// Renders integer ppm in the frozen 4-decimal fixed-point form the digest
+/// record was baselined on (`12 100 ppm → "0.0121"`), half-up on the fifth
+/// decimal and without any `f64`: the only rounding left on the evidence path
+/// is integer and deterministic.
+fn ppm_fixed4(ppm: i64) -> String {
+    let ppm = ppm.max(0);
+    let whole = ppm / 1_000_000;
+    let frac = (ppm % 1_000_000 + 50) / 100;
+    if frac == 10_000 {
+        format!("{}.0000", whole + 1)
+    } else {
+        format!("{whole}.{frac:04}")
+    }
+}
+
 /// `PROBE-WEATHER-001` — blocks A-B.
 pub fn run_weather_001() -> i32 {
     let mut out = String::new();
@@ -760,8 +1511,18 @@ pub fn run_weather_001() -> i32 {
 
     // ── B · 10 000 draws per (climate, season) with the seeded stream ─────
     say(&mut out, "\n-- B · 10 000 draws per (climate, season) --");
+    // The distribution row leaves the probe as **integer ppm** (G5 forbids
+    // `key=<decimal>` on stdout), but the frozen regression digest was
+    // baselined on block A+B in the historical fixed-point encoding: its golden
+    // `a2ba48e31a9cc1ff` covers every byte before the `digest=` line, the row
+    // included. The digest therefore anchors the *draw record* — the same
+    // measurement rendered in the frozen 4-decimal form — and not the encoding
+    // of the stdout row, so changing the row can never re-baseline it while any
+    // change in the draws still moves it. Both renderings come from the same
+    // integer measurement: no `f64` on either path.
+    let mut record = out.clone();
     let mut rng = WeatherRng::new(WEATHER_SEED);
-    let mut worst: f64 = 0.0;
+    let mut worst_ppm: i64 = 0;
     let mut worst_cell = String::new();
     let mut cells = 0usize;
     for climate in CLIMATES {
@@ -774,30 +1535,36 @@ pub fn run_weather_001() -> i32 {
             }
             cells += 1;
             for weather in WEATHER_TYPES {
-                let observed = f64::from(counts[weather.index()]) / 10_000.0;
-                let expected = row.odds()[weather.index()] / 100.0;
-                let delta = (observed - expected).abs();
-                if delta > worst {
-                    worst = delta;
+                // Each of the 10 000 draws is exactly 100 ppm of the population;
+                // the declared probability is integer ppm as well (half-up from
+                // the raw retail row), so the band is compared in integers.
+                let observed_ppm = i64::from(counts[weather.index()]) * (1_000_000 / 10_000);
+                let delta_ppm = (observed_ppm - weather::odds_ppm(climate, season, weather)).abs();
+                if delta_ppm > worst_ppm {
+                    worst_ppm = delta_ppm;
                     worst_cell = format!("{}/{} {}", climate.name(), season.name(), weather.name());
                 }
             }
         }
     }
-    let draws_ok = worst < 0.02;
-    say(
-        &mut out,
-        format!(
-            "draws=10000 cells={cells} seed=0x{WEATHER_SEED:08X} max_abs_delta={worst:.4} threshold=0.02 cell=\"{worst_cell}\"",
-        ),
+    let draws_ok = worst_ppm < FREQUENCY_BAND_PPM;
+    let draws_line = format!(
+        "draws=10000 cells={cells} seed=0x{WEATHER_SEED:08X} max_abs_delta_ppm={worst_ppm} \
+         threshold_ppm={FREQUENCY_BAND_PPM} cell=\"{worst_cell}\""
     );
-    say(
-        &mut out,
-        format!(
-            "{} - B1 frequency within 2 % of the declared distribution",
-            verdict(draws_ok)
-        ),
+    let frozen_line = format!(
+        "draws=10000 cells={cells} seed=0x{WEATHER_SEED:08X} max_abs_delta={} \
+         threshold=0.02 cell=\"{worst_cell}\"",
+        ppm_fixed4(worst_ppm)
     );
+    let verdict_line = format!(
+        "{} - B1 frequency within 2 % of the declared distribution",
+        verdict(draws_ok)
+    );
+    say(&mut out, &draws_line);
+    note(&mut record, &frozen_line);
+    say(&mut out, &verdict_line);
+    note(&mut record, &verdict_line);
 
     // State machine smoke (SPEC §2.3): Thunder raises raining+storming, Fog
     // implies overcast, Sunny clears every flag.
@@ -808,21 +1575,34 @@ pub fn run_weather_001() -> i32 {
     let fog_ok = !state.is_raining && !state.is_storming && state.is_overcast;
     state.apply(WeatherType::Sunny);
     let sunny_ok = !state.is_overcast && state.fog_density() == 0.0;
+    let state_line = format!("state_thunder={thunder_ok} state_fog={fog_ok} state_sunny={sunny_ok}");
+    say(&mut out, &state_line);
+    note(&mut record, &state_line);
+
+    // The digest anchors `record` (block A+B in the frozen encoding), not the
+    // stdout byte range: the distribution row is the only line whose encoding
+    // the frozen golden must not follow.
+    let digest = fnv1a64(record.as_bytes());
+    say(&mut out, format!("digest={digest:016x}"));
+
+    // ── W43-4 depth rows ───────────────────────────────────────────────────
+    // Emitted *after* the frozen FNV digest above: that golden binds the
+    // distribution block byte-for-byte (G9), so a depth row must never move it.
+    say(&mut out, "\n-- W43-4 depth rows: 7 states x 10 climates --");
+    let mut depth_ok = weather_matrix_rows(&mut out);
+    depth_ok &= weather_light_rows(&mut out);
+    depth_ok &= weather_effect_rows(&mut out);
+
+    let ok = fail_count == 0 && draws_ok && thunder_ok && fog_ok && sunny_ok && depth_ok;
     say(
         &mut out,
         format!(
-            "state_thunder={thunder_ok} state_fog={fog_ok} state_sunny={sunny_ok}"
+            "WEATHER-001 {} - vectors={} ok={ok_count} fail={fail_count} max_abs_delta_ppm={worst_ppm}",
+            verdict(ok),
+            vectors.len()
         ),
     );
-
-    let digest = fnv1a64(out.as_bytes());
-    say(&mut out, format!("digest={digest:016x}"));
-    let ok = fail_count == 0 && draws_ok && thunder_ok && fog_ok && sunny_ok;
-    println!(
-        "WEATHER-001 {} - vectors={} ok={ok_count} fail={fail_count} max_abs_delta={worst:.4}",
-        verdict(ok),
-        vectors.len()
-    );
+    close_probe(&mut out);
     if ok { 0 } else { 1 }
 }
 
@@ -951,10 +1731,23 @@ pub fn run_calendar_001() -> i32 {
     );
 
     let ok = fail_count == 0 && counts_ok && digest_first_second == digest_second;
-    println!(
-        "CALENDAR-001 {} - vectors={} ok={ok_count} fail={fail_count} masser_sum={masser_sum} secunda_sum={secunda_sum}",
-        verdict(ok),
-        vectors.len()
+
+    // ── C · depth rows (W43-5): holidays census, dates, effects, negative ──
+    say(&mut out, "\n-- C · depth rows (W43-5) --");
+    let mut depth_ok = calendar_holiday_rows(&mut out);
+    depth_ok &= calendar_holiday_vector_rows(&mut out);
+    depth_ok &= calendar_holiday_effect_rows(&mut out);
+    depth_ok &= calendar_holiday_negative_rows(&mut out);
+
+    let ok = ok && depth_ok;
+    say(
+        &mut out,
+        format!(
+            "CALENDAR-001 {} - vectors={} ok={ok_count} fail={fail_count} masser_sum={masser_sum} secunda_sum={secunda_sum}",
+            verdict(ok),
+            vectors.len()
+        ),
     );
+    close_probe(&mut out);
     if ok { 0 } else { 1 }
 }

@@ -203,7 +203,9 @@ pub fn priority(center: CellKey, key: CellKey) -> (u32, CellKey) {
 /// the tests below.
 pub fn plan(config: &StreamConfig, center: CellKey, loaded: &BTreeSet<CellKey>) -> StreamPlan {
     let unload_above = i32::from(config.radius_cells) + i32::from(STREAM_HYSTERESIS_CELLS);
-    let desired: BTreeSet<CellKey> = desired_cells(center, config.radius_cells).into_iter().collect();
+    let desired: BTreeSet<CellKey> = desired_cells(center, config.radius_cells)
+        .into_iter()
+        .collect();
 
     let mut load: Vec<CellKey> = desired.difference(loaded).copied().collect();
     load.sort_by_key(|key| priority(center, *key));
@@ -250,11 +252,7 @@ mod tests {
     }
 
     fn key(x: i32, z: i32) -> CellKey {
-        CellKey {
-            x,
-            z,
-            level: 0,
-        }
+        CellKey { x, z, level: 0 }
     }
 
     /// Applies a plan the way the ECS layer does: loads join the set, unloads
@@ -365,7 +363,11 @@ mod tests {
         // stabilization the plan is empty on every frame.
         let mut pos = border + 0.1;
         for i in 0..20 {
-            pos = if pos > border { border - 0.1 } else { border + 0.1 };
+            pos = if pos > border {
+                border - 0.1
+            } else {
+                border + 0.1
+            };
             let center = cell_of_point(&config, [pos, 0.0, 0.0]);
             let step = plan(&config, center, &loaded);
             assert!(
@@ -434,7 +436,11 @@ mod tests {
             ..StreamConfig::default()
         };
         let step = plan(&config, key(0, 0), &loaded);
-        assert_eq!(step.unload, vec![key(5, 5)], "far cell unloads, pinned does not");
+        assert_eq!(
+            step.unload,
+            vec![key(5, 5)],
+            "far cell unloads, pinned does not"
+        );
         assert!(!step.unload.contains(&key(0, 0)));
 
         // Normal radius: the whole window around the player is pinned even
@@ -454,7 +460,10 @@ mod tests {
             level: 1,
         });
         let step = plan(&cfg(), key(0, 0), &loaded);
-        assert!(step.unload.is_empty(), "another level is never evicted here");
+        assert!(
+            step.unload.is_empty(),
+            "another level is never evicted here"
+        );
         assert!(step.load.iter().all(|k| k.level == 0));
     }
 

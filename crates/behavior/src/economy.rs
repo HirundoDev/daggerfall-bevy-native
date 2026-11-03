@@ -1775,3 +1775,219 @@ mod tests {
         assert!(shop.sellable(TradeMode::SellMagic).is_empty());
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §7 · W43-2 depth — the twelve §5 operations, foreclosure and persistence
+//
+// Everything from here on is **appended**: the twelve ledger methods the
+// `BANK-OPERATIONS-CENSUS` row resolves live at their original lines (§5),
+// so this section never moves them.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// The twelve operations of SPEC-M30 §5 (`Operación` table), each with the
+/// ledger method that implements it as `(operation, method)`.
+///
+/// The census is read off the implementation: the probe resolves every
+/// `method` to its `pub fn` line inside this file, so a missing or renamed
+/// method turns the row red instead of silently dropping an operation (G8).
+pub const BANK_OPERATIONS: [(&str, &str); 12] = [
+    ("deposit", "deposit_gold"),
+    ("withdraw", "withdraw_gold"),
+    ("deposit_loc", "deposit_all_loc"),
+    ("withdraw_loc", "withdraw_loc"),
+    ("borrow", "borrow_loan"),
+    ("repay", "repay_loan"),
+    ("overdue", "check_overdue"),
+    ("buy_house", "purchase_house"),
+    ("sell_house", "sell_house"),
+    ("buy_ship", "purchase_ship"),
+    ("sell_ship", "sell_ship"),
+    ("account_total", "account_gold"),
+];
+
+/// What a foreclosure seized (`BankLedger::foreclose`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForeclosureOutcome {
+    /// The region owed an overdue, unrepaid loan and was foreclosed.
+    pub foreclosed: bool,
+    /// The unrepaid debt at the moment of foreclosure.
+    pub loan_before: i64,
+    /// Account gold drained to the bank.
+    pub drained: i64,
+    /// A house deed was seized.
+    pub seized_house: bool,
+    /// A ship deed was seized.
+    pub seized_ship: bool,
+}
+
+impl BankLedger {
+    /// Foreclosure of an **overdue and unrepaid** loan (SPEC-M30 §5): the
+    /// owned property of the region (house and ship) is seized and the
+    /// account is drained, closing the debt.
+    ///
+    /// [`BankLedger::check_overdue`] only emits the M28 fact and pays from the
+    /// account; it never takes property. This is the credit path: measured,
+    /// not asserted. A loan that is not overdue (or a region that owes
+    /// nothing) forecloses nothing.
+    pub fn foreclose(
+        &mut self,
+        region: usize,
+        now_minutes: i64,
+    ) -> Result<ForeclosureOutcome, BankError> {
+        let (loan_before, due) = {
+            let account = self.account(region)?;
+            (account.loan_total, account.loan_due)
+        };
+        let nothing = ForeclosureOutcome {
+            foreclosed: false,
+            loan_before,
+            drained: 0,
+            seized_house: false,
+            seized_ship: false,
+        };
+        if loan_before <= 0 || due == 0 || due >= now_minutes {
+            return Ok(nothing);
+        }
+        let seized_house = self
+            .houses
+            .get_mut(region)
+            .map(|slot| slot.take().is_some())
+            .unwrap_or(false);
+        let seized_ship = self.owned_ship.take().is_some();
+        let account = self.account_mut(region)?;
+        let drained = account.account_gold;
+        account.account_gold = 0;
+        account.loan_total = 0;
+        account.loan_due = 0;
+        let first_default = !account.has_defaulted;
+        account.has_defaulted = true;
+        if first_default {
+            self.events.push(LoanEvent::Default);
+        }
+        Ok(ForeclosureOutcome {
+            foreclosed: true,
+            loan_before,
+            drained,
+            seized_house,
+            seized_ship,
+        })
+    }
+
+    /// Persistence of the book (`house/boat persisted`, SPEC-M30 §5):
+    /// **integers and hex bits only** — no float is ever printed or parsed,
+    /// and the house mesh radius survives bit-for-bit (`f32::to_bits` /
+    /// `from_bits`).
+    ///
+    /// Format (one record per line):
+    ///
+    /// ```text
+    /// ledger v1 regions=<n> ship=<none|small|large>
+    /// account <region> <gold> <loan> <due> <defaulted 0|1>
+    /// house <region> <building_key> <mesh_radius bits as 8 hex digits>
+    /// ```
+    pub fn save_state(&self) -> String {
+        let ship = match self.owned_ship {
+            None => "none",
+            Some(ShipType::Small) => "small",
+            Some(ShipType::Large) => "large",
+        };
+        let mut out = format!("ledger v1 regions={} ship={ship}\n", self.accounts.len());
+        for account in &self.accounts {
+            out.push_str(&format!(
+                "account {} {} {} {} {}\n",
+                account.region_index,
+                account.account_gold,
+                account.loan_total,
+                account.loan_due,
+                u8::from(account.has_defaulted)
+            ));
+        }
+        for (region, house) in self.houses.iter().enumerate() {
+            if let Some(house) = house {
+                out.push_str(&format!(
+                    "house {region} {} {:08x}\n",
+                    house.building_key,
+                    house.mesh_radius.to_bits()
+                ));
+            }
+        }
+        out
+    }
+
+    /// Inverse of [`BankLedger::save_state`]; any malformed record is an
+    /// error, never a silently truncated book (`String` error: the book
+    /// format has no `BankError` variant of its own).
+    pub fn load_state(text: &str) -> Result<BankLedger, String> {
+        let mut lines = text.lines();
+        let header = lines.next().ok_or_else(|| "empty book".to_string())?;
+        let mut words = header.split_whitespace();
+        if words.next() != Some("ledger") || words.next() != Some("v1") {
+            return Err(format!("bad header: {header:?}"));
+        }
+        let regions: usize = words
+            .next()
+            .and_then(|word| word.strip_prefix("regions="))
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(|| format!("bad region count: {header:?}"))?;
+        let ship = words
+            .next()
+            .and_then(|word| word.strip_prefix("ship="))
+            .ok_or_else(|| format!("bad ship field: {header:?}"))?;
+        let mut ledger = BankLedger::new(regions);
+        ledger.owned_ship = match ship {
+            "none" => None,
+            "small" => Some(ShipType::Small),
+            "large" => Some(ShipType::Large),
+            other => return Err(format!("bad ship: {other:?}")),
+        };
+        for line in lines {
+            let mut parts = line.split_whitespace();
+            let kind = parts.next().ok_or_else(|| "empty record".to_string())?;
+            let region: usize = parts
+                .next()
+                .and_then(|value| value.parse().ok())
+                .ok_or_else(|| format!("bad region: {line:?}"))?;
+            match kind {
+                "account" => {
+                    let mut number = |what: &str| -> Result<i64, String> {
+                        parts
+                            .next()
+                            .and_then(|value| value.parse().ok())
+                            .ok_or_else(|| format!("bad {what}: {line:?}"))
+                    };
+                    let gold = number("account_gold")?;
+                    let loan = number("loan_total")?;
+                    let due = number("loan_due")?;
+                    let defaulted = number("has_defaulted")?;
+                    let account = ledger
+                        .account_mut(region)
+                        .map_err(|_| format!("region out of range: {region}"))?;
+                    account.account_gold = gold;
+                    account.loan_total = loan;
+                    account.loan_due = due;
+                    account.has_defaulted = defaulted != 0;
+                }
+                "house" => {
+                    let key: i64 = parts
+                        .next()
+                        .and_then(|value| value.parse().ok())
+                        .ok_or_else(|| format!("bad building_key: {line:?}"))?;
+                    let bits = parts
+                        .next()
+                        .and_then(|value| u32::from_str_radix(value, 16).ok())
+                        .ok_or_else(|| format!("bad mesh radius: {line:?}"))?;
+                    let slot = ledger
+                        .houses
+                        .get_mut(region)
+                        .ok_or_else(|| format!("region out of range: {region}"))?;
+                    *slot = Some(HouseRecord {
+                        building_key: key,
+                        mesh_radius: f32::from_bits(bits),
+                    });
+                }
+                other => return Err(format!("unknown record: {other:?}")),
+            }
+        }
+        Ok(ledger)
+    }
+}

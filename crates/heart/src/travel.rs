@@ -205,6 +205,72 @@ pub fn terrain_modifier(climate_value: u8) -> Result<u32, TravelError> {
     Ok(TERRAIN_MOVEMENT_MODIFIERS[usize::from(index)])
 }
 
+/// One Bresenham segment: every pixel it visits, in walk order (`:99-131`).
+///
+/// Both consumers of the stepping rule — the time accumulator
+/// ([`walk_segment`]) and the road-encounter roll
+/// ([`road_encounter_roll`]) — consume this single walk, so the pixels a trip
+/// pays for and the pixels it is rolled over can never drift (SPEC §8.1).
+struct BresenhamWalk {
+    x: i32,
+    y: i32,
+    step_x: i32,
+    step_y: i32,
+    abs_x: i32,
+    abs_y: i32,
+    increments: i64,
+    remaining: i32,
+    /// `furthest == abs_x` in the source: ties take the X branch.
+    major_is_x: bool,
+}
+
+impl Iterator for BresenhamWalk {
+    type Item = (i32, i32);
+
+    fn next(&mut self) -> Option<(i32, i32)> {
+        if self.remaining == 0 {
+            return None;
+        }
+        self.remaining -= 1;
+        if self.major_is_x {
+            self.x += self.step_x;
+            self.increments += i64::from(self.abs_y);
+            // `>` (not `>=`): the accumulator decides the minor axis (SPEC §8.1).
+            if self.increments > i64::from(self.abs_x) {
+                self.increments -= i64::from(self.abs_x);
+                self.y += self.step_y;
+            }
+        } else {
+            self.y += self.step_y;
+            self.increments += i64::from(self.abs_x);
+            if self.increments > i64::from(self.abs_y) {
+                self.increments -= i64::from(self.abs_y);
+                self.x += self.step_x;
+            }
+        }
+        Some((self.x, self.y))
+    }
+}
+
+/// The `start → end` walk (`:99-131`); the start pixel itself is never visited.
+fn bresenham(start: (i32, i32), end: (i32, i32)) -> BresenhamWalk {
+    let distance_x = end.0 - start.0;
+    let distance_y = end.1 - start.1;
+    let abs_x = distance_x.abs();
+    let abs_y = distance_y.abs();
+    BresenhamWalk {
+        x: start.0,
+        y: start.1,
+        step_x: if distance_x >= 0 { 1 } else { -1 },
+        step_y: if distance_y >= 0 { 1 } else { -1 },
+        abs_x,
+        abs_y,
+        increments: 0,
+        remaining: abs_x.max(abs_y),
+        major_is_x: abs_x >= abs_y,
+    }
+}
+
 /// One Bresenham segment: accumulates minutes and the ocean census.
 fn walk_segment<T: TerrainLookup>(
     terrain: &T,
@@ -213,38 +279,11 @@ fn walk_segment<T: TerrainLookup>(
     transport: Transport,
     options: &TravelOptions,
 ) -> Result<(u64, u32, u32), TravelError> {
-    let (mut x, mut y) = start;
-    let distance_x = end.0 - start.0;
-    let distance_y = end.1 - start.1;
-    let abs_x = distance_x.abs();
-    let abs_y = distance_y.abs();
-    let furthest = abs_x.max(abs_y);
-    let step_x = if distance_x >= 0 { 1 } else { -1 };
-    let step_y = if distance_y >= 0 { 1 } else { -1 };
-
-    let mut increments: i64 = 0;
     let mut minutes_total: u64 = 0;
     let mut pixels: u32 = 0;
     let mut ocean_pixels: u32 = 0;
 
-    for _ in 0..furthest {
-        if furthest == abs_x {
-            x += step_x;
-            increments += i64::from(abs_y);
-            // `>` (not `>=`): the accumulator decides the minor axis (SPEC §8.1).
-            if increments > i64::from(abs_x) {
-                increments -= i64::from(abs_x);
-                y += step_y;
-            }
-        } else {
-            y += step_y;
-            increments += i64::from(abs_x);
-            if increments > i64::from(abs_y) {
-                increments -= i64::from(abs_y);
-                x += step_x;
-            }
-        }
-
+    for (x, y) in bresenham(start, end) {
         let climate = terrain
             .climate_at(x, y)
             .ok_or(TravelError::MissingTerrain { x, y })?;
@@ -342,6 +381,73 @@ pub fn calculate_trip_cost(
         total += 25 * (i64::from(ocean_pixels) / 24 + 1);
     }
     TripCost { pieces, total }
+}
+
+// ── road encounters (`W43-3`, SPEC §3.8) ─────────────────────────────────
+
+/// Per-mille chance of an encounter per walked pixel (`W43-3`). The retail
+/// travel code rolls **no** encounter at all — 0 matches of `Encounter` in
+/// `TravelTimeCalculator.cs` and `DaggerfallTravelPopUp.cs` — so this chance
+/// is the engine's own declared seam: the spawn it feeds stays M25's
+/// (`REQ-L99-058`), and only the *roll* is owned here.
+pub const ROAD_ENCOUNTER_PER_MILLE: u32 = 25;
+
+/// Kind buckets of the roll; M25 resolves a bucket into an actual foe.
+pub const ROAD_ENCOUNTER_KINDS: u32 = 8;
+
+/// One road encounter: the walked pixel that produced it and its kind bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RoadEncounter {
+    /// Walked pixel (1-based, in walk order along the whole route).
+    pub pixel: u32,
+    /// Kind bucket in `0..`[`ROAD_ENCOUNTER_KINDS`].
+    pub kind: u32,
+}
+
+/// FNV-1a 64 step over one 64-bit word (`heart` carries no RNG state, so the
+/// roll is a pure function of the seed and the route).
+fn fold(mut state: u64, word: u64) -> u64 {
+    for byte in word.to_le_bytes() {
+        state ^= u64::from(byte);
+        state = state.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    state
+}
+
+/// Deterministic road-encounter roll over a route (`W43-3`, SPEC §3.8).
+///
+/// Pure in `(seed, points)`: the same inputs yield the same encounters in the
+/// same pixels, a different seed yields a different sequence, and no clock,
+/// float or global RNG state takes part. The walk is
+/// [`bresenham`]'s — the very pixels [`calculate_travel_route`] charges for.
+pub fn road_encounter_roll(seed: u64, points: &[(i32, i32)]) -> Vec<RoadEncounter> {
+    let mut state = fold(0xcbf2_9ce4_8422_2325, seed);
+    let mut encounters = Vec::new();
+    let mut pixel: u32 = 0;
+    for pair in points.windows(2) {
+        for (x, y) in bresenham(pair[0], pair[1]) {
+            pixel += 1;
+            state = fold(state, (u64::from(x as u32) << 32) | u64::from(y as u32));
+            state = fold(state, u64::from(pixel));
+            if state % 1000 < u64::from(ROAD_ENCOUNTER_PER_MILLE) {
+                encounters.push(RoadEncounter {
+                    pixel,
+                    kind: ((state >> 32) % u64::from(ROAD_ENCOUNTER_KINDS)) as u32,
+                });
+            }
+        }
+    }
+    encounters
+}
+
+/// Stable text form of a roll (`pixel:kind` pairs, `;`-joined, no floats) —
+/// the probe digests this string.
+pub fn encounters_text(encounters: &[RoadEncounter]) -> String {
+    encounters
+        .iter()
+        .map(|encounter| format!("{}:{}", encounter.pixel, encounter.kind))
+        .collect::<Vec<String>>()
+        .join(";")
 }
 
 /// Arrival adjustment flags (`DaggerfallTravelPopUp.cs:336-360`).
@@ -651,5 +757,61 @@ mod tests {
     fn akatosh_blessing_truncates_like_the_source() {
         assert_eq!(akatosh_fast_travel(5200, 0), 4940);
         assert_eq!(akatosh_fast_travel(5200, 95), 0);
+    }
+
+    #[test]
+    fn road_encounter_roll_is_pure_in_seed_and_route() {
+        let route = [(0, 0), (40, 0), (40, 40)];
+        let first = road_encounter_roll(TRAVEL_SEED, &route);
+        let replay = road_encounter_roll(TRAVEL_SEED, &route);
+        assert_eq!(first, replay, "same seed and route => same roll");
+        assert_eq!(
+            encounters_text(&first),
+            encounters_text(&replay),
+            "the printed form is stable too"
+        );
+        assert!(
+            !first.is_empty(),
+            "80 walked pixels at 25 per mille must roll something"
+        );
+        for encounter in &first {
+            assert!((1..=80).contains(&encounter.pixel));
+            assert!(encounter.kind < ROAD_ENCOUNTER_KINDS);
+        }
+
+        let other = road_encounter_roll(TRAVEL_SEED ^ 1, &route);
+        assert_ne!(
+            encounters_text(&first),
+            encounters_text(&other),
+            "a different seed must roll differently"
+        );
+    }
+
+    #[test]
+    fn road_encounter_walk_matches_the_charged_pixels() {
+        // The roll walks exactly the pixels the accumulator charges for.
+        let route = [(0, 0), (17, 9), (-4, 6)];
+        let report = calculate_travel_route(
+            &UniformTerrain(227),
+            &route,
+            Transport::Foot,
+            &TravelOptions::default(),
+        )
+        .expect("uniform terrain");
+        let walked = route
+            .windows(2)
+            .map(|pair| {
+                (pair[1].0 - pair[0].0)
+                    .abs()
+                    .max((pair[1].1 - pair[0].1).abs()) as u32
+            })
+            .sum::<u32>();
+        assert_eq!(report.pixels, walked);
+        let last = road_encounter_roll(TRAVEL_SEED, &route)
+            .iter()
+            .map(|encounter| encounter.pixel)
+            .max()
+            .unwrap_or(0);
+        assert!(last <= walked, "the roll never leaves the walked pixels");
     }
 }

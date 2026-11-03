@@ -124,10 +124,12 @@ impl Presentation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui_compat::surface::{SurfaceOwnership, SurfaceSource, SurfaceSpec, WindowComposition};
+    use crate::ui_compat::surface::{
+        SurfaceOwnership, SurfaceSource, SurfaceSpec, WindowComposition,
+    };
     use crate::ui_compat::test_support::bank;
-    use crate::ui_spec::{present_delta, present_interpolated_pixels, UiRect};
     use crate::ui_spec::canvas_rgba;
+    use crate::ui_spec::{present_delta, present_interpolated_pixels, UiRect};
     use daggerfall_nervous::events::WindowId;
 
     /// A7 rule 1 — the presentation factor is not part of the composition.
@@ -216,7 +218,9 @@ mod tests {
         assert_eq!(present_delta(&framebuffer, &canonical), 0);
         assert_eq!(present_interpolated_pixels(&canonical), 0);
 
-        let single = Presentation::new(1).expect("factor 1").present(&framebuffer);
+        let single = Presentation::new(1)
+            .expect("factor 1")
+            .present(&framebuffer);
         assert_eq!((single.width, single.height), (640, 480));
         assert_eq!(single.rgba.len(), 640 * 480 * 4);
         assert_eq!(single.scale, 1);
@@ -229,7 +233,10 @@ mod tests {
         let canvas = canvas_rgba(&framebuffer);
         let inside = (140 * 640 + 160) * 4;
         assert_eq!(&single.rgba[inside..inside + 4], &canvas[..4]);
-        assert_eq!(&single.rgba[inside + 319 * 4..inside + 320 * 4], &canvas[318 * 4..319 * 4]);
+        assert_eq!(
+            &single.rgba[inside + 319 * 4..inside + 320 * 4],
+            &canvas[318 * 4..319 * 4]
+        );
     }
 
     /// A7 rule 4 — the same nodes in a different declaration order present the

@@ -85,17 +85,36 @@ pub fn rounds(settings: &EffectSettings, support_duration: bool, level: i32) -> 
     if !support_duration {
         return 0;
     }
-    let mut multiplier = level / settings.duration_per_level;
+    // A hand-built `perLevel = 0` is not a level step: the classic registry
+    // clamps it to ≥ 1 (`EntityEffectBroker.cs:962-996`) and the model must
+    // never divide by zero (contract §5 item 5,
+    // `m23-effects-contract-CR-59d7fd46.md:308`).
+    let mut multiplier = if settings.duration_per_level > 0 {
+        level / settings.duration_per_level
+    } else {
+        0
+    };
     if multiplier < 1 {
         multiplier = 1;
     }
-    settings.duration_base + settings.duration_plus * multiplier
+    settings
+        .duration_base
+        .saturating_add(settings.duration_plus.saturating_mul(multiplier))
 }
 
 /// Chance value: `base + plus · ⌊level / chancePerLevel⌋`
 /// (`EntityEffect.cs:740-745`).
 pub fn chance_value(settings: &EffectSettings, level: i32) -> i32 {
-    settings.chance_base + settings.chance_plus * (level / settings.chance_per_level)
+    // `chancePerLevel = 0` contributes no level step instead of dividing by
+    // zero (contract §5 item 5, `m23-effects-contract-CR-59d7fd46.md:308`).
+    let step = if settings.chance_per_level > 0 {
+        level / settings.chance_per_level
+    } else {
+        0
+    };
+    settings
+        .chance_base
+        .saturating_add(settings.chance_plus.saturating_mul(step))
 }
 
 /// Chance roll: `Dice100.SuccessRoll(ChanceValue())` when the effect supports
@@ -1858,7 +1877,9 @@ pub fn roll_magnitude(
     } else {
         0
     };
-    base + plus * multiplier
+    // Saturation, not wrap: a magnitude the target could not carry is refused
+    // at the i32 boundary instead of silently becoming a negative heal.
+    base.saturating_add(plus.saturating_mul(multiplier))
 }
 
 /// One application of an effect instance (cast round or magic round).
@@ -2306,7 +2327,12 @@ pub fn component_cost(
     per_level: i32,
     _skill: i32,
 ) -> i32 {
-    costs.offset_gold + costs.cost_a * starting + costs.cost_b * (increase / per_level)
+    // Saturating: an overflowing component is refused at the i32 boundary, it
+    // never wraps into a cheaper spell.
+    costs
+        .offset_gold
+        .saturating_add(costs.cost_a.saturating_mul(starting))
+        .saturating_add(costs.cost_b.saturating_mul(increase / per_level))
 }
 
 /// Cost of one effect (gold, points): sum of the active components; with no
@@ -2361,7 +2387,7 @@ pub fn effect_cost(entry: &EffectEntry, skill: i32) -> (i32, i32) {
             skill,
         );
     }
-    let points = gold * (110 - skill) / 400;
+    let points = gold.saturating_mul(110i32.saturating_sub(skill)) / 400;
     (gold, points)
 }
 
@@ -2444,15 +2470,15 @@ pub fn calculate_total_effect_costs(
     if entries.is_empty() {
         return SpellCost::default();
     }
-    let mut gold = 0;
-    let mut points = 0;
+    let mut gold: i32 = 0;
+    let mut points: i32 = 0;
     for entry in entries {
         if entry.props.key.is_empty() {
             continue;
         }
         let (effect_gold, effect_points) = effect_cost(entry, live(entry.props));
-        gold += effect_gold;
-        points += effect_points;
+        gold = gold.saturating_add(effect_gold);
+        points = points.saturating_add(effect_points);
     }
     gold = apply_target_multiplier(gold, target);
     points = apply_target_multiplier(points, target);
@@ -2867,8 +2893,13 @@ impl MagicState {
         // owner removes it (`LycanthropyInfectionEffect`, `VampirismEffect`,
         // `PassiveEffects` — the curses live in the effect manager): its
         // state payloads are applied at `Start` and stay derived.
+        // A template that declares `SupportDuration` but whose settings give
+        // zero rounds is not permanent: duration 0 applies once and leaves no
+        // state behind (contract §5 item 2, `m23-effects-contract-CR-59d7fd46.md:299-301`).
+        // Only a template without `SupportDuration` (the curses) lives until
+        // its owner removes it.
         let permanent = payload_lifetime(payload) == Lifetime::Permanent
-            || (scheduled == 0 && payload_carries_state(payload));
+            || (!props.support_duration && scheduled == 0 && payload_carries_state(payload));
         let mut application = EffectApplication {
             key: props.key,
             payload,
@@ -3629,7 +3660,7 @@ pub fn poison_spec(key: &str) -> Option<&'static PoisonSpec> {
 /// Spellbook purchase price: `spellPointCost · 4`; in Witches Festival half
 /// of it with a minimum of 1 (`DaggerfallSpellBookWindow.cs:518-532`).
 pub fn purchase_price(spell_point_cost: i32, witches_festival: bool) -> i32 {
-    let mut price = spell_point_cost * 4;
+    let mut price = spell_point_cost.saturating_mul(4);
     if witches_festival {
         price >>= 1;
         if price == 0 {

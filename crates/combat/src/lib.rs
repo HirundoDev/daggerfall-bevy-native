@@ -33,8 +33,8 @@ pub mod rng;
 
 pub use actor::{Combatant, EntityKind, Weapon};
 pub use engine::{
-    resolve_attack, resolve_monster_attack, AttackInput, AttackOutcome, DeathSequence, EnemyAttack,
-    MonsterAttackInput, MonsterAttackOutcome, MATERIAL_SILVER,
+    chance_to_hit_for_part, resolve_attack, resolve_monster_attack, AttackInput, AttackOutcome,
+    DeathSequence, EnemyAttack, MonsterAttackInput, MonsterAttackOutcome, MATERIAL_SILVER,
 };
 pub use enchantments::{strike_callbacks, StrikeCallbacks};
 pub use rng::{actor_seed, DfRandom, Dice100};

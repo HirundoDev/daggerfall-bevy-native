@@ -281,7 +281,7 @@ impl WeatherClimateSeason {
 }
 
 /// Probability of `weather` for `climate`/`season` after normalization, in
-/// `0.0..=1.0` (basis for the SPEC-M31 §5-B frequency check).
+/// `0.0..=1.0` (fraction view; evidence lines use [`WeatherClimateSeason::odds_ppm`]).
 pub fn probability(climate: Climate, season: Season, weather: WeatherType) -> f64 {
     WeatherClimateSeason::new(climate, season).odds()[weather.index()] / 100.0
 }
@@ -495,6 +495,47 @@ pub fn is_snow_free(climate: Climate) -> bool {
         climate,
         Climate::Desert | Climate::Jungle | Climate::Subtropical
     )
+}
+
+/// Integer probability basis: one percentage point is 10 000 ppm, so a
+/// probability reaches probe stdout as an integer and never as a `key=<decimal>`
+/// token (G5).
+pub const PPM_PER_PERCENT: i64 = 10_000;
+
+/// `SPEC-M31 §5-B` frequency band of the 10 000-draw check (`max_abs_delta <
+/// 0.02`) in ppm: 2 points × 10 000 ppm = 20 000 ppm.
+pub const FREQUENCY_BAND_PPM: i64 = 2 * PPM_PER_PERCENT;
+
+/// Declared probability of `weather` for `climate`/`season` in **integer ppm**,
+/// measured from the *raw* retail row so the whole path stays integral: the
+/// table is whole percentages, so it is read in tenths of a point and the
+/// normalized probability is the exact rational `raw_deci / total_deci` — the
+/// same quantity `Validate()` builds with `100/Σ`, without ever dividing in
+/// floating point.
+///
+/// Rounding is **half-up in one direction only**: half the divisor is added
+/// before truncating, so the same table yields the same ppm everywhere and the
+/// value can be re-derived by hand from `WeatherTable.json`.
+pub fn odds_ppm(climate: Climate, season: Season, weather: WeatherType) -> i64 {
+    let raw = WeatherClimateSeason::new(climate, season).raw();
+    let total = raw_total_deci(raw);
+    if total <= 0 {
+        return 0;
+    }
+    let part = percent_deci(raw[weather.index()]);
+    (2 * part * 1_000_000 + total) / (2 * total)
+}
+
+/// Whole-percent retail cell in exact tenths of a point (`3.0 → 30`).
+/// `WeatherTable.json` carries whole percentages only, so this conversion is
+/// exact and no rounding survives into the measurement.
+fn percent_deci(percent: f64) -> i64 {
+    (percent * 10.0).round() as i64
+}
+
+/// Sum of a raw row in tenths of a point (`Validate()`'s `Σ`).
+fn raw_total_deci(raw: WeatherOdds) -> i64 {
+    raw.iter().map(|chance| percent_deci(*chance)).sum()
 }
 
 #[cfg(test)]

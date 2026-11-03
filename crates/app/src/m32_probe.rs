@@ -11,6 +11,10 @@
 //!     that must be identical across two runs.
 //!   - **C** census: `disease_classes=21` (17 classic + 4 infection classes),
 //!     `infections=4`, `poisons=12`.
+//!   - **D** depth: the per-class census of all 33 members with each facet
+//!     measured (entry, damage path, host gate, contagion, stage two, poison
+//!     onset/completion), the §3.8 counter-cases, the four transformed
+//!     infection classes and the twice-exercised cure.
 //! - **`PROBE-VAMPIRE-001`**
 //!   - **A** V1-V8 + Y1-Y5 + K1-K3 = **16 golden vectors**.
 //!   - **B** infection → warning dream → full stage → full-moon morph, sun
@@ -30,6 +34,12 @@
 //!
 //! Exit: `0` ⟺ the probe's blocks pass; `2` when ARENA2 is inaccessible
 //! (REST block D only); `1` on any FAIL. Mode A custody: 0 retail bytes.
+//!
+//! Stream: every line of the four probes goes through the sink of
+//! [`crate::m30_probe`] (one buffered stream, one terminal `DIGEST <sha256>`
+//! over exactly those bytes), each `[OK]` row carries a `src=<path>:<line>`
+//! resolved against the four skills sources baked below, and the head of every
+//! probe prints `SOURCES fingerprint=… paths=…` over that same baked set.
 
 use std::path::{Path, PathBuf};
 
@@ -38,9 +48,54 @@ use daggerfall_skills::conditions::{
     contact_infection, cure_service_cost, infection_stage, Contagion, CureServiceRequest, Disease,
     DiseaseBook, DiseaseEffect, EnemyKind, InfectionStage, LycanthropyKind, Poison, PoisonEffect,
     PoisonState, PoisonTarget, VitalsDelta, AGILITY, ATTRIBUTE_COUNT, DISEASE_COUNT, ENDURANCE,
-    FATIGUE, HEALTH, INFECTION_COUNT, INTELLIGENCE, LUCK, PERSONALITY, POISON_COUNT, SPELL_POINTS,
-    SPEED, STRENGTH, WILLPOWER,
+    FATIGUE, HEALTH, INFECTION_CLASSES, INFECTION_COUNT, INTELLIGENCE, LUCK, PERSONALITY,
+    POISON_COUNT, SPELL_POINTS, SPEED, STRENGTH, WILLPOWER,
 };
+// ── stdout sink + evidence binding (W43: one stream, one digest) ───────────
+//
+// The sink itself lives in `m30_probe` (one buffered stream per process, one
+// terminal `DIGEST` over exactly those bytes), so this family keeps no second
+// copy of it. What stays here is the *binding*: the four M32 skills sources
+// baked at compile time, so the `SOURCES` fingerprint the gate recomputes from
+// disk covers exactly the bytes these rows cite.
+
+use crate::m30_probe::{
+    method_cite, print_sources_of, sink_begin, sink_flush, sink_line, sink_line_cited, source_of,
+};
+
+/// `say!` — the only print of the family (see [`sink_line`]).
+macro_rules! say {
+    ($($arg:tt)*) => {
+        $crate::m30_probe::sink_line(&format!($($arg)*))
+    };
+}
+
+const SRC_CONDITIONS: &str = "crates/skills/src/conditions.rs";
+const SRC_VAMPIRISM: &str = "crates/skills/src/vampirism.rs";
+const SRC_REST: &str = "crates/skills/src/rest.rs";
+const SRC_DEATH: &str = "crates/skills/src/death.rs";
+
+/// The sources these rows cite, baked at compile time: the fingerprint the
+/// gate recomputes is over exactly these bytes (G3: one line).
+const BOUND_SOURCES: [(&str, &[u8]); 4] = [
+    (SRC_CONDITIONS, include_bytes!("../../skills/src/conditions.rs")),
+    (SRC_VAMPIRISM, include_bytes!("../../skills/src/vampirism.rs")),
+    (SRC_REST, include_bytes!("../../skills/src/rest.rs")),
+    (SRC_DEATH, include_bytes!("../../skills/src/death.rs")),
+];
+
+/// The `SOURCES` line, printed once at the head of each probe (G3): this
+/// family's own set, never another family's.
+fn print_sources() {
+    print_sources_of(&BOUND_SOURCES);
+}
+
+/// `path:line` of `signature` resolved in the baked bytes of `path` (G7): a
+/// signature that is not there cites line `0`, which the gate rejects — red,
+/// never silently dropped.
+fn cite(path: &str, signature: &str) -> String {
+    method_cite(source_of(&BOUND_SOURCES, path), path, signature)
+}
 use daggerfall_skills::death::{
     apply_damage, avoid_death_health, stendarr_avoids_death, DeathState, LifeOutcome,
     DEATH_RESET_SECONDS,
@@ -90,15 +145,15 @@ fn check(id: &'static str, ok: bool, detail: impl Into<String>) -> Row {
     }
 }
 
-fn print_rows(title: &str, rows: &[Row]) -> bool {
-    println!("\n-- {title} --");
+fn print_rows(title: &str, rows: &[Row], src: &str) -> bool {
+    sink_line(&format!("\n-- {title} --"));
     let mut ok = true;
     for row in rows {
         if row.ok {
-            println!("[OK] {} - {}", row.id, row.detail);
+            sink_line_cited(&format!("[OK] {} - {}", row.id, row.detail), src);
         } else {
             ok = false;
-            println!("FAIL {} got={} want={}", row.id, row.got, row.want);
+            sink_line(&format!("FAIL {} got={} want={}", row.id, row.got, row.want));
         }
     }
     ok
@@ -170,27 +225,37 @@ fn disease_tick(
 /// `PROBE-CONDITION-001` — A (24 vectors), B (lifecycle + demo, digest ×2),
 /// C (census).
 pub fn run_condition_001() -> i32 {
-    println!(
+    sink_begin();
+    let code = condition_001_body();
+    sink_flush();
+    code
+}
+
+/// Body of `PROBE-CONDITION-001` with the sink already open.
+fn condition_001_body() -> i32 {
+    say!(
         "PROBE-CONDITION-001 - DFU conditions: diseases, contagion, poisons, cure (M32, CR-f716455c, REQ-L99-065 · spec §1-§2, §7.1-§7.2, §8)"
     );
+    print_sources();
 
     // ── A · D1-D13 + P1-P11 ───────────────────────────────────────────────
     let mut rows = Vec::new();
     blood_vectors(&mut rows);
     poison_vectors(&mut rows);
-    println!("\n-- A · golden vectors (id|expected|actual) --");
+    say!("\n-- A · golden vectors (id|expected|actual) --");
+    let a_src = cite(SRC_CONDITIONS, "pub fn tick_with<F: FnMut() -> i32>");
     let mut ok_count = 0usize;
     let mut fail_count = 0usize;
     for row in &rows {
         if row.ok {
             ok_count += 1;
-            println!("[OK] {} - {}", row.id, row.detail);
+            sink_line_cited(&format!("[OK] {} - {}", row.id, row.detail), &a_src);
         } else {
             fail_count += 1;
-            println!("FAIL {} got={} want={}", row.id, row.got, row.want);
+            say!("FAIL {} got={} want={}", row.id, row.got, row.want);
         }
     }
-    println!("vectors={} ok={} fail={}", rows.len(), ok_count, fail_count);
+    say!("vectors={} ok={} fail={}", rows.len(), ok_count, fail_count);
     let a_ok = fail_count == 0 && rows.len() == 24;
 
     // ── B · seeded lifecycle + §12 demo ───────────────────────────────────
@@ -198,11 +263,11 @@ pub fn run_condition_001() -> i32 {
     let second = condition_lifecycle();
     let digest_a = fnv1a64(first.join("|").as_bytes());
     let digest_b = fnv1a64(second.join("|").as_bytes());
-    println!("\n-- B · seeded lifecycle (0x5243AF63) + demo --");
+    say!("\n-- B · seeded lifecycle (0x5243AF63) + demo --");
     for line in &first {
-        println!("[B] {line}");
+        say!("[B] {line}");
     }
-    println!("[B] digest={digest_a:016x} digest2={digest_b:016x}");
+    say!("[B] digest={digest_a:016x} digest2={digest_b:016x}");
     let b_rows = vec![
         row(
             "B1 determinism",
@@ -221,7 +286,11 @@ pub fn run_condition_001() -> i32 {
             "§12(a)(b): rat bite → Plague; day 0 silent; day 1 STR 50→47; potion cures, stats stay lost",
         ),
     ];
-    let b_ok = print_rows("B · lifecycle and demo", &b_rows);
+    let b_ok = print_rows(
+        "B · lifecycle and demo",
+        &b_rows,
+        &cite(SRC_CONDITIONS, "pub struct DiseaseBook"),
+    );
 
     // ── C · census ────────────────────────────────────────────────────────
     let disease_classes = DISEASE_COUNT + INFECTION_COUNT;
@@ -245,11 +314,187 @@ pub fn run_condition_001() -> i32 {
             "Poisons 128..=139 (8 weapon poisons + 4 drugs)",
         ),
     ];
-    let c_ok = print_rows("C · census", &c_rows);
-    println!("disease_classes={disease_classes} infections={INFECTION_COUNT} poisons={POISON_COUNT}");
+    let c_ok = print_rows(
+        "C · census",
+        &c_rows,
+        &cite(SRC_CONDITIONS, "pub const DISEASE_COUNT"),
+    );
+    say!("disease_classes={disease_classes} infections={INFECTION_COUNT} poisons={POISON_COUNT}");
+
+    // ── D · depth: census, counter-cases, transform and cure ──────────────
+    //
+    // Every number of this block is a count of measurements that ran in this
+    // process. `covered` requires all the facets of a member (entry + damage
+    // path + host gate for a classic disease; contagion + stage two + inert
+    // stage one for an infection class; onset payload + completion for a
+    // poison). A facet that stops measuring prints `uncovered`, the count
+    // drops and the gate row goes red — never a declaration.
+    say!("\n-- D · depth: census, counter-cases, transform and cure --");
+    let census = ConditionCensus::measure();
+    sink_line_cited(
+        &format!(
+            "[OK] CONDITION-CENSUS - diseases={} covered={} poisons={} poisons_covered={} census={}",
+            census.diseases.len(),
+            census.covered_diseases(),
+            census.poisons.len(),
+            census.covered_poisons(),
+            census.row(),
+        ),
+        &cite(SRC_CONDITIONS, "pub struct DiseaseBook"),
+    );
+
+    // §3.8: behaviours the model does NOT have, each one measured as absent.
+    let mut first_cure_rng = Rng64::new(DEPTH_SEED + 1);
+    let mut first_cure_book = DiseaseBook::new();
+    let first_cure_contracted = first_cure_book.infect(Disease::Plague, 0, 2, &mut first_cure_rng);
+    let applied_damage = first_cure_book.tick_with(1, || 3).delta;
+    let first_cure_cured = first_cure_book.cure(Disease::Plague);
+    let after_cure = first_cure_book.tick_with(2, || 3).delta;
+    let no_restore = first_cure_contracted
+        && first_cure_cured
+        && applied_damage.vitals[HEALTH] < 0
+        && after_cure.is_zero();
+
+    let mut level_rng = Rng64::new(DEPTH_SEED + 2);
+    let mut level_book = DiseaseBook::new();
+    let level_refused =
+        !level_book.infect(Disease::Plague, 0, 1, &mut level_rng) && level_book.count() == 0;
+
+    let mut duplicate_rng = Rng64::new(DEPTH_SEED + 3);
+    let mut duplicate_book = DiseaseBook::new();
+    let duplicate_first = duplicate_book.infect(Disease::Plague, 0, 2, &mut duplicate_rng);
+    let duplicate_second = duplicate_book.infect(Disease::Plague, 0, 2, &mut duplicate_rng);
+    let duplicate_ignored = duplicate_first && !duplicate_second && duplicate_book.count() == 1;
+
+    let mut same_day_rng = Rng64::new(DEPTH_SEED + 4);
+    let mut same_day_effect = DiseaseEffect::start(Disease::Plague, 0, 2, &mut same_day_rng);
+    let same_day_silent = same_day_effect.tick_with(0, || 3).delta.is_zero();
+
+    let counter_cases = vec![
+        CounterCase {
+            id: "COND-NO-REVIVAL",
+            reason: "no_restore_on_cure",
+            absent: no_restore,
+            src: cite(SRC_CONDITIONS, "pub fn cure(&mut self, disease: Disease) -> bool"),
+        },
+        CounterCase {
+            id: "COND-NO-UNCONDITIONAL-INFECTION",
+            reason: "dice_gate_blocks",
+            absent: contact_infection(EnemyKind::Rat, 5, 0.0, 0) == Contagion::None,
+            src: cite(SRC_CONDITIONS, "roll < chance"),
+        },
+        CounterCase {
+            id: "COND-NO-LOW-LEVEL-HOST",
+            reason: "level_gate_rejects",
+            absent: level_refused,
+            src: cite(SRC_CONDITIONS, "if level < 2 {"),
+        },
+        CounterCase {
+            id: "COND-NO-DUPLICATE-INCUMBENT",
+            reason: "duplicate_ignored",
+            absent: duplicate_ignored,
+            src: cite(
+                SRC_CONDITIONS,
+                "any(|effect| effect.disease == disease && !effect.completed)",
+            ),
+        },
+        CounterCase {
+            id: "COND-NO-STAGE-ONE-SUN",
+            reason: "stage_one_immune",
+            absent: VampireState::infected(0).sun_damage(20) == 0,
+            src: cite(SRC_VAMPIRISM, "if self.stage != VampireStage::Full {"),
+        },
+        CounterCase {
+            id: "COND-NO-SAME-DAY-DAMAGE",
+            reason: "same_day_silent",
+            absent: same_day_silent,
+            src: cite(
+                SRC_CONDITIONS,
+                "if self.completed || current_day <= self.last_day {",
+            ),
+        },
+        CounterCase {
+            id: "COND-NO-SPIDER-CONTAGION",
+            reason: "enemy_transmits_none",
+            absent: contact_infection(EnemyKind::Spider, 0, 0.0, 0) == Contagion::None,
+            src: cite(
+                SRC_CONDITIONS,
+                "EnemyKind::Spider | EnemyKind::GiantScorpion => Contagion::None",
+            ),
+        },
+    ];
+    let mut negatives = 0usize;
+    for case in &counter_cases {
+        if case.absent {
+            negatives += 1;
+            sink_line_cited(
+                &format!("NEGATIVE {} reason={}", case.id, case.reason),
+                &case.src,
+            );
+        } else {
+            say!(
+                "[D] counter-case {} measured present, no NEGATIVE row",
+                case.id
+            );
+        }
+    }
+    sink_line_cited(
+        &format!("[OK] CONDITION-NEGATIVE - count={negatives}"),
+        &cite(SRC_CONDITIONS, "pub fn contact_infection("),
+    );
+
+    // Stage two of every infection class: the contagion maps the monster to
+    // the class AND the full-blown state changes the host (measured facets of
+    // the census above). `mismatches` counts the classes where
+    // `infection_stage(4)` does not agree with what was measured.
+    let mut infections = 0usize;
+    let mut transformed = 0usize;
+    let mut mismatches = 0usize;
+    for class in INFECTION_CLASSES {
+        let facets = infection_facets(class);
+        let stage_two = infection_stage(4) == InfectionStage::FullBlown;
+        infections += 1;
+        if facets.transforms {
+            transformed += 1;
+        }
+        if stage_two != facets.transforms {
+            mismatches += 1;
+        }
+    }
+    sink_line_cited(
+        &format!(
+            "[OK] CONDITION-TRANSFORM - infections={infections} transformed={transformed} mismatches={mismatches}"
+        ),
+        &cite(
+            SRC_VAMPIRISM,
+            "pub fn morph(&mut self, now_minute: u64, max_health: i32)",
+        ),
+    );
+
+    // The cure path is exercised twice: `cure()` on one incumbent, then
+    // `cure_all()` (the potion/service path) on the other.
+    let mut cure_rng = Rng64::new(DEPTH_SEED + 5);
+    let mut cure_book = DiseaseBook::new();
+    cure_book.infect(Disease::Plague, 0, 2, &mut cure_rng);
+    cure_book.infect(Disease::YellowFever, 0, 2, &mut cure_rng);
+    let mut attempts = 0usize;
+    let mut cured = 0usize;
+    attempts += 1;
+    if cure_book.cure(Disease::Plague) {
+        cured += 1;
+    }
+    attempts += 1;
+    cured += cure_book.cure_all();
+    let active_after = cure_book.count();
+    sink_line_cited(
+        &format!(
+            "[OK] CONDITION-CURE - cured={cured} active_after={active_after} attempts={attempts}"
+        ),
+        &cite(SRC_CONDITIONS, "pub fn cure_all(&mut self) -> usize"),
+    );
 
     let pass = a_ok && b_ok && c_ok;
-    println!(
+    say!(
         "\nSUMMARY PROBE-CONDITION-001: A={} B={} C={} ⇒ {}",
         verdict(a_ok),
         verdict(b_ok),
@@ -261,6 +506,215 @@ pub fn run_condition_001() -> i32 {
     } else {
         1
     }
+}
+
+/// Seed base of the depth block (D): every draw of the census, the
+/// counter-cases, the transform census and the cure is seeded here, so this
+/// section is byte-identical across two runs.
+const DEPTH_SEED: u64 = 0x00C0_D171_0000_0000;
+
+/// `covered` / `uncovered` flag of one census member.
+fn flag(covered: bool) -> &'static str {
+    if covered {
+        "covered"
+    } else {
+        "uncovered"
+    }
+}
+
+/// Measured census of the 33 condition members: the 21 disease classes (17
+/// classic + 4 infection) and the 12 poisons, each with the facets measured in
+/// this process.
+struct ConditionCensus {
+    /// `(display name, every facet measured)` of the 17 classic diseases
+    /// followed by the 4 infection classes.
+    diseases: Vec<(String, bool)>,
+    /// `(display name, every facet measured)` of the 12 poisons.
+    poisons: Vec<(String, bool)>,
+}
+
+impl ConditionCensus {
+    /// Runs every facet of every member (see [`disease_facets_covered`],
+    /// [`infection_facets`] and [`poison_facets_covered`]).
+    fn measure() -> Self {
+        let mut diseases = Vec::with_capacity(DISEASE_COUNT + INFECTION_CLASSES.len());
+        for (index, disease) in Disease::ALL.iter().enumerate() {
+            diseases.push((
+                disease.name().to_string(),
+                disease_facets_covered(*disease, DEPTH_SEED + index as u64),
+            ));
+        }
+        for class in INFECTION_CLASSES {
+            diseases.push((class.to_string(), infection_facets(class).covered()));
+        }
+        let poisons = Poison::ALL
+            .iter()
+            .map(|poison| (poison.name().to_string(), poison_facets_covered(*poison)))
+            .collect();
+        Self { diseases, poisons }
+    }
+
+    /// Members whose every facet was measured.
+    fn covered_diseases(&self) -> usize {
+        self.diseases.iter().filter(|(_, covered)| *covered).count()
+    }
+
+    /// Poisons whose every facet was measured.
+    fn covered_poisons(&self) -> usize {
+        self.poisons.iter().filter(|(_, covered)| *covered).count()
+    }
+
+    /// `Name:covered;...` over all 33 members, in census order (17 classic, 4
+    /// infection, 12 poisons). The token has no spaces: `census=` is a single
+    /// `\S+` field of the gate.
+    fn row(&self) -> String {
+        self.diseases
+            .iter()
+            .chain(self.poisons.iter())
+            .map(|(name, covered)| format!("{name}:{}", flag(*covered)))
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+}
+
+/// Three facets of one classic disease, all measured in this process:
+///
+/// **(a) entry** — the book contracts it on an eligible host (`level >= 2`),
+/// reports it active, counts exactly one incumbent and no-ops the duplicate
+/// (`AddState` ignores a like-kind incumbent);
+/// **(b) damage path** — `tick_with(1, max_damage)` produces a non-zero
+/// payload and a second tick of the same day is silent;
+/// **(c) host gate** — an ineligible host (`level < 2`) is refused and the
+/// book stays empty.
+fn disease_facets_covered(disease: Disease, seed: u64) -> bool {
+    let mut rng = Rng64::new(seed);
+    let mut book = DiseaseBook::new();
+    let entry = book.infect(disease, 0, 2, &mut rng);
+    let incumbent = book.is_active(disease) && book.count() == 1;
+    let duplicate = !book.infect(disease, 0, 2, &mut rng);
+
+    let mut effect = DiseaseEffect::start(disease, 0, 2, &mut rng);
+    let damage_roll = i32::from(disease.data().max_damage);
+    let payload = effect.tick_with(1, || damage_roll);
+    let same_day = effect.tick_with(1, || damage_roll);
+    let damage = !payload.delta.is_zero() && same_day.delta.is_zero();
+
+    let mut gate_rng = Rng64::new(seed);
+    let mut gate_book = DiseaseBook::new();
+    let refused = !gate_book.infect(disease, 0, 1, &mut gate_rng) && gate_book.count() == 0;
+
+    entry && incumbent && duplicate && damage && refused
+}
+
+/// Measured facets of one infection class.
+struct InfectionFacets {
+    /// **(a)** `contact_infection` maps the monster to this class.
+    contract: bool,
+    /// **(b)** the stage-two state really changes the host.
+    transforms: bool,
+    /// **(c)** stage one is inert: no transformation, no bonus, no sun damage,
+    /// and `infection_stage(3)` is still not full blown.
+    latent: bool,
+}
+
+impl InfectionFacets {
+    /// `covered` only when the three facets were observed.
+    fn covered(&self) -> bool {
+        self.contract && self.transforms && self.latent
+    }
+}
+
+/// Measures the facets of one `INFECTION_CLASSES` member.
+fn infection_facets(class: &str) -> InfectionFacets {
+    match class {
+        "VampirismInfection" => {
+            let full = VampireState::full(0, false);
+            let stage_one = VampireState::infected(0);
+            InfectionFacets {
+                contract: contact_infection(EnemyKind::Vampire, 0, 0.0, 0) == Contagion::Vampirism,
+                transforms: full.sun_damage(20) == 60
+                    && full.needs_silver()
+                    && full.stat_bonus().iter().any(|bonus| *bonus > 0),
+                latent: stage_one.sun_damage(20) == 0
+                    && !stage_one.needs_silver()
+                    && stage_one.stat_bonus().iter().all(|bonus| *bonus == 0)
+                    && infection_stage(3) != InfectionStage::FullBlown,
+            }
+        }
+        "LycanthropyInfection" => {
+            let werewolf = lycanthropy_facets(LycanthropyKind::Werewolf);
+            let wereboar = lycanthropy_facets(LycanthropyKind::Wereboar);
+            InfectionFacets {
+                contract: werewolf.contract && wereboar.contract,
+                transforms: werewolf.transforms && wereboar.transforms,
+                latent: werewolf.latent && wereboar.latent,
+            }
+        }
+        "WerewolfInfection" => lycanthropy_facets(LycanthropyKind::Werewolf),
+        "WereboarInfection" => lycanthropy_facets(LycanthropyKind::Wereboar),
+        _ => InfectionFacets {
+            contract: false,
+            transforms: false,
+            latent: false,
+        },
+    }
+}
+
+/// Facets of one lycanthropy kind: the monster transmits it, the full stage
+/// morphs (and then needs silver) while the infected stage stays humanoid.
+fn lycanthropy_facets(kind: LycanthropyKind) -> InfectionFacets {
+    let enemy = match kind {
+        LycanthropyKind::Werewolf => EnemyKind::Werewolf,
+        LycanthropyKind::Wereboar => EnemyKind::Wereboar,
+    };
+    let mut full = LycanthropyState::full(kind, 0);
+    let restored_health = full.morph(0, 100);
+    let stage_one = LycanthropyState::infected(kind, 0);
+    InfectionFacets {
+        contract: contact_infection(enemy, 0, 0.0, 0) == Contagion::Lycanthropy(kind),
+        transforms: full.transformed
+            && full.needs_silver()
+            && restored_health == 100
+            && full.stat_bonus().iter().any(|bonus| *bonus > 0),
+        latent: !stage_one.transformed
+            && !stage_one.needs_silver()
+            && stage_one.stat_bonus().iter().all(|bonus| *bonus == 0)
+            && infection_stage(3) != InfectionStage::FullBlown,
+    }
+}
+
+/// Two facets of one poison, measured through the real lifecycle: the payload
+/// is non-zero on the minute the onset expires, and the incumbent reaches
+/// [`PoisonState::Complete`] after its duration.
+fn poison_facets_covered(poison: Poison) -> bool {
+    let data = *poison.data();
+    let onset = data.onset_min;
+    let duration = data.duration_max.max(1);
+    let mut effect = PoisonEffect::with_rolls(poison, onset, duration);
+    let mut onset_payload = false;
+    for _ in 0..=usize::from(onset) {
+        let step = effect.advance(|min, _max| min);
+        onset_payload |= !step.applied.is_zero();
+    }
+    let mut state = effect.state;
+    for _ in 0..=usize::from(duration) {
+        if state == PoisonState::Complete {
+            break;
+        }
+        state = effect.advance(|min, _max| min).state;
+    }
+    onset_payload && state == PoisonState::Complete
+}
+
+/// One §3.8 counter-case: a behaviour the condition model does **not** have,
+/// measured as absent. `absent == false` means the measurement found the
+/// behaviour present, so no `NEGATIVE` row is printed and the count drops
+/// (the gate row goes red) instead of the absence being asserted.
+struct CounterCase {
+    id: &'static str,
+    reason: &'static str,
+    absent: bool,
+    src: String,
 }
 
 /// D1-D13 (`spec §7.1`), rolls injected.
@@ -661,34 +1115,44 @@ fn demo_disease() -> Vec<(&'static str, String)> {
 
 /// `PROBE-VAMPIRE-001` — A (16 vectors), B (infection → full moon, digest ×2).
 pub fn run_vampire_001() -> i32 {
-    println!(
+    sink_begin();
+    let code = vampire_001_body();
+    sink_flush();
+    code
+}
+
+/// Body of `PROBE-VAMPIRE-001` with the sink already open.
+fn vampire_001_body() -> i32 {
+    say!(
         "PROBE-VAMPIRE-001 - DFU vampirism/lycanthropy/death/cure (M32, CR-f716455c, REQ-L99-065 · spec §4-§6, §7.4, §8)"
     );
+    print_sources();
 
     let mut rows = Vec::new();
     vampire_vectors(&mut rows);
-    println!("\n-- A · golden vectors (id|expected|actual) --");
+    say!("\n-- A · golden vectors (id|expected|actual) --");
+    let a_src = cite(SRC_VAMPIRISM, "pub struct VampireState");
     let mut ok_count = 0usize;
     for row in &rows {
         if row.ok {
             ok_count += 1;
-            println!("[OK] {} - {}", row.id, row.detail);
+            sink_line_cited(&format!("[OK] {} - {}", row.id, row.detail), &a_src);
         } else {
-            println!("FAIL {} got={} want={}", row.id, row.got, row.want);
+            say!("FAIL {} got={} want={}", row.id, row.got, row.want);
         }
     }
-    println!("vectors={} ok={} fail={}", rows.len(), ok_count, rows.len() - ok_count);
+    say!("vectors={} ok={} fail={}", rows.len(), ok_count, rows.len() - ok_count);
     let a_ok = ok_count == rows.len() && rows.len() == 16;
 
     let first = vampire_lifecycle();
     let second = vampire_lifecycle();
     let digest_a = fnv1a64(first.join("|").as_bytes());
     let digest_b = fnv1a64(second.join("|").as_bytes());
-    println!("\n-- B · infection → full → full moon --");
+    say!("\n-- B · infection → full → full moon --");
     for line in &first {
-        println!("[B] {line}");
+        say!("[B] {line}");
     }
-    println!("[B] digest={digest_a:016x} digest2={digest_b:016x}");
+    say!("[B] digest={digest_a:016x} digest2={digest_b:016x}");
     let b_rows = vec![
         row(
             "B1 determinism",
@@ -715,10 +1179,14 @@ pub fn run_vampire_001() -> i32 {
             "20 minutes in sunlight = 5 ticks × 12 HP",
         ),
     ];
-    let b_ok = print_rows("B · infection and sun", &b_rows);
+    let b_ok = print_rows(
+        "B · infection and sun",
+        &b_rows,
+        &cite(SRC_VAMPIRISM, "pub fn sun_damage(&self, minutes_in_sun: u64)"),
+    );
 
     let pass = a_ok && b_ok;
-    println!(
+    say!(
         "\nSUMMARY PROBE-VAMPIRE-001: A={} B={} ⇒ {}",
         verdict(a_ok),
         verdict(b_ok),
@@ -936,34 +1404,45 @@ fn vampire_lifecycle() -> Vec<String> {
 
 /// `PROBE-REST-001` — A (10 vectors), B (interruption digest ×2), D (demo).
 pub fn run_rest_001() -> i32 {
-    println!(
+    sink_begin();
+    let code = rest_001_body();
+    sink_flush();
+    code
+}
+
+/// Body of `PROBE-REST-001` with the sink already open: the `EXIT=2` path of
+/// block D returns here, so the wrapper still closes the stream with `DIGEST`.
+fn rest_001_body() -> i32 {
+    say!(
         "PROBE-REST-001 - DFU rest: hourly recovery, interruption, rent (M32, CR-f716455c, REQ-L99-065 · spec §3, §7.3, §8)"
     );
+    print_sources();
 
     let mut rows = Vec::new();
     rest_vectors(&mut rows);
-    println!("\n-- A · golden vectors (id|expected|actual) --");
+    say!("\n-- A · golden vectors (id|expected|actual) --");
+    let a_src = cite(SRC_REST, "pub fn health_recovery_per_hour");
     let mut ok_count = 0usize;
     for row in &rows {
         if row.ok {
             ok_count += 1;
-            println!("[OK] {} - {}", row.id, row.detail);
+            sink_line_cited(&format!("[OK] {} - {}", row.id, row.detail), &a_src);
         } else {
-            println!("FAIL {} got={} want={}", row.id, row.got, row.want);
+            say!("FAIL {} got={} want={}", row.id, row.got, row.want);
         }
     }
-    println!("vectors={} ok={} fail={}", rows.len(), ok_count, rows.len() - ok_count);
+    say!("vectors={} ok={} fail={}", rows.len(), ok_count, rows.len() - ok_count);
     let a_ok = ok_count == rows.len() && rows.len() == 10;
 
     let first = rest_interruption();
     let second = rest_interruption();
     let digest_a = fnv1a64(first.join("|").as_bytes());
     let digest_b = fnv1a64(second.join("|").as_bytes());
-    println!("\n-- B · 12 h rest with an enemy on hour 3 (digest ×2) --");
+    say!("\n-- B · 12 h rest with an enemy on hour 3 (digest ×2) --");
     for line in &first {
-        println!("[B] {line}");
+        say!("[B] {line}");
     }
-    println!("[B] digest={digest_a:016x} digest2={digest_b:016x}");
+    say!("[B] digest={digest_a:016x} digest2={digest_b:016x}");
     let b_rows = vec![
         row(
             "B1 determinism",
@@ -977,20 +1456,24 @@ pub fn run_rest_001() -> i32 {
             first[0].clone(),
         ),
     ];
-    let b_ok = print_rows("B · interruption", &b_rows);
+    let b_ok = print_rows(
+        "B · interruption",
+        &b_rows,
+        &cite(SRC_REST, "pub fn tick_hour(&mut self, enemies_nearby: bool)"),
+    );
 
     // ── D · demo over the retail capital ──────────────────────────────────
     let d_ok = match run_rest_demo() {
         Ok(demo_ok) => demo_ok,
         Err(reason) => {
-            println!("\n-- D · demo (ARENA2) --");
-            println!("[EXIT=2] {reason}");
+            say!("\n-- D · demo (ARENA2) --");
+            say!("[EXIT=2] {reason}");
             return if a_ok && b_ok { 2 } else { 1 };
         }
     };
 
     let pass = a_ok && b_ok && d_ok;
-    println!(
+    say!(
         "\nSUMMARY PROBE-REST-001: A={} B={} D={} ⇒ {}",
         verdict(a_ok),
         verdict(b_ok),
@@ -1186,15 +1669,15 @@ fn run_rest_demo() -> Result<bool, String> {
     let hour_before = 8u64;
     let hour_after = (hour_before + u64::from(outcome.hours)) % 24;
 
-    println!("\n-- D · demo over the retail capital (M30 rent) --");
-    println!(
+    say!("\n-- D · demo over the retail capital (M30 rent) --");
+    say!(
         "[D] tavern_quality={quality} room_cost={room_base} room_price={room_price} gold_before={GOLD_BEFORE} gold_after={gold_after}"
     );
-    println!(
+    say!(
         "[D] room_hours_before={room_hours_before} room_hours_after={room_hours_after} hp_before=10 hp_after={} hour_before={hour_before} hour_after={hour_after}",
         window.vitals.health
     );
-    println!(
+    say!(
         "[D] hp_per_hour={} magicka_per_hour={} interrupted_hours={} interrupted_msg={}",
         window.health_per_hour(),
         window.spell_points_per_hour(),
@@ -1234,7 +1717,11 @@ fn run_rest_demo() -> Result<bool, String> {
             "enemy injected on hour 3 (spec §12(d))",
         ),
     ];
-    Ok(print_rows("D · measured demo", &rows))
+    Ok(print_rows(
+        "D · measured demo",
+        &rows,
+        &cite(SRC_REST, "pub struct RestWindow"),
+    ))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1243,14 +1730,23 @@ fn run_rest_demo() -> Result<bool, String> {
 
 /// `PROBE-DEATH-STATE-001` — A (X1-X2 + NEGATIVE census), B (death latch).
 pub fn run_death_state_001() -> i32 {
-    println!(
+    sink_begin();
+    let code = death_state_001_body();
+    sink_flush();
+    code
+}
+
+/// Body of `PROBE-DEATH-STATE-001` with the sink already open.
+fn death_state_001_body() -> i32 {
+    say!(
         "PROBE-DEATH-STATE-001 - DFU player death: HP<=0, guild benefit, no revival (M32, CR-f716455c, REQ-L99-065 · spec §6, §8)"
     );
+    print_sources();
 
     let x1 = apply_damage(10, 100, 10, false);
     let x2 = apply_damage(10, 100, 10, true);
     let (symbols, mentions, files) = reversal_census();
-    println!("\n-- A · golden vectors + NEGATIVE census --");
+    say!("\n-- A · golden vectors + NEGATIVE census --");
     let a_rows = vec![
         row(
             "X1",
@@ -1272,8 +1768,12 @@ pub fn run_death_state_001() -> i32 {
             ),
         ),
     ];
-    let a_ok = print_rows("A · death vectors and census", &a_rows);
-    println!(
+    let a_ok = print_rows(
+        "A · death vectors and census",
+        &a_rows,
+        &cite(SRC_DEATH, "pub fn apply_damage"),
+    );
+    say!(
         "resurrect_symbols={symbols} scanned_files={files} doc_mentions={mentions}"
     );
 
@@ -1311,10 +1811,14 @@ pub fn run_death_state_001() -> i32 {
         format!("{}", avoid_death_health(100)),
         "AvoidDeath leaves 10 % of MaxHealth",
     ));
-    let b_ok = print_rows("B · death latch and reset", &rows_b);
+    let b_ok = print_rows(
+        "B · death latch and reset",
+        &rows_b,
+        &cite(SRC_DEATH, "pub struct DeathState"),
+    );
 
     let pass = a_ok && b_ok;
-    println!(
+    say!(
         "\nSUMMARY PROBE-DEATH-STATE-001: A={} B={} ⇒ {}",
         verdict(a_ok),
         verdict(b_ok),

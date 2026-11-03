@@ -503,7 +503,13 @@ mod tests {
 
         let first = router.dispatch(&mut nav, InputIntent::Activate);
         let second = router.dispatch(&mut nav, InputIntent::Focus(Direction::Down));
-        let third = router.dispatch(&mut nav, InputIntent::Drag { from: (1, 1), to: (4, 4) });
+        let third = router.dispatch(
+            &mut nav,
+            InputIntent::Drag {
+                from: (1, 1),
+                to: (4, 4),
+            },
+        );
         for (routed, order) in [(first, 1u32), (second, 2), (third, 3)] {
             assert_eq!(
                 routed,
@@ -512,7 +518,10 @@ mod tests {
                     intent: match order {
                         1 => InputIntent::Activate,
                         2 => InputIntent::Focus(Direction::Down),
-                        _ => InputIntent::Drag { from: (1, 1), to: (4, 4) },
+                        _ => InputIntent::Drag {
+                            from: (1, 1),
+                            to: (4, 4)
+                        },
                     },
                     order,
                 }
@@ -523,7 +532,10 @@ mod tests {
         assert_eq!(router.trail().len(), 3);
         let orders: Vec<u32> = router.trail().iter().map(|row| row.2).collect();
         assert_eq!(orders, vec![1, 2, 3]);
-        assert!(router.trail().iter().all(|row| row.0 == WindowId::INVENTORY));
+        assert!(router
+            .trail()
+            .iter()
+            .all(|row| row.0 == WindowId::INVENTORY));
     }
 
     /// A6 rule 3 — `Cancel` closes the top window and focus falls back; on the
@@ -612,14 +624,20 @@ mod tests {
                 assert!(mapped.is_some(), "{} has no mapping", key.as_str());
             }
         }
-        assert_eq!(map_key(RetailKey::Up), Some(InputIntent::Focus(Direction::Up)));
-        assert_eq!(map_key(RetailKey::Tab), Some(InputIntent::Focus(Direction::Next)));
-        assert_eq!(map_key(RetailKey::Escape), Some(InputIntent::Cancel));
-        assert_eq!(map_key(RetailKey::Home), Some(InputIntent::Scroll(i16::MIN)));
         assert_eq!(
-            map_key(RetailKey::Enter),
-            Some(InputIntent::Activate)
+            map_key(RetailKey::Up),
+            Some(InputIntent::Focus(Direction::Up))
         );
+        assert_eq!(
+            map_key(RetailKey::Tab),
+            Some(InputIntent::Focus(Direction::Next))
+        );
+        assert_eq!(map_key(RetailKey::Escape), Some(InputIntent::Cancel));
+        assert_eq!(
+            map_key(RetailKey::Home),
+            Some(InputIntent::Scroll(i16::MIN))
+        );
+        assert_eq!(map_key(RetailKey::Enter), Some(InputIntent::Activate));
 
         for direction in Direction::all() {
             assert!(
@@ -630,7 +648,10 @@ mod tests {
                 direction.as_str()
             );
         }
-        assert_eq!(Direction::all().map(Direction::delta), [-1, 1, -1, 1, 1, -1]);
+        assert_eq!(
+            Direction::all().map(Direction::delta),
+            [-1, 1, -1, 1, 1, -1]
+        );
 
         let left = MouseEvent {
             x: 3,
@@ -651,7 +672,14 @@ mod tests {
         assert_eq!(map_mouse(right), Some(InputIntent::Cancel));
         assert_eq!(map_mouse(move_only), None);
         assert_eq!(
-            map_drag(left, MouseEvent { x: 8, y: 4, button: None }),
+            map_drag(
+                left,
+                MouseEvent {
+                    x: 8,
+                    y: 4,
+                    button: None
+                }
+            ),
             Some(InputIntent::Drag {
                 from: (3, 4),
                 to: (8, 4)
@@ -664,7 +692,10 @@ mod tests {
         for intent in [
             InputIntent::Focus(Direction::Up),
             InputIntent::Activate,
-            InputIntent::Drag { from: (0, 0), to: (1, 1) },
+            InputIntent::Drag {
+                from: (0, 0),
+                to: (1, 1),
+            },
             InputIntent::Scroll(1),
         ] {
             assert!(matches!(

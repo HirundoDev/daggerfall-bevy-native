@@ -74,6 +74,8 @@ pub enum MeshError {
     NullValue4NotZero { raw: u32 },
     /// Planes section that runs past the record (bounds-check).
     PlaneSectionOutOfBounds { plane_index: usize, offset: u32 },
+    /// Header sections invalid (delegated from [`compute_sections`]).
+    Sections(SectionError),
 }
 
 impl std::fmt::Display for MeshError {
@@ -86,11 +88,25 @@ impl std::fmt::Display for MeshError {
             Self::PlaneSectionOutOfBounds { plane_index, offset } => {
                 write!(f, "plane record {plane_index} at offset {offset} outside the record")
             }
+            Self::Sections(e) => write!(f, "invalid sections: {e}"),
         }
     }
 }
 
-impl std::error::Error for MeshError {}
+impl std::error::Error for MeshError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sections(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<SectionError> for MeshError {
+    fn from(e: SectionError) -> Self {
+        Self::Sections(e)
+    }
+}
 
 fn u32_le(record: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([record[at], record[at + 1], record[at + 2], record[at + 3]])
@@ -206,6 +222,112 @@ pub fn compute_sections(header: &MeshHeader, record: &[u8]) -> Result<MeshSectio
     Ok(MeshSections { points_end, planes_end: offset })
 }
 
+// ── puertas de fachada embebidas en el modelo (FG-01, `GAP-FG01-02`) ───────
+//
+// El `.RMB` retail **no** lleva puertas de edificio: los 9005 sub-records del
+// dato declaran `doors_in_exterior = 0` (censo `fg01-door-census.py`). Las
+// puertas de fachada viven en el **modelo 3D** del edificio, como planos con el
+// archivo de textura base 74 — `DFU:MeshReader.cs:614`
+// (`public const int BuildingDoors = 74;`) y `:645-648` (reducción de archivo).
+
+/// Archivo de textura cuyos planos son puertas de edificio
+/// (`DFU:MeshReader.cs:614`).
+pub const BUILDING_DOORS_ARCHIVE: u16 = 74;
+
+/// Base texture archive of a plane texture bitfield (`tb >> 7`), applying the
+/// reduction `DFU:MeshReader.cs:645-648`: only when the archive is `> 100` and
+/// it is neither `331` nor `156` (`archive -= archive / 100 * 100`).
+pub fn base_texture_archive(raw_archive: u16) -> u16 {
+    if raw_archive > 100 && raw_archive != 331 && raw_archive != 156 {
+        raw_archive - (raw_archive / 100) * 100
+    } else {
+        raw_archive
+    }
+}
+
+/// One plane of a 3D record as the data carries it (`Arch3dFile.cs:607-663`):
+/// point count, texture bitfield and the raw point offsets of its vertices.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelPlane {
+    /// `PlanePointCount` (byte 0 of the plane record).
+    pub plane_point_count: u8,
+    /// `Texture` bitfield (`archive << 7 | record`), **raw**.
+    pub texture: u16,
+    /// Raw `PointOffset` of each vertex (already `PointCount`-divided? no: the
+    /// record stores offsets and the divisor is the *reader*'s
+    /// (`MeshReader.cs:681-710`), applied by the caller).
+    pub points: Vec<u32>,
+}
+
+/// Reads every plane of a 3D record: `(plane_point_count, texture, points)`,
+/// the exact triple the reference reader iterates (`Arch3dFile.cs:607-663`).
+pub fn model_planes(record: &[u8]) -> Result<Vec<ModelPlane>, MeshError> {
+    let header = parse_mesh_header(record)?;
+    // Validates the plane section size before indexing it.
+    compute_sections(&header, record)?;
+    let mut planes = Vec::with_capacity(header.plane_count as usize);
+    let mut offset = header.plane_offset as usize;
+    for plane_index in 0..header.plane_count as usize {
+        let plane_point_count = record[offset];
+        let texture = u16::from_le_bytes([record[offset + 2], record[offset + 3]]);
+        let mut points = Vec::with_capacity(plane_point_count as usize);
+        for k in 0..plane_point_count as usize {
+            let at = offset + PLANE_RECORD_BASE_LEN as usize + k * 8;
+            let raw = u32_le(record, at);
+            if raw as usize > record.len() {
+                return Err(MeshError::PlaneSectionOutOfBounds { plane_index, offset: raw });
+            }
+            points.push(raw);
+        }
+        planes.push(ModelPlane {
+            plane_point_count,
+            texture,
+            points,
+        });
+        offset += PLANE_RECORD_BASE_LEN as usize + plane_point_count as usize * 8;
+    }
+    Ok(planes)
+}
+
+/// A door plane of a 3D record: the three vertices `GetStaticDoors` uses
+/// (`Vert0`, `Vert1`, `Vert2`) plus its texture cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelDoor {
+    /// Index of the plane in the record (evidence).
+    pub plane_index: usize,
+    /// Base texture archive (== [`BUILDING_DOORS_ARCHIVE`] for a door).
+    pub texture_archive: u16,
+    /// Texture record inside that archive.
+    pub texture_record: u16,
+    /// Raw point offsets of `Vert0`, `Vert1`, `Vert2` (`PlanePointCount >= 3`).
+    pub verts: [u32; 3],
+}
+
+/// Every **door plane** of a 3D record, in record order
+/// (`DFU:MeshReader.cs:645-710` + `GameObjectHelper.GetStaticDoors`).
+///
+/// A plane counts as a door when its base texture archive is
+/// [`BUILDING_DOORS_ARCHIVE`]. Planes with fewer than three points cannot
+/// carry `Vert0/Vert1/Vert2` and are not doors (they are reported by
+/// [`model_planes`], never invented here).
+pub fn model_doors(record: &[u8]) -> Result<Vec<ModelDoor>, MeshError> {
+    let mut doors = Vec::new();
+    for (plane_index, plane) in model_planes(record)?.into_iter().enumerate() {
+        let raw_archive = plane.texture >> 7;
+        let archive = base_texture_archive(raw_archive);
+        if archive != BUILDING_DOORS_ARCHIVE || plane.plane_point_count < 3 {
+            continue;
+        }
+        doors.push(ModelDoor {
+            plane_index,
+            texture_archive: archive,
+            texture_record: plane.texture & 0x7F,
+            verts: [plane.points[0], plane.points[1], plane.points[2]],
+        });
+    }
+    Ok(doors)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,5 +405,78 @@ mod tests {
             compute_sections(&header, &record),
             Err(SectionError::PlaneTruncated { plane_index: 0, .. })
         ));
+    }
+
+    /// Record with 4 points (64..112) and 2 planes (112..):
+    /// plane 0 = ppc 4, door texture (archive 74, record 5); plane 1 = ppc 3,
+    /// wall texture (archive 1, record 7).
+    fn build_door_record() -> Vec<u8> {
+        let planes_off = 112u32;
+        let planes_len = (8 + 4 * 8) + (8 + 3 * 8);
+        let mut h = vec![0u8; MESH_HEADER_LEN];
+        h[0..4].copy_from_slice(b"v2.7");
+        h[4..8].copy_from_slice(&4u32.to_le_bytes());
+        h[8..12].copy_from_slice(&2u32.to_le_bytes());
+        h[24..28].copy_from_slice(&120u32.to_le_bytes());
+        h[48..52].copy_from_slice(&64u32.to_le_bytes());
+        h[52..56].copy_from_slice(&(planes_off + planes_len).to_le_bytes());
+        h[60..64].copy_from_slice(&planes_off.to_le_bytes());
+        let mut r = h;
+        for _ in 0..4 {
+            r.extend_from_slice(&[0u8; 12]);
+        }
+        // Plane 0: door.
+        r.push(4);
+        r.push(0);
+        r.extend_from_slice(&((74u16 << 7) | 5).to_le_bytes());
+        r.extend_from_slice(&[0u8; 4]); // resto de la cabecera de plano (8 B)
+        for index in [0u32, 12, 24, 36] {
+            r.extend_from_slice(&index.to_le_bytes());
+            r.extend_from_slice(&[0u8; 4]);
+        }
+        // Plane 1: wall.
+        r.push(3);
+        r.push(0);
+        r.extend_from_slice(&((1u16 << 7) | 7).to_le_bytes());
+        r.extend_from_slice(&[0u8; 4]);
+        for index in [0u32, 12, 24] {
+            r.extend_from_slice(&index.to_le_bytes());
+            r.extend_from_slice(&[0u8; 4]);
+        }
+        r
+    }
+
+    #[test]
+    fn reads_planes_with_point_count_and_texture() {
+        let record = build_door_record();
+        let planes = model_planes(&record).expect("planes");
+        assert_eq!(planes.len(), 2);
+        assert_eq!(planes[0].plane_point_count, 4);
+        assert_eq!(planes[0].texture, (74u16 << 7) | 5);
+        assert_eq!(planes[0].points, vec![0, 12, 24, 36]);
+        assert_eq!(planes[1].plane_point_count, 3);
+    }
+
+    #[test]
+    fn extracts_only_archive_74_planes_as_doors() {
+        let record = build_door_record();
+        let doors = model_doors(&record).expect("doors");
+        assert_eq!(doors.len(), 1, "one door plane in the record");
+        assert_eq!(doors[0].plane_index, 0);
+        assert_eq!(doors[0].texture_archive, BUILDING_DOORS_ARCHIVE);
+        assert_eq!(doors[0].texture_record, 5);
+        assert_eq!(doors[0].verts, [0, 12, 24]);
+    }
+
+    #[test]
+    fn reduces_base_archive_only_when_the_rule_says_so() {
+        // `MeshReader.cs:645-648`.
+        assert_eq!(base_texture_archive(74), 74);
+        assert_eq!(base_texture_archive(331), 331);
+        assert_eq!(base_texture_archive(156), 156);
+        assert_eq!(base_texture_archive(100), 100);
+        assert_eq!(base_texture_archive(174), 74);
+        assert_eq!(base_texture_archive(374), 74);
+        assert_eq!(base_texture_archive(1234), 34);
     }
 }

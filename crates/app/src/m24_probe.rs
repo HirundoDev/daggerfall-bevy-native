@@ -46,7 +46,6 @@ use daggerfall_crafting::magic_def::{
     parse_magic_def, MagicItemTemplate, MAGIC_DEF_FILENAME, MAGIC_RECORD_SIZE,
 };
 use daggerfall_inventory::items::parse_item_templates;
-use std::path::PathBuf;
 
 // ── evidence rows (M19/M20/M21/M23 pattern) ──────────────────────────────
 
@@ -96,27 +95,6 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 // ── source custody (Mode A) ──────────────────────────────────────────
-
-/// Mode A install root (same resolution as `m21_probe::install_root`;
-/// `FALL.EXE` lives at the ROOT, never in `ARENA2/`, spec §0).
-fn install_root() -> Result<PathBuf, String> {
-    match std::env::var_os("DF_APP_ROOT") {
-        Some(value) => Ok(PathBuf::from(value)),
-        None => {
-            let home =
-                std::env::var_os("HOME").ok_or("HOME not set (set $DF_APP_ROOT)")?;
-            Ok(PathBuf::from(home).join("Games/Daggerfall/app"))
-        }
-    }
-}
-
-/// Reads `FALL.EXE` from the install root. `Err` ⇒ the caller closes with
-/// `EXIT=2` (never a PASS without retail data).
-fn load_fall_exe() -> Result<Vec<u8>, String> {
-    let root = install_root()?;
-    let path = root.join("FALL.EXE");
-    std::fs::read(&path).map_err(|err| format!("FALL.EXE unreadable: {err} ({path:?})"))
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PROBE-ENCHANT-001
@@ -810,7 +788,7 @@ pub fn run_potion_001() -> i32 {
     println!(
         "PROBE-POTION-001 - M24 alchemy (REQ-L99-057 · CR-f26e353c · spec §5 B)"
     );
-    let bytes = match load_fall_exe() {
+    let bytes = match daggerfall_app::mode_a::read_install_file(daggerfall_inventory::retail_manifest::FALL_EXE) {
         Ok(bytes) => bytes,
         Err(reason) => {
             println!("ARENA2 not accessible: {reason}");

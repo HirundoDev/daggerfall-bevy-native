@@ -664,6 +664,166 @@ impl FactionGraph {
         fnv1a64(&bytes)
     }
 }
+// ── W42-3 · census + versioned reputation ───────────────────────────────────
+// (roadmap-m18-m48.md:319: "faction tree parsed with a census; ranks and
+// services = table; versioned reputation").
+
+/// Census of the parsed tree: every count derives from the graph, so the
+/// SYS probe asserts retail numbers through this API instead of inline logic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FactionCensus {
+    /// Factions parsed (file blocks, includes reassigned duplicate ids).
+    pub total: usize,
+    /// Duplicate ids reassigned to `RESOLVER_ID_START..`.
+    pub duplicates: usize,
+    /// Nodes with `parent == 0` or a parent absent from the graph.
+    pub roots: usize,
+    /// Nodes with no children.
+    pub leaves: usize,
+    /// Longest parent chain (a lone root scores 0).
+    pub max_depth: usize,
+    /// Count per `faction_type` id `0..=15`; anything else lands in
+    /// `unknown_type`.
+    pub by_type: [usize; 16],
+    /// Factions whose `faction_type` falls outside `0..=15`.
+    pub unknown_type: usize,
+}
+
+/// One versioned reputation entry: the full per-faction delta of a single
+/// [`FactionGraph::change_reputation`] call, so the SYS probe audits every
+/// move instead of trusting the final `rep`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReputationChange {
+    /// Ledger version after applying (starts at 1; failed calls record nothing).
+    pub version: u64,
+    /// Initiator faction.
+    pub faction_id: i32,
+    /// Amount passed to `change_reputation`.
+    pub amount: i32,
+    /// Whether propagation ran.
+    pub propagate: bool,
+    /// `(id, before, after)` in ascending id order; empty when nothing moved.
+    pub deltas: Vec<(i32, i32, i32)>,
+    /// Graph digest before the change.
+    pub digest_before: u64,
+    /// Graph digest after the change.
+    pub digest_after: u64,
+}
+
+/// Monotonic version counter over reputation changes.
+#[derive(Debug, Clone, Default)]
+pub struct ReputationLedger {
+    version: u64,
+    history: Vec<ReputationChange>,
+}
+
+impl FactionGraph {
+    /// Census of the tree in file order (deterministic, no I/O).
+    pub fn census(&self) -> FactionCensus {
+        let mut census = FactionCensus {
+            total: self.order.len(),
+            duplicates: self.duplicate_ids,
+            roots: 0,
+            leaves: 0,
+            max_depth: 0,
+            by_type: [0; 16],
+            unknown_type: 0,
+        };
+        for id in &self.order {
+            let Some(faction) = self.factions.get(id) else {
+                continue;
+            };
+            if faction.parent == 0 || !self.factions.contains_key(&faction.parent) {
+                census.roots += 1;
+            }
+            if faction.children.is_empty() {
+                census.leaves += 1;
+            }
+            if (0..16).contains(&faction.faction_type) {
+                census.by_type[faction.faction_type as usize] += 1;
+            } else {
+                census.unknown_type += 1;
+            }
+            // Longest parent chain with a step cap (a corrupt cycle cannot hang).
+            let mut depth = 0usize;
+            let mut cursor = faction.parent;
+            let mut steps = 0usize;
+            while cursor != 0 && steps <= self.order.len() {
+                let Some(parent) = self.factions.get(&cursor) else {
+                    break;
+                };
+                depth += 1;
+                cursor = parent.parent;
+                steps += 1;
+            }
+            census.max_depth = census.max_depth.max(depth);
+        }
+        census
+    }
+}
+
+impl ReputationLedger {
+    /// Empty ledger at version 0.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Current version (advances only when a change applies).
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// Recorded entries, oldest first.
+    pub fn history(&self) -> &[ReputationChange] {
+        &self.history
+    }
+
+    /// Last recorded entry, if any.
+    pub fn last(&self) -> Option<&ReputationChange> {
+        self.history.last()
+    }
+
+    /// Applies [`FactionGraph::change_reputation`] and records the versioned
+    /// delta; an unknown faction changes nothing and records nothing
+    /// (version and history untouched).
+    pub fn apply(
+        &mut self,
+        graph: &mut FactionGraph,
+        faction_id: i32,
+        amount: i32,
+        propagate: bool,
+    ) -> bool {
+        let digest_before = graph.digest();
+        let mut before: BTreeMap<i32, i32> = BTreeMap::new();
+        for id in graph.ids() {
+            before.insert(*id, graph.reputation(*id));
+        }
+        if !graph.change_reputation(faction_id, amount, propagate) {
+            return false;
+        }
+        self.version += 1;
+        let mut ordered: Vec<i32> = before.keys().copied().collect();
+        ordered.sort_unstable();
+        let mut deltas = Vec::new();
+        for id in ordered {
+            let was = before[&id];
+            let after = graph.reputation(id);
+            if was != after {
+                deltas.push((id, was, after));
+            }
+        }
+        self.history.push(ReputationChange {
+            version: self.version,
+            faction_id,
+            amount,
+            propagate,
+            deltas,
+            digest_before,
+            digest_after: graph.digest(),
+        });
+        true
+    }
+}
 
 /// `random_range_inclusive(0, 50) + 20` over an already-made roll
 /// (`FactionFile.cs:1021`, `DFRandom.cs:75-78`): `draw % 51 + 20`.
@@ -1053,5 +1213,67 @@ mod tests {
         graph.change_power(1, -1000);
         assert_eq!(graph.get(1).unwrap().power, MIN_POWER);
         assert!(!graph.change_power(42, 1));
+    }
+
+    #[test]
+    fn census_counts_tree_shape_and_types() {
+        // PROP_TREE: roots 10/21/20 (parent 0), leaves 11/12/21/20,
+        // depth 1 (11 and 12 hang directly off 10), all `type: 2`.
+        let census = parse(PROP_TREE).census();
+        assert_eq!(census.total, 5);
+        assert_eq!(census.duplicates, 0);
+        assert_eq!(census.roots, 3);
+        assert_eq!(census.leaves, 4);
+        assert_eq!(census.max_depth, 1);
+        assert_eq!(census.by_type[2], 5);
+        assert_eq!(census.unknown_type, 0);
+        let empty = FactionGraph::parse("", 0x1234).unwrap().census();
+        assert_eq!((empty.total, empty.roots, empty.leaves, empty.max_depth), (0, 0, 0, 0));
+    }
+
+    #[test]
+    fn census_separates_out_of_range_types() {
+        let graph = parse("#1\ntype: 7\n#2\ntype: 15\n#3\ntype: 99\n");
+        let census = graph.census();
+        assert_eq!(census.by_type[7], 1);
+        assert_eq!(census.by_type[15], 1);
+        assert_eq!(census.unknown_type, 1);
+    }
+
+    #[test]
+    fn ledger_versions_each_reputation_change() {
+        let mut graph = parse(PROP_TREE);
+        let mut ledger = ReputationLedger::new();
+        assert_eq!(ledger.version(), 0);
+        assert!(ledger.apply(&mut graph, 11, 10, true));
+        assert_eq!(ledger.version(), 1);
+        let first = ledger.last().expect("recorded").clone();
+        assert_eq!((first.version, first.faction_id, first.amount, first.propagate), (1, 11, 10, true));
+        // Exact ±half delta against the PROP_TREE goldens (GV-27-36).
+        assert!(first.deltas.contains(&(10, 0, 10)));
+        assert!(first.deltas.contains(&(11, 0, 10)));
+        assert!(first.deltas.contains(&(12, 0, 5)));
+        assert!(first.deltas.contains(&(21, 0, 5)));
+        assert!(first.deltas.contains(&(20, 0, -5)));
+        assert_ne!(first.digest_before, first.digest_after);
+        assert_eq!(first.digest_after, graph.digest());
+        // Second change chains: version 2, digests link.
+        assert!(ledger.apply(&mut graph, 11, -4, false));
+        assert_eq!(ledger.version(), 2);
+        let second = ledger.history()[1].clone();
+        assert_eq!(second.digest_before, first.digest_after);
+        assert_eq!(second.deltas, vec![(11, 10, 6)]);
+        assert_eq!(ledger.history().len(), 2);
+    }
+
+    #[test]
+    fn ledger_ignores_unknown_factions_without_versioning() {
+        let mut graph = parse(PROP_TREE);
+        let mut ledger = ReputationLedger::new();
+        let before = graph.digest();
+        assert!(!ledger.apply(&mut graph, 999, 10, true));
+        assert_eq!(ledger.version(), 0);
+        assert!(ledger.history().is_empty());
+        assert_eq!(graph.digest(), before);
     }
 }

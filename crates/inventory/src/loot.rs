@@ -1407,3 +1407,16 @@ mod tests {
         assert_eq!(TOTAL_ITEMS, 288);
     }
 }
+
+// ── M44 (`CR-bd972066-59e6-4768-9985-de75f69f6798`) ────────────────────────
+
+/// Boss loot: the named-enemy chain of `EnemyEntity.SetEnemyCareer`
+/// (`EnemyEntity.cs:330`) over the boss's own loot-table key.
+///
+/// Zero new formulas: the chain is [`generate_enemy_loot`] with the key the
+/// boss declares (`Some(key)`, i.e. the potion extras of a named enemy) and the
+/// extra map chance of that key (`LootTables.cs:150-160`, `0` outside `J..=O`).
+/// The boss therefore differs from a plain corpse only in what the data says.
+pub fn generate_boss_loot(seed: u64, container_id: u32, key: char, level: i32) -> LootContainer {
+    generate_enemy_loot(seed, container_id, Some(key), map_chance(key).unwrap_or(0), level)
+}

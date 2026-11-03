@@ -36,11 +36,10 @@
 //!   images use the top-left origin of the raw data (same
 //!   origin as the decoded palette).
 
+use crate::mesh_spec::{texture_key, MeshSpec};
 use daggerfall_parser_rs::mesh::{
     compute_sections, parse_mesh_header, MeshError, MeshVersion, SectionError,
 };
-
-use crate::mesh_spec::{texture_key, MeshSpec};
 
 /// Native Daggerfall units per meter — DFU convention for RMB/block
 /// positions: `DFU:MeshReader.cs:58` `GlobalScale = 0.025f` (RMB
@@ -95,7 +94,11 @@ fn uv_unpack(u: i32) -> i32 {
     // Nearest multiple of 8192 (ties upward, like DFU).
     let next_mult = (((u - 1) >> 13) + 1) << 13;
     let prev_mult = next_mult - UV_PACK_STEP;
-    let mult = if u - prev_mult < next_mult - u { prev_mult } else { next_mult };
+    let mult = if u - prev_mult < next_mult - u {
+        prev_mult
+    } else {
+        next_mult
+    };
     u - mult
 }
 
@@ -107,9 +110,17 @@ pub enum ConvertError {
     /// The header sections exceed the record (delegated from the parser).
     Section(SectionError),
     /// `PointOffset` of a sub-record is not a multiple of the version divisor.
-    PointOffsetMisaligned { plane_index: usize, point_offset: u32, divisor: u32 },
+    PointOffsetMisaligned {
+        plane_index: usize,
+        point_offset: u32,
+        divisor: u32,
+    },
     /// Derived point index outside the `[0, point_count)` range.
-    PointIndexOutOfRange { plane_index: usize, point_index: u32, point_count: u32 },
+    PointIndexOutOfRange {
+        plane_index: usize,
+        point_index: u32,
+        point_count: u32,
+    },
     /// The record produced not a single visible triangle.
     NoVisibleGeometry { point_count: u32, plane_count: u32 },
 }
@@ -119,15 +130,26 @@ impl std::fmt::Display for ConvertError {
         match self {
             Self::Mesh(e) => write!(f, "invalid mesh header: {e}"),
             Self::Section(e) => write!(f, "invalid sections: {e}"),
-            Self::PointOffsetMisaligned { plane_index, point_offset, divisor } => write!(
+            Self::PointOffsetMisaligned {
+                plane_index,
+                point_offset,
+                divisor,
+            } => write!(
                 f,
                 "plane {plane_index}: PointOffset {point_offset} is not a multiple of {divisor}"
             ),
-            Self::PointIndexOutOfRange { plane_index, point_index, point_count } => write!(
+            Self::PointIndexOutOfRange {
+                plane_index,
+                point_index,
+                point_count,
+            } => write!(
                 f,
                 "plane {plane_index}: point index {point_index} >= {point_count}"
             ),
-            Self::NoVisibleGeometry { point_count, plane_count } => write!(
+            Self::NoVisibleGeometry {
+                point_count,
+                plane_count,
+            } => write!(
                 f,
                 "record without visible geometry ({point_count} points, {plane_count} planes)"
             ),
@@ -256,6 +278,30 @@ fn try_normalize(v: [f32; 3]) -> Option<[f32; 3]> {
     }
 }
 
+/// Points of an ARCH3D record in the **model's local frame**: metres, Bevy
+/// handedness (y and z negated), the same conversion the mesh uses.
+///
+/// (12 B per point: 3×i32 LE, 16.8 fixed point). Scale: `raw / 256
+/// (Arch3dFile.WritePoint) / 40 (GlobalScale)`. M10-FIX3b: the raw ARCH3D Y is
+/// Y-DOWN (measured: records 125/131/138/212/430/444/744-752 all with
+/// Y ∈ [−S, 0]) and DFU negates it on load (`MeshReader.cs:717`
+/// `new Vector3(dfPoint.X, -dfPoint.Y, dfPoint.Z) * scale`); without the
+/// negation the retail city ended up half-buried (bounds Y
+/// [−14.9, 4.4] → readability 0/8 in PROBE-RMB-001).
+pub fn arch3d_points(record: &[u8]) -> Result<Vec<[f32; 3]>, ConvertError> {
+    let header = parse_mesh_header(record)?;
+    compute_sections(&header, record)?;
+    let mut points: Vec<[f32; 3]> = Vec::with_capacity(header.point_count as usize);
+    for i in 0..header.point_count as usize {
+        let at = header.point_offset as usize + i * 12;
+        let x = i32_le(record, at) as f32 / ARCH3D_UNITS_PER_METER;
+        let y = -(i32_le(record, at + 4) as f32) / ARCH3D_UNITS_PER_METER;
+        let z = -(i32_le(record, at + 8) as f32) / ARCH3D_UNITS_PER_METER;
+        points.push([x, y, z]);
+    }
+    Ok(points)
+}
+
 /// Converts an ARCH3D.BSA record (header + mesh bytes, via the parser's
 /// public API) into a normalized [`MeshSpec`] (meters, Bevy handedness).
 ///
@@ -266,22 +312,7 @@ pub fn mesh_record_to_spec(record: &[u8]) -> Result<MeshSpec, ConvertError> {
     let sections = compute_sections(&header, record)?;
     let divisor = point_index_divisor(header.version);
 
-    // Points (12 B: 3×i32 LE, 16.8 fixed point) → meters + Bevy handedness
-    // (y negated, z negated). Scale: `raw / 256 (Arch3dFile.WritePoint) / 40
-    // (GlobalScale)`. M10-FIX3b: the raw ARCH3D Y is
-    // Y-DOWN (measured: records 125/131/138/212/430/444/744-752 all with
-    // Y ∈ [−S, 0]) and DFU negates it on load (`MeshReader.cs:717`
-    // `new Vector3(dfPoint.X, -dfPoint.Y, dfPoint.Z) * scale`); without the
-    // negation the retail city ended up half-buried (bounds Y
-    // [−14.9, 4.4] → readability 0/8 in PROBE-RMB-001).
-    let mut points: Vec<[f32; 3]> = Vec::with_capacity(header.point_count as usize);
-    for i in 0..header.point_count as usize {
-        let at = header.point_offset as usize + i * 12;
-        let x = i32_le(record, at) as f32 / ARCH3D_UNITS_PER_METER;
-        let y = -(i32_le(record, at + 4) as f32) / ARCH3D_UNITS_PER_METER;
-        let z = -(i32_le(record, at + 8) as f32) / ARCH3D_UNITS_PER_METER;
-        points.push([x, y, z]);
-    }
+    let points = arch3d_points(record)?;
 
     // Planes → flat-shaded triangle soup (fan (0, k, k+1)) with UVs and
     // per-plane texture (M12).
@@ -372,7 +403,10 @@ pub fn mesh_record_to_spec(record: &[u8]) -> Result<MeshSpec, ConvertError> {
     }
 
     // The plane walk replicates the size formula of `compute_sections`.
-    debug_assert_eq!(offset as u64, sections.planes_end, "plane walk != compute_sections");
+    debug_assert_eq!(
+        offset as u64, sections.planes_end,
+        "plane walk != compute_sections"
+    );
 
     if positions.is_empty() {
         return Err(ConvertError::NoVisibleGeometry {
@@ -388,8 +422,87 @@ pub fn mesh_record_to_spec(record: &[u8]) -> Result<MeshSpec, ConvertError> {
         uvs,
         face_textures,
     };
-    debug_assert!(spec.texture_alignment_valid(), "uvs/face_textures misaligned");
+    debug_assert!(
+        spec.texture_alignment_valid(),
+        "uvs/face_textures misaligned"
+    );
     Ok(spec)
+}
+
+// ── puertas de fachada del modelo (FG-01, `GAP-FG01-02`) ──────────────────
+
+/// Una puerta de fachada embebida en el modelo 3D del edificio, en el marco
+/// **local del modelo** (metros, handedness Bevy: y y z negados, igual que la
+/// malla) — derivada con la ruta de referencia
+/// `DFU:MeshReader.cs:614/645-710` (planos con archivo base 74) +
+/// `GameObjectHelper.GetStaticDoors` (`centre = (Vert0 + Vert2) / 2`,
+/// `normal = normalize(cross(Vert0 − Vert2, Vert0 − Vert1))`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DoorSpec {
+    /// Centro de la puerta en el marco del modelo (m).
+    pub centre: [f32; 3],
+    /// Normal de la puerta (orientación de la fachada). `[0,0,0]` si el plano
+    /// es degenerado: se declara, no se inventa una normal.
+    pub normal: [f32; 3],
+    /// Archivo de textura base (siempre `mesh::BUILDING_DOORS_ARCHIVE`).
+    pub texture_archive: u16,
+    /// Record de textura dentro de ese archivo.
+    pub texture_record: u16,
+}
+
+/// Puertas de fachada de un record ARCH3D: los planos cuya textura base es el
+/// archivo de puertas (74), con sus tres primeros vértices resueltos a puntos
+/// del modelo (`PointOffset ÷ divisor`, `MeshReader.cs:681-710`).
+///
+/// Un plano de puerta con menos de tres puntos o con un índice fuera del rango
+/// de puntos es un error declarado ([`ConvertError`]), nunca una puerta
+/// inventada. Un record sin planos 74 devuelve `Vec` vacío.
+pub fn model_doors_from_record(record: &[u8]) -> Result<Vec<DoorSpec>, ConvertError> {
+    let header = parse_mesh_header(record)?;
+    let divisor = point_index_divisor(header.version);
+    let doors = daggerfall_parser_rs::mesh::model_doors(record)?;
+    if doors.is_empty() {
+        return Ok(Vec::new());
+    }
+    let points = arch3d_points(record)?;
+    let mut out = Vec::with_capacity(doors.len());
+    for door in doors {
+        let mut verts = [[0.0f32; 3]; 3];
+        for (slot, raw) in door.verts.iter().enumerate() {
+            if !raw.is_multiple_of(divisor) {
+                return Err(ConvertError::PointOffsetMisaligned {
+                    plane_index: door.plane_index,
+                    point_offset: *raw,
+                    divisor,
+                });
+            }
+            let index = raw / divisor;
+            let Some(point) = points.get(index as usize) else {
+                return Err(ConvertError::PointIndexOutOfRange {
+                    plane_index: door.plane_index,
+                    point_index: index,
+                    point_count: header.point_count,
+                });
+            };
+            verts[slot] = *point;
+        }
+        // `GetStaticDoors`: centre = (Vert0 + Vert2) / 2.
+        let centre = [
+            (verts[0][0] + verts[2][0]) / 2.0,
+            (verts[0][1] + verts[2][1]) / 2.0,
+            (verts[0][2] + verts[2][2]) / 2.0,
+        ];
+        // Deterministic normal of the reference implementation.
+        let normal = try_normalize(cross(sub(verts[0], verts[2]), sub(verts[0], verts[1])))
+            .unwrap_or([0.0, 0.0, 0.0]);
+        out.push(DoorSpec {
+            centre,
+            normal,
+            texture_archive: door.texture_archive,
+            texture_record: door.texture_record,
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -413,10 +526,7 @@ mod tests {
         let point_offset = MESH_HEADER_LEN as u32;
         let points_bytes = point_count * 12;
         let plane_offset = point_offset + points_bytes;
-        let planes_bytes: u32 = planes
-            .iter()
-            .map(|(ppc, _, _)| 8 + *ppc as u32 * 8)
-            .sum();
+        let planes_bytes: u32 = planes.iter().map(|(ppc, _, _)| 8 + *ppc as u32 * 8).sum();
         let normal_offset = plane_offset + planes_bytes;
 
         let mut r = vec![0u8; MESH_HEADER_LEN];
@@ -519,7 +629,11 @@ mod tests {
         let err = mesh_record_to_spec(&record).expect_err("misaligned");
         assert!(matches!(
             err,
-            ConvertError::PointOffsetMisaligned { plane_index: 0, point_offset: 13, divisor: 12 }
+            ConvertError::PointOffsetMisaligned {
+                plane_index: 0,
+                point_offset: 13,
+                divisor: 12
+            }
         ));
     }
 
@@ -529,7 +643,11 @@ mod tests {
         let err = mesh_record_to_spec(&record).expect_err("out of range");
         assert!(matches!(
             err,
-            ConvertError::PointIndexOutOfRange { point_index: 3, point_count: 3, .. }
+            ConvertError::PointIndexOutOfRange {
+                point_index: 3,
+                point_count: 3,
+                ..
+            }
         ));
     }
 
@@ -540,7 +658,10 @@ mod tests {
         let err = mesh_record_to_spec(&record).expect_err("no geometry");
         assert!(matches!(
             err,
-            ConvertError::NoVisibleGeometry { point_count: 3, plane_count: 1 }
+            ConvertError::NoVisibleGeometry {
+                point_count: 3,
+                plane_count: 1
+            }
         ));
     }
 

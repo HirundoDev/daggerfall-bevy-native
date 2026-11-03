@@ -12,7 +12,7 @@
 //! produces identical bytes):
 //!
 //! ```text
-//! DFL-SESSION 1            ← magic + format version
+//! DFL-SESSION 3            ← magic + format version (`FORMAT_VERSION`)
 //! pos_x_mm=1500            ← position in integer millimeters (NFR NUMERIC)
 //! pos_z_mm=-2000
 //! yaw_mrad=314             ← orientation in integer milliradians
@@ -54,8 +54,20 @@ use std::path::Path;
 
 /// Format magic (first line of the file).
 pub const FORMAT_MAGIC: &str = "DFL-SESSION";
-/// Format version supported by this build.
-pub const FORMAT_VERSION: i64 = 1;
+/// Format version this build **writes** (and reads through [`SessionSnapshot::from_text`]).
+///
+/// v3 is the dungeon-bearing generation of the M33 document (block
+/// `E-save-v3`); the session file keeps its v1 shape, so only the header digit
+/// moves. A document of another version is [`SaveError::BadVersion`] — the
+/// version gate is never a silent pass.
+pub const FORMAT_VERSION: i64 = 3;
+/// The version this build pins when it has to read a **v1** document.
+///
+/// The v1 reader is not dead code: [`SessionSnapshot::from_text_version`] is
+/// the only way to open a pre-v3 save, and the v2→v3 migration arm of
+/// `savegame_v2::migrate_text` uses this pin to parse the inherited body
+/// before re-emitting it at the live version.
+pub const FORMAT_VERSION_V1: i64 = 1;
 
 /// The sixteen scalar keys [`SessionSnapshot::to_text`] always writes and
 /// [`SessionSnapshot::from_text`] always demands: a document missing any of
@@ -220,7 +232,20 @@ impl SessionSnapshot {
 
     /// Parses canonical text (strict: magic + version + checksum + complete
     /// structure — any deviation is a [`SaveError`]).
+    ///
+    /// The live reader: the document must declare [`FORMAT_VERSION`].
     pub fn from_text(text: &str) -> Result<Self, SaveError> {
+        Self::from_text_version(text, FORMAT_VERSION)
+    }
+
+    /// Parses canonical text whose header must declare `expected_version`.
+    ///
+    /// The pin is explicit because two different questions are asked of this
+    /// reader: *is this a live save?* ([`Self::from_text`], pinned at
+    /// [`FORMAT_VERSION`]) and *what does this old save say?* (pinned at
+    /// [`FORMAT_VERSION_V1`] by the v2→v3 migration). A single "accept
+    /// anything" reader could not answer either.
+    pub fn from_text_version(text: &str, expected_version: i64) -> Result<Self, SaveError> {
         let mut lines = text.lines();
         let header = lines.next().ok_or_else(|| SaveError::Corrupt("empty file".into()))?;
         let (magic, version) = header
@@ -232,7 +257,7 @@ impl SessionSnapshot {
         let version: i64 = version
             .parse()
             .map_err(|_| SaveError::Corrupt("non-numeric version".into()))?;
-        if version != FORMAT_VERSION {
+        if version != expected_version {
             return Err(SaveError::BadVersion(version));
         }
 
@@ -505,6 +530,19 @@ mod tests {
         ))
     }
 
+    /// Re-seals `text` over its own payload (the header is part of the payload,
+    /// so any header rewrite has to be re-sealed to be a real document).
+    fn rehash(text: &str) -> String {
+        let mut body = String::new();
+        for line in text.lines().take(text.lines().count().saturating_sub(1)) {
+            body.push_str(line);
+            body.push('\n');
+        }
+        let checksum = fnv1a64(body.as_bytes());
+        body.push_str(&format!("checksum={checksum:016x}\n"));
+        body
+    }
+
     #[test]
     fn text_roundtrip_is_byte_stable() {
         let snap = sample();
@@ -531,6 +569,29 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let err = SessionSnapshot::load_from_path(&path).expect_err("must fail");
         assert!(SessionSnapshot::is_not_found(&err), "expected NotFound: {err}");
+    }
+
+    #[test]
+    fn the_v1_pin_reads_v1_while_the_live_reader_refuses_it() {
+        // A real v1 document: the live text with its header pinned back to v1.
+        // The checksum covers the header, so the pin is re-sealed, not injected.
+        let snap = sample();
+        let v1 = rehash(&snap.to_text().replacen(
+            &format!("{FORMAT_MAGIC} {FORMAT_VERSION}"),
+            &format!("{FORMAT_MAGIC} {FORMAT_VERSION_V1}"),
+            1,
+        ));
+        assert!(
+            matches!(
+                SessionSnapshot::from_text(&v1),
+                Err(SaveError::BadVersion(1))
+            ),
+            "the live reader must name the old version, never accept it silently"
+        );
+        let parsed = SessionSnapshot::from_text_version(&v1, FORMAT_VERSION_V1)
+            .expect("the v1 pin reads the old document");
+        assert_eq!(parsed, snap);
+        assert_eq!(SessionSnapshot::from_text(&parsed.to_text()).expect("live"), snap);
     }
 
     #[test]

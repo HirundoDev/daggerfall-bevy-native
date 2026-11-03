@@ -51,8 +51,8 @@
 //! `DIGEST` is always the `sha256` of the lines actually emitted, so a failing
 //! run can never report the digest of the empty string.
 //!
-//! `EXIT=2` without ARENA2 (`DAGGERFALL_ARENA2`, then `DF_ARENA2` and the
-//! canonical autodetection of the other probes).
+//! `EXIT=2` without ARENA2 (the canonical resolution of data contract §4:
+//! `--data-root` > config > `DF_APP_ROOT` > deprecated aliases > detection).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -443,12 +443,11 @@ pub fn run() -> i32 {
     }
 }
 
-/// ARENA2 of this probe: the M39 override first, then the shared resolution.
+/// ARENA2 of this probe: the shared resolver (§4.1 — the deprecated
+/// `$DAGGERFALL_ARENA2` alias is rank 4 of *that* resolver, with its
+/// `W-DATA-008` warning, never a probe-private override).
 fn arena2() -> Option<PathBuf> {
-    match std::env::var("DAGGERFALL_ARENA2") {
-        Ok(value) if !value.trim().is_empty() => Some(PathBuf::from(value)),
-        _ => arena2_dir(),
-    }
+    arena2_dir()
 }
 
 /// Measures, interacts, gates, writes and digests; returns the emitted lines
@@ -459,6 +458,12 @@ fn arena2() -> Option<PathBuf> {
 /// when it lacks a prerequisite (`AXIS A1` sees `surfaces=n/51`, `A6` sees the
 /// deliveries it actually got). Only the bank/state construction is fatal,
 /// because without them there is nothing to measure at all.
+/// M40/UI-4 composition: the 51-surface stage lines, without the runner's
+/// `--out` frame bank (the family gate owns the frames).
+pub(crate) fn stage_lines(dir: &Path) -> Result<(Vec<String>, Option<String>), String> {
+    stage(dir)
+}
+
 fn stage(dir: &Path) -> Result<(Vec<String>, Option<String>), String> {
     let extra = composition_assets();
     let bank = load_bank_with(dir, &extra).map_err(|err| format!("bank {err}"))?;

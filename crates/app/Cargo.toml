@@ -9,7 +9,13 @@ description = "Bevy application entry for daggerfall-bevy-native"
 # M1: window+render are additive OPT-IN; the default stays
 # headless F0 (CI without system libs intact). Window+render:
 #   cargo run -p daggerfall-app --features window
-default = []
+default = ["probes"]
+# M42B (CR-ed07f360-1498-4c86-b06f-b3fcc6650781): INSTRUMENTATION IS A FEATURE.
+# Every `--probe <CODE>` module and the 105-arm dispatch live behind `probes`
+# (default, so the 8 existing gates and every `--probe` invocation are
+# unchanged). `cargo build -p daggerfall-app --no-default-features` produces
+# the product binary with 0 probe modules linked and 0 `PROBE-` strings.
+probes = []
 # M14 (REQ-L99-046): real device playback. Additive OPT-IN so the default
 # headless build/CI needs no audio system libraries; without it the runtime
 # uses `audio::NullSink` and says so.
@@ -19,6 +25,13 @@ default = []
 # `samples_played` counter). Same rodio resolution: 0 new packages.
 audio = ["dep:rodio", "daggerfall-nervous/audio"]
 window = [
+    # M42B (CR-ed07f360): the windowed product path (M18 integrated demo,
+    # `m18_demo`/`m18_window`) consumes probe-owned helpers today
+    # (`m10_probe`, `m17_probe`, `m21..m25_probe`, `ui_weather`, `ui_assets`,
+    # `m18_phase`, `m18_b3a/b3b`). Declared here instead of leaving those
+    # modules ungated: the window build keeps instrumentation, the headless
+    # `--no-default-features` product build does not.
+    "probes",
     "bevy/bevy_window",
     "bevy/bevy_winit",
     "bevy/bevy_log",

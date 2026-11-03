@@ -12,6 +12,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > own and keep outside the repository. No retail assets are shipped. This project is
 > not affiliated with Bethesda. All releases in this file are pre-releases.
 
+## [Unreleased]
+
+## [0.4.0-alpha] - 2026-11-02
+
+The first pre-release after `v0.3.0-alpha` that changes behaviour instead of only the record: a
+session saved from the running window now carries its world, and `CONTINUE` restores it. The date is
+the landing commit's date and no release act or tag is claimed by this entry — the tag, the export
+and the push remain the owner's act, and `v0.3.1-alpha` stays the untagged record correction.
+
+The save-fidelity work is **measured and unsigned**: its two handoff rows
+(`HH-20261101-savefidelity-7a3e9c14`, `HH-20261101-saverestore-7a3e9c14`) remain `candidato` in
+`docs/sintergic/handoffs/INDEX.jsonl`, so this release may state what was measured and must not call
+it `DONE`. The measurement is reproducible on a clean tree with
+`DISPLAY=:0 python3 scripts/new-game-semantics.py --label <name>` (~70 s): `SLOT-FIDELITY-4`,
+`delta pos_mm=[0, 0, 0]`, `delta mundo=0 min`, `CONTINUE-PRESERVES`, `CONTINUE-POSICION-CONSERVADA`
+and `NEW-GAME FRESH`.
+
+### Fixed
+
+- **Two side-contract anchors pointed at the wrong line after a formatting commit.** The
+  pure-formatting commit `53e428fb` (`cargo fmt` over previously landed lanes, no semantic change)
+  collapsed a four-line `match` into one line in `crates/parser-bevy-bridge/src/npc_spec.rs` and
+  reflowed `crates/parser-bevy-bridge/src/interior_retail.rs`, which shifted every later anchor of
+  both files. Only the *locator* drifted: `world.region-info` (`contract.toml` line `172` → `169`,
+  offset −3) and `api.interior-build` (`299` → `295`, offset −4). Both `expect` literals are
+  byte-identical at their real position and were **not** touched, `contract_version` stays `2.1.2`,
+  and the other 34 anchors resolved unchanged. Verified anchor by anchor (36/36) and by
+  `cargo test -p daggerfall-side-contract --test matrix` → `t1_real_contract_resolves_36_of_36_anchors`
+  green.
+- **`CONTINUE` restores the session's world instead of resetting it.** Saves now carry the
+  world state the engine already modelled in the `DFL-SESSION 3` grammar — position in whole
+  millimetres, yaw/pitch in milliradians, `world.environment`, `world.map_id` and
+  `calendar.game_minutes`. Resuming writes that state back into locomotion, the camera and the
+  progression clock, and re-seeds the clock's `last_minute`/`carry` so the elapsed game minutes
+  are not replayed frame by frame. Measured on the probe channel: after walking and fast-travelling
+  the repaired build resumes at the same spot with **position delta 0.00 m**, **world-clock delta
+  0 min** and the same yaw, where the previous build dropped the avatar back to the spawn
+  (`(422.00,1.60,419.00)` → `(411.00,1.60,411.00)`) and moved the world clock backwards 358 minutes.
+- Slot writes publish a new evidence line `SHELL VE: slot fidelity=4 …` carrying the declared
+  world state. The slot *format* stays `v3`: this is a slot generation, not a grammar bump, so the
+  pinned `dun-save`/`dun-state`/`dun-elig`/`shell-002` consumers keep working unchanged.
+- A slot that predates the generation (no `world.environment`, no `calendar.game_minutes`) now
+  loads with a visible `W-SAVE-001` naming the absent fields and **does not** teleport the player
+  or invent a clock, instead of silently starting a fresh world at the spawn. Interiors, whose
+  block is not re-entered from a slot, restore clock and orientation and say so with `W-SAVE-002`.
+- **`scripts/new-game-semantics.py` could hang for the whole run instead of failing.** `capture()`
+  called ImageMagick `import -window <id>` through `subprocess.run` with **no timeout**: when the
+  app's window disappeared mid-phase, `import` never returned, the phase deadline was never
+  evaluated (the loop checks it *after* the capture) and the run sat idle until its outer `timeout`
+  killed it (`rc=124` with a single `frames.txt` row). The capture is now bounded
+  (`CAPTURE_TIMEOUT`, 10 s) and reports `import colgado`; `settle_core` honours the documented
+  `try_settle_world` contract by publishing the last measurement with `hung=1` instead of aborting a
+  non-fatal corroboration, and the `finally` of `main` terminates the child so an abort cannot leave
+  a window of the previous run on `:0` for the next one to pick up by title.
+- **The `NEW-GAME FRESH` / `RESUMES` verdict no longer reads the clock in flight.** It compared
+  `clock_min` and `sim_ticks` between the two entries, both of which advance with play time and with
+  the instant the capture landed: two runs of the same tree produced `FRESH` (`clock` equal) and
+  `RESUMES` (`210168724` vs `210168720`) while both entries carried the **same** image
+  (`328b363b…`, 2176 colours). The verdict now compares against the *played* state — image against
+  `world-saved.png`, clock and position against the last line before the pause — and prints the
+  signals it used (`señales de reanudado en la entrada #2: ninguna`).
+
+### Added
+
+- `scripts/new-game-semantics.py` captures the world **before** the pause key (`world-saved.png`)
+  and reports the slot's declared position/world minutes against the resumed ones, so "resumes
+  where it was saved" is a measured row instead of an inference.
+
 ## [0.3.1-alpha] - 2026-10-27
 
 This release adds no feature. It corrects the public record so that it matches the code and
@@ -281,6 +349,7 @@ tree, not of this one. clippy clean for headless and window features; content/tr
 **Verification:** 582 tests passed / 0 failed at the M27 close; anti-screen suite 28/28;
 content and trademark scans clean.
 
+[0.4.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...HEAD
 [0.3.1-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...HEAD
 [0.3.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.2.0-alpha...v0.3.0-alpha
 [0.2.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.1.0-alpha...v0.2.0-alpha

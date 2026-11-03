@@ -263,9 +263,7 @@ pub fn resolve_text(source: TextSource, env: &TextEnv<'_>) -> Result<String, UiC
     match source {
         TextSource::Rsc(id) => {
             let table = env.rsc.ok_or(UiCompatError::Text(RULE_NO_ENV))?;
-            let file = env
-                .rsc_file
-                .ok_or(UiCompatError::Text(RULE_NO_RSC_BYTES))?;
+            let file = env.rsc_file.ok_or(UiCompatError::Text(RULE_NO_RSC_BYTES))?;
             let text = table
                 .record_text(file, id)
                 .map_err(|_| UiCompatError::missing_record())?;
@@ -399,9 +397,15 @@ mod tests {
             &env,
         )
         .expect("texts");
-        assert_eq!(texts, vec!["A".to_string(), "0".to_string(), "B".to_string()]);
         assert_eq!(
-            resolve_texts(&[TextSource::Literal("A"), TextSource::ReadModel("nope")], &env),
+            texts,
+            vec!["A".to_string(), "0".to_string(), "B".to_string()]
+        );
+        assert_eq!(
+            resolve_texts(
+                &[TextSource::Literal("A"), TextSource::ReadModel("nope")],
+                &env
+            ),
             Err(UiCompatError::unknown_path())
         );
         assert_eq!(

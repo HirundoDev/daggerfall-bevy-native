@@ -15,7 +15,7 @@
 //! isolation with an I/O census (INV-L99-6 / REQ-L99-016).
 //!
 //! Spine (contract `spine-contracts-CR-f716455c.md` §3): [`save_v2`] — the
-//! **versioned envelope** (`DFSV` + version 2, sections in canonical id order)
+//! **versioned envelope** (`DFSV` + version 3, sections in canonical id order)
 //! and the [`save_v2::SectionId`] registry with the owner rule: each module
 //! declares its section and attaches its own `encode/decode`, and `memory`
 //! only composes. The 14 list families of M33 are **not** here: they belong to
@@ -24,6 +24,7 @@
 pub mod chunk_content;
 pub mod chunks;
 pub mod data_source;
+pub mod dungeon_v3;
 pub mod save_v2;
 pub mod savegame;
 pub mod savegame_v2;

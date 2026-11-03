@@ -9,3 +9,7 @@ description = "Inventory organ — configuration, dependency wiring and asset/pa
 # M21: the effective weight (`max_encumbrance`, M19) and the wear
 # `Dice100` (M21 §4) live in `behavior` — 0 duplicated logic.
 daggerfall-behavior = { path = "../behavior" }
+# Data-root validation (data contract §4.3 L2) parses the retail files with the
+# phase-1 parsers; `sha256` gives L3 its identity digest.
+daggerfall-parser-rs = { path = "../daggerfall_parser_rs" }
+sha2 = "0.10"

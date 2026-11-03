@@ -17,14 +17,20 @@
 //! Runs in the **default headless** config and **does not read ARCH3D.BSA**
 //! (declared synthetic session — delta documented in the M8 note); with
 //! `--features window` and PASS, the M8 window (`m8_window`) opens the
-//! restored session as visual evidence. Probe saves live in their own
-//! temporary directory (0 artifacts in the repo); the VE save in the window
-//! uses `saves/session.dfs` (project root).
+//! restored session as visual evidence. The roundtrip is measured on **the
+//! player's save** — `saves/session.dfs` under the working directory
+//! ([`crate::m8_session::default_save_path`]), the same file the window writes
+//! and a player reloads — so a harness that drives the probe from a scratch
+//! CWD gets the product artifact without dirtying the tree; the
+//! anti-false-positive mutations live in their own temp directory, and under
+//! `cargo test` the whole probe stays hermetic (0 artifacts in the repo).
 
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use daggerfall_memory::session_store::{SaveError, SessionSnapshot};
+use daggerfall_memory::session_store::{
+    SaveError, SessionSnapshot, FORMAT_MAGIC, FORMAT_VERSION,
+};
 use daggerfall_parser_bevy_bridge::ProbeCheck;
 use daggerfall_perception::read_models::SessionReadModels;
 
@@ -60,6 +66,23 @@ fn probe_save_path() -> PathBuf {
     probe_save_dir().join("session.dfs")
 }
 
+/// The save the roundtrip is measured on: **the player's save**, i.e. the
+/// product path [`crate::m8_session::default_save_path`] (`saves/session.dfs`
+/// under the working directory — the same file the M8 window writes and a
+/// player's run reloads), when the probe is driven from the CLI.
+///
+/// Under `cargo test` it stays inside the hermetic temp dir, so the suite
+/// leaves no artifact in the tree. The anti-false-positive mutations (corrupt,
+/// version, missing) are always written to the temp dir: they are scratch
+/// files, never the product's save.
+fn session_save_path() -> PathBuf {
+    if cfg!(test) {
+        probe_save_path()
+    } else {
+        crate::m8_session::default_save_path()
+    }
+}
+
 /// Expected initial snapshot of the M8 session (built by hand — the probe does
 /// not self-validate against its own output).
 fn expected_initial_snapshot() -> SessionSnapshot {
@@ -93,8 +116,11 @@ fn expected_initial_snapshot() -> SessionSnapshot {
 /// and the tests (anti-screen).
 pub fn run_session_probe() -> SessionProbeReport {
     let mut checks: Vec<ProbeCheck> = Vec::with_capacity(8);
-    let save_path = probe_save_path();
+    let save_path = session_save_path();
     let _ = std::fs::remove_dir_all(probe_save_dir());
+    // The roundtrip save may live at the product path, so the scratch directory
+    // is created here, up front: the mutation files below write into it.
+    std::fs::create_dir_all(probe_save_dir()).expect("create the probe scratch directory");
 
     // ── Played session (M8 script) frozen into a snapshot ─────────────────
     let mut playing = m8_session_app();
@@ -253,16 +279,40 @@ pub fn run_session_probe() -> SessionProbeReport {
             .to_string(),
     });
 
+    // The version-999 save is the REAL save with its header rewritten, so the header is
+    // derived from the format this build actually writes (`FORMAT_MAGIC`/`FORMAT_VERSION`),
+    // never a fixed literal that stops matching the moment the format version moves.
     let version_path = probe_save_dir().join("session-version-999.dfs");
-    let bumped = String::from_utf8(saved_bytes.clone())
-        .expect("UTF-8 save")
-        .replacen("DFL-SESSION 1", "DFL-SESSION 999", 1);
-    std::fs::write(&version_path, bumped).expect("write version");
-    let rejected = load_session(restored.world_mut(), &version_path).expect_err("must reject");
+    let saved_text = String::from_utf8(saved_bytes.clone()).expect("UTF-8 save");
+    let version_header = format!("{FORMAT_MAGIC} {FORMAT_VERSION}");
+    let bumped = saved_text.replacen(&version_header, &format!("{FORMAT_MAGIC} 999"), 1);
+    // A substitution that does not match measures nothing: the file stays a valid
+    // current-version save and the check would pass on an empty edit. The rewrite must be
+    // observable, and an unapplied rewrite is its own named failure.
+    let header_rewritten = bumped != saved_text;
+    std::fs::write(&version_path, &bumped).expect("write version");
+    let rejected = load_session(restored.world_mut(), &version_path);
+    let rejected_named = matches!(&rejected, Err(SaveError::BadVersion(999)));
+    let detail = if !header_rewritten {
+        format!(
+            "the format header `{version_header}` was NOT in the save: the rewrite to \
+             `{FORMAT_MAGIC} 999` did not apply, so no version was ever probed"
+        )
+    } else {
+        match &rejected {
+            Ok(_) => format!(
+                "the save header `{version_header}` WAS rewritten to `{FORMAT_MAGIC} 999` but \
+                 load accepted it (version gate not enforced)"
+            ),
+            Err(error) => {
+                format!("save with version 999 ⇒ SaveError::BadVersion(999): {error}")
+            }
+        }
+    };
     checks.push(ProbeCheck {
         id: "unsupported_version_is_rejected",
-        ok: matches!(rejected, SaveError::BadVersion(999)),
-        detail: format!("save with version 999 ⇒ SaveError::BadVersion(999): {rejected}"),
+        ok: header_rewritten && rejected_named,
+        detail,
     });
 
     let _ = std::fs::remove_dir_all(probe_save_dir());
@@ -333,9 +383,9 @@ pub fn run_session_001() -> i32 {
              0 .BSA reads (declared synthetic session)"
         );
         println!(
-            "M8 VE: the VE save (M8 window) uses {} (project root) — this probe ran \
-             hermetically in {}",
-            crate::m8_session::default_save_path().display(),
+            "M8 VE: the roundtrip save is the product path {} (the save the M8 window \
+             writes and a player reloads); the anti-false-positive mutations ran in {}",
+            session_save_path().display(),
             probe_save_dir().display()
         );
         println!(

@@ -2,8 +2,10 @@
 
 *Case file split from [`docs/ACKNOWLEDGMENTS.md`](../ACKNOWLEDGMENTS.md): the body was moved and later cleaned of working notes; the verified facts are unchanged.*
 
-**Public release line: `v0.3.0-alpha`, published 2026-10-27.** `v0.3.1-alpha` is in preparation as a
-**documentation correction**: it fixes this page and its siblings and adds no feature. The alpha
+**Public release line: `v0.3.0-alpha`, published 2026-10-27.** Above it sit two untagged
+pre-releases: `v0.3.1-alpha`, the **documentation correction** that fixes this page and its siblings and
+adds no feature, and **`v0.4.0-alpha`**, the first behaviour change since the published alpha — the
+session slot family `fidelity=4`, described below and **unsigned**. The alpha
 publishes the mechanism measured below; it does **not** claim visual parity. M18 — the global
 acceptance gate — has its **acceptance signature recorded on 2026-10-26 by delegation**: its 21
 acceptance rows are signed **8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL**. Two acts remain the
@@ -13,8 +15,8 @@ so no `M18` tag exists and nothing here claims the game looks like 1996.
 M0–M17 carry annotated git tags of the form `M<n>-YYYY-MM-DD`, with matching `release/M<n>`
 branches (`M13b` is a tagged parity follow-up). From M18 on no milestone tag exists. The closure
 register — checked by `scripts/closure-gate.py` with
-`VERDICT: PASS` (0 prose↔register contradictions, falsifiers 3/3 red) — holds **51 milestones and 80 gate
-rows: 38 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1 PARTIAL-TECHNICAL-CLOSURE · 10 AUSENTE**, with
+`VERDICT: PASS` (0 prose↔register contradictions, falsifiers 3/3 red) — holds **51 milestones and 100 gate
+rows: 41 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1 PARTIAL-TECHNICAL-CLOSURE · 7 AUSENTE**, with
 `program_closure: OPEN`. Its states, milestone by milestone:
 
 - **M18 — `PARTIAL-TAG-PENDING`.** DONE at technical level: its acceptance signature is recorded
@@ -23,8 +25,16 @@ rows: 38 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1 PARTIAL-TECHNICAL-CLOSU
 - **M34 — `PARTIAL-TECHNICAL-CLOSURE`.** DONE at technical level with the named row
   `AUDIO-RT-001-DEVICE`.
 - **M35 — `PARTIAL`**, with `GAP-TAX-11` deferred to M44.
-- **M36–M39 — DONE at gate level.** Acceptance pending, no tag.
-- **M40–M48 — `AUSENTE`.** M46 additionally carries the owner's `T-M46-GO`.
+- **M36–M40 — DONE at gate level.** Acceptance pending, no tag.
+- **M41–M42 — DONE at gate level.** Acceptance pending, no tag (M42's is a technical closure on its
+  gate rows).
+- **M43 — `AUSENTE`**, in flight under `CR-39d656e1`; **M44 — `AUSENTE`**, next, whole and unblocked.
+- **M45–M48 — `AUSENTE`.** M45, M46 and M48 are `DEFERRED`, M47 is `OPTIONAL`, and M46 additionally
+  carries the owner's `T-M46-GO`; none of the four opens before the playthrough probe passes.
+- **`M-SHELL` and `M-PLAY` — `PLANNED`, and not rows of this recount**: the register's schema stops at
+  M48 + E8 (the plan's `G-N12`/`G-N13`), so they live in the roadmap, not in the 51. The sequence in
+  force is **M43 → M44 → M-SHELL → M-PLAY** (the application and the session, 17.00 u, then the
+  playthrough probe, 6.50 u provisional).
 
 `DONE` here means **gate-level technical closure** — 100% of the milestone's declared gate rows
 passing in `PASS` at the recorded head — never owner acceptance. The table below states only what
@@ -61,13 +71,16 @@ those closures contain.
 | **M31** | Travel, weather and calendar: fast travel over the real climate data, weather replay, holidays and the calendar clock | **Technical closure PASS (2026-10-23)** — `heart::{travel, weather, calendar}` measured by `PROBE-TRAVEL-001` (34/34 vectors, a 2,200-pixel route over the real `CLIMATE.PAK`, byte-identical stdout in two processes), `PROBE-WEATHER-001` (13/13 vectors, 240,000 draws, `max_abs_delta = 0.0121 < 0.02`) and `PROBE-CALENDAR-001` (14/14). No `M31` tag |
 | **M32** | Conditions, death and rest: diseases, vampirism and lycanthropy stages, rest and the death state | **Technical closure PASS (2026-10-23)** — `skills::{conditions, rest}` measured by `PROBE-CONDITION-001` (24/24), `PROBE-VAMPIRE-001` (16/16), `PROBE-REST-001` (10/10) and `PROBE-DEATH-STATE-001` (2/2). No `M32` tag |
 | **M33** | Total persistence: savegame v2, migration, and the classic `SAVEGAME` read/write | **Technical closure PASS (2026-10-26)** — `memory::{save_v2, savegame, savegame_v2}` measured by `PROBE-SAVE-ALL-001` (24/24 round trips byte-identical, the S0 census, five corruption mutations all rejected, deterministic digest), `PROBE-SAVE-MIGRATION-001` (v1→v2, idempotent), `PROBE-SAVEGAME-READ-001`, `PROBE-SAVEGAME-WRITE-001` and `PROBE-M33-DEMO-001`. No `M33` tag |
-| **M34** | End-to-end integration and presentation: the E2E spine, the full presentation pass and the HUD | **`PARTIAL-TECHNICAL-CLOSURE`** — DONE at technical level with the named row `AUDIO-RT-001-DEVICE`. `PLAYSESSION-001`, `UI-FULL-001` and `AUDIO-RT-001` entered the suite, taking `ALL-001` to **40/40**; the independent probes agree on the same head: `SPINE-001` **12/12** (4 controls, 6 falsifiers, identical digest over two runs), `VIDEO-001` PASS, `PROBE-AUTOMAP-001` **13/13**, `PROBE-LIGHT-001` PASS (digest reproduced in-process, `0x61d950d0d13da8de`), `PROBE-DUNGEON-001` **12/12**. QA round **0.94**, 0 critical / 0 major. Owner rows recorded **12/12** (5 PASS · 7 accepted with a declared deviation · 0 FAIL). No `M34` tag. `AUDIO-RT-001` reproduces `PASS(degraded)` — `[SKIP-DEVICE]`, the binary built without the `audio` feature — so its measure covers the degraded path only and the audio branch is the owner's decision. `UI-FULL-001`, also the M40 gate, counts the 34 non-playable surfaces as `N/A-engine` entries of its own census and measures only the 51 playable windows (51/51): it neither depends on those 34 nor certifies them |
+| **M34** | End-to-end integration and presentation: the E2E spine, the full presentation pass and the HUD | **`PARTIAL-TECHNICAL-CLOSURE`** — DONE at technical level with the named row `AUDIO-RT-001-DEVICE`. `PLAYSESSION-001`, `UI-FULL-001` and `AUDIO-RT-001` entered the suite, taking `ALL-001` to **40/40**; the independent probes agree on the same head: `SPINE-001` **12/12** (4 controls, 6 falsifiers, identical digest over two runs), `VIDEO-001` PASS, `PROBE-AUTOMAP-001` **13/13**, `PROBE-LIGHT-001` PASS (digest reproduced in-process, `0x61d950d0d13da8de`), `PROBE-DUNGEON-001` **12/12**. QA round **0.94**, 0 critical / 0 major. Owner rows recorded **12/12** (5 PASS · 7 accepted with a declared deviation · 0 FAIL). No `M34` tag. `AUDIO-RT-001` reproduces `PASS(degraded)` — `[SKIP-DEVICE]`, the binary built without the `audio` feature — so its measure covers the degraded path only and the audio branch is the owner's decision. `UI-FULL-001`, also the M40 gate, certifies **85/85** census surfaces with per-surface evidence since `CR-bc68d7ce` (2026-10-27): the 7 `Infra` entries as layer contract of `ui_compat`, and 3 read-only `Playable` windows recorded `not-applicable` on axis A5, so no surface is left uncertified |
 | **M35** | Biomes, 2D vegetation and sky — optional, non-blocking annex | **`PARTIAL`** — the register's verdict, with the named row `GAP-TAX-11` **deferred to M44**. `BIOME-001` **25 passed / 0 failed / 1 NA** and `SPRITE-001` **11/11`. The NA is that declared gap: the pinned corpus carries no tile-class data, so the probability gate cannot be measured — the probe reports `DEGRADED` instead of inventing a number. Owner rows CS-05 (`NC-ACEPTA`) and CS-11 (`NOT-COMPARABLE`) are declared classes of the signed acceptance matrix, not passes, and the side-by-side against the original remains the owner's. No `M35` tag |
 | **M36** | UI-0: audit of the census windows, the patch/rewrite rule, the seven-axis compatibility contract and the E1 re-estimate | **Technical closure measured 2026-10-27** — `scripts/ui-audit-001.py` prints `VERDICT: PASS` on blocks A+B+C, exit 0, in two separate processes with byte-identical stdout; **85 = 78 surfaces (27 + 51) + 7 infrastructure rows**, measured **4 implemented / 47 partial / 34 absent**, and the rule settles **35 PATCH · 50 REWRITE**. No `M36` tag |
 | **M37** | UI-1: the seven-axis UI compatibility layer — surface, palette, typography, text, navigation, input, presentation — and its three pilots | **Technical closure measured 2026-10-27** — `crates/parser-bevy-bridge/src/ui_compat/` shipped behind two gates: `UI-BASE-001` **9/9** and `UI-INPUT-001` **10/10**, `VERDICT: PASS`, exit 0, in two separate processes with byte-identical stdout. The pilots measured a depth cost of **0.4708333 u/window at one QA round** — band `r`, n = 3, W = 50 — against the L1 baseline of **0.0565 u/window** (**8.33×**). No `M37` tag |
 | **M38** | UI-2: the 27 surfaces outside the in-play screens — 16 creation windows (`C01`–`C16`) and 11 configuration pages (`CFG01`–`CFG11`) — plus the menu family | **Technical closure measured 2026-10-27** — `scripts/ui-create-001.py` (16 surfaces, 12 checks) and `scripts/ui-config-001.py` (11 surfaces, 12 checks) print `VERDICT: PASS`, exit 0, in two separate processes with identical stdout and identical digests (`249a028172da0e98c2b50186b65e782d9e054356dcfaf3b888a18e7170ebd813`, `6dd450e3b387415bbe4e1004529c22390336c82198ccfc4f183f5da5209df79e`). Measured cost **0.8434 u over 27 surfaces = 0.0312 u/surface**. The UI requirement's coverage at that close is **0.857 (6/7)**: **K7** (the owner's side-by-side acceptance) is the only open clause, with **K2** (the composed `FACES.CIF` face) closed and its handoff recording `status: DONE`. No `M38` tag |
 | **M39** | UI-3: the 51 interactive playable windows, in the eight blocks of the plan | **DONE at gate level** (register verdict DONE, 3 gate rows) — `ui-jugable-001` gate **9/9 PASS ×2** at HEAD `5803297` (stdout 29,539 B, sha256 `1843dc66…`, digest `d93dc12f…`), AXIS A5 **`focus-rows=153` ×2**, **4/4 falsifiers red**; 51/51 surfaces measured, 8/8 blocks and 7/7 axes OK. `requirements_coverage 0.857` with **K7** the single open clause (`docs/sintergic/l5-mission/m39-a5-focus-mission-report-CR-4e32cea3.md`). Not signed, no `M39` tag, and the 51 windows are not yet the running demo window |
-| **M40–M48** | Plan B remaining: UI-4 gate, SYS-1–SYS-3 depth, DUN-1 dungeon content, E4 mods, E5 online, E6 platform, E7 modern | **`AUSENTE`** — no code, no dispatch, no tag; M46 additionally carries the owner's `T-M46-GO`. Scope, gates and `u` are in the [complete plan](roadmap-m18-m48.md) |
+| **M40** | UI-4: the gate over the complete UI | **DONE at gate level** (register verdict DONE, 5 gate rows) — `UI-FULL-001` **85/85** in two separate processes with byte-identical stdout (21,472 B, sha256 `39c01070…`, gate stdout `e288505e…`, digest `27ed819c…`), **8/8** rules, **4/4** falsifiers red and restored; **85 = 51 playable + 16 creation + 11 configuration + 7 infrastructure**, the 7 `Infra` closed as layer contract of `ui_compat::AXES`, 3 read-only `Playable` recorded `not-applicable` on A5 (`docs/sintergic/l5-mission/m40-ui4-mission-report-CR-bc68d7ce.md`). Not signed, no `M40` tag; the side-by-side is the owner's `K7` |
+| **M41–M42** | Plan B depth: SYS-1 (combat, magic, items, stats, resistances) and SYS-2 (NPCs, guilds, crime/law, quests) | **DONE at gate level** — register verdict DONE on their work-package gate rows (8 gates × 2 for M42, `CR-c71b453d`); not signed, no tag. Scope and `u` in the [complete plan](roadmap-m18-m48.md) |
+| **M43–M48** | Plan B remaining: SYS-3 depth, DUN-1 dungeon content, E4 mods, E5 online, E6 platform, E7 modern | **`AUSENTE`** — no code, no dispatch, no tag; **M43 in flight** under `CR-39d656e1`, **M44 next**, M45/M46/M48 `DEFERRED`, M47 `OPTIONAL`, and M46 additionally carries the owner's `T-M46-GO`. Scope, gates and `u` are in the [complete plan](roadmap-m18-m48.md) |
+| **M-SHELL · M-PLAY** | The application and the session (13 capabilities, 17.00 u) and the end-to-end playthrough probe (6.50 u provisional) | **`PLANNED`** — no code, no dispatch, no tag, and **register rows since 2026-10-29** (`CR-359b5d8e`: `EXPECTED_IDS` extended, `verdict: AUSENTE`). Sequence: **M43 → M44 → M-SHELL → M-PLAY**. Gates `SHELL-001..006` are declared, none built |
 | **E8** | Deferred expansion horizon | **`AUSENTE`** — a separate program with its own genesis contract, never "M49" |
 
 **No milestone tag exists from M18 on; M18's acceptance signature is recorded by delegation on
@@ -77,7 +90,9 @@ gate rows pass, `ui-jugable-001` prints `9/9 PASS ×2` at HEAD `5803297`, AXIS A
 `focus-rows=153` twice and 4/4 falsifiers turn red, and the closure report — kept at
 `docs/sintergic/l5-mission/m39-a5-focus-mission-report-CR-4e32cea3.md` — publishes
 `requirements_coverage 0.857` with K7 (the owner's side-by-side acceptance) as the single open clause.
-M40–M48 are `AUSENTE` in the register, and E8 is a separate program.
+M43–M48 are `AUSENTE` in the register (M41 and M42 carry gate-level closures with no tag), and E8 is a
+separate program. `M-SHELL` and `M-PLAY` are neither: they are `PLANNED` in the roadmap and outside the
+51 (G-N12/G-N13 of the plan).
 
 ## M9 — release slice and global verification
 
@@ -87,6 +102,67 @@ given that denominator the honest figure for that run is **15/19 = 0.79 — FAIL
 that did not exist were implemented with falsifiable negative controls and the verification was
 re-measured over the full 19 rows: **19/19 = 1.00 PASS, 0 exclusions, 0 rows pending**. The history
 is not rewritten: both numbers, and the reason they differ, stay on the record.
+
+## Save fidelity generation 4 — measured, unsigned (2026-11-02)
+
+A session saved from the running window now carries its world. The slot keeps the `DFL-SESSION 3`
+grammar — this is a **generation**, declared in a new evidence line `SHELL VE: slot fidelity=4 …`, not
+a format bump — and it adds `world.position_mm`, `world.yaw_mrad` / `world.pitch_mrad`,
+`world.environment`, `world.map_id` and `calendar.game_minutes`. `CONTINUE` reads them back instead of
+starting a fresh world at the spawn.
+
+Measured at `41a5a703` on a clean tree, three runs of
+`DISPLAY=:0 python3 scripts/new-game-semantics.py --label <name>` (each ~70 s, exit 0; the third one
+after the instrument's capture was bounded and its fresh/resume signal corrected):
+
+| Row | Value |
+|---|---|
+| Slot round trip | `SLOT-FIDELITY-4` · `pos_mm` delta `[0, 0, 0]` · `world_minutes` delta `0` |
+| Resumed session | `CONTINUE-PRESERVES` — 116 min saved, 116 min resumed |
+| Resumed position | `CONTINUE-POSICION-CONSERVADA` — `(422.00, 1.60, 419.00)` |
+| Fresh entry | `NEW-GAME FRESH` — the second entry carries the same image as the first (`328b363b…`, 2,176 colours) and no signal of the played state |
+
+Older slots degrade **loudly**: a slot without the world fields loads with a visible `W-SAVE-001`
+naming the absent fields and does not teleport the player or invent a clock, and an interior save that
+cannot re-enter its block restores the clock and the orientation and says so with `W-SAVE-002`.
+
+**State of the record.** This is a measurement, not a closure. The two handoff rows of `CR-7a3e9c14`
+(`HH-20261101-savefidelity-7a3e9c14`, `HH-20261101-saverestore-7a3e9c14`) stay **`candidato`** in
+`docs/sintergic/handoffs/INDEX.jsonl`; their `note` ("codigo NO escrito") is stale — the code landed in
+`d96a60a8 … 6237fa9c` — and the independent signature that would move them out of `candidato` is still
+owed. Nothing here calls the work `DONE`.
+
+Two declared non-matches travel with that measurement, both from its own handoff: `sim ticks` is
+**not** persisted on purpose (`WorldSimTicks.frames` counts frames of *this* process, so persisting it
+would fake what it measures), and the first frame captured after `continue` (~0.9 s) still shows the
+spawn view while the log already declares `pos=(422.0,1.6,419.0)`; the second frame (~2.0 s) is the
+restored view. So the claim is **log state and position line restore**, with a paint lag of seconds,
+not "the screen shows it at once".
+
+**Publication hygiene, declared before the push.** The public-export gate is **clean on safety** at
+this commit — no user paths, no secrets, no owner identity, no internal path inside a git object, one
+commit, no remote — and **red on hygiene**, which is recorded here instead of hidden:
+
+| gate | verdict | cause |
+|---|---|---|
+| `pii_paths`, `emails_other_absent` | PASS | the only hits were two synthetic fixtures, now declared by exact path and counted in the report |
+| `spanish_stopwords_absent` | **FAIL** | five harness scripts still carry Spanish prose; `scripts/shell-002.py` is frozen by design, so it cannot be translated |
+| `E_internal_refs` | **FAIL** | 153 mentions of private documentation paths, almost all inside the same harness family and the probe modules |
+| `C_regeneration` | **FAIL** | inherits the two above |
+
+None of this is product surface and none of it is data: the safety gate and the git-object gate pass
+for the whole exported tree (no user path, no secret, no owner identity, no internal path inside an
+object).
+
+**The exported copy compiles and its remaining tests pass, measured on the export itself** (the
+private tree is not evidence here — the exported CI omits build and test by design, so a broken
+public tree would otherwise ship unnoticed). Prescribed by `tools/public-export/CHECKLIST.md`, run in
+the export directory: `cargo test --no-run --workspace` → **rc=0**, and the four packages whose tests
+travel with the export (`daggerfall-side-contract`, `-content-api`, `-content-runtime`,
+`-game-runtime-api`) → **75 tests, 0 failed**.
+
+The owner chose to publish the behaviour now and settle the surface of the harness family afterwards,
+so this tree ships **with the hygiene gate red and said out loud**.
 
 ## Verified facts at the current head (2026-10-27)
 

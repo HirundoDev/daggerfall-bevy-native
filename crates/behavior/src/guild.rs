@@ -1234,6 +1234,40 @@ pub fn services_visible(def: &GuildDef, rank: i32) -> Vec<GuildService> {
         .collect()
 }
 
+// ── W42-3 · rank/service table ──────────────────────────────────────────────
+// (roadmap-m18-m48.md:319: "ranks and services = table").
+
+/// One row of the rank table: the three static `Guild.cs:37-39` tables joined,
+/// so the SYS probe prints and asserts ranks as a table instead of three
+/// parallel arrays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RankRequirement {
+    /// Rank `0..=9`.
+    pub rank: usize,
+    /// `rankReqReputation[rank]`.
+    pub reputation: i32,
+    /// `rankReqSkillHigh[rank]`.
+    pub skill_high: i32,
+    /// `rankReqSkillLow[rank]`.
+    pub skill_low: i32,
+}
+
+/// The 10 rank rows (`Guild.cs:37-39`), identical for every guild.
+pub fn rank_table() -> [RankRequirement; RANK_COUNT] {
+    std::array::from_fn(|rank| RankRequirement {
+        rank,
+        reputation: RANK_REQ_REPUTATION[rank],
+        skill_high: RANK_REQ_SKILL_HIGH[rank],
+        skill_low: RANK_REQ_SKILL_LOW[rank],
+    })
+}
+
+/// Visible services for every rank `0..=9` of the guild (the menu table):
+/// `service_table(def)[rank]` is exactly [`services_visible`] at that rank.
+pub fn service_table(def: &GuildDef) -> [Vec<GuildService>; RANK_COUNT] {
+    std::array::from_fn(|rank| services_visible(def, rank as i32))
+}
+
 /// Library: only Mages (rank ≥ 2) and temples (`library <= rank`).
 pub fn can_access_library(def: &GuildDef, rank: i32) -> bool {
     match def.kind {
@@ -1937,5 +1971,49 @@ mod tests {
         assert_eq!(temple_tier(Deity::Mara).soul_gems, -1);
         assert_eq!(temple_tier(Deity::Arkay).threshold(GuildService::BuySoulgems), Some(4));
         assert_eq!(temple_tier(Deity::Arkay).threshold(GuildService::Training), None);
+    }
+
+    #[test]
+    fn rank_table_joins_the_three_retail_arrays() {
+        let table = rank_table();
+        assert_eq!(table.len(), RANK_COUNT);
+        for (index, row) in table.iter().enumerate() {
+            assert_eq!(row.rank, index);
+        }
+        assert_eq!(
+            (table[0].reputation, table[0].skill_high, table[0].skill_low),
+            (0, 22, 4)
+        );
+        assert_eq!(
+            (table[9].reputation, table[9].skill_high, table[9].skill_low),
+            (90, 87, 37)
+        );
+    }
+
+    #[test]
+    fn service_table_matches_visible_and_grows_with_rank() {
+        let mages_def = mages();
+        let table = service_table(&mages_def);
+        assert_eq!(table.len(), RANK_COUNT);
+        for rank in 0..RANK_COUNT {
+            assert_eq!(table[rank], services_visible(&mages_def, rank as i32));
+        }
+        assert!(table[9].contains(&GuildService::Teleport));
+        assert!(!table[0].contains(&GuildService::Teleport));
+        let arkay_def = arkay();
+        let arkay_table = service_table(&arkay_def);
+        assert!(!arkay_table[3].contains(&GuildService::BuySoulgems));
+        assert!(arkay_table[4].contains(&GuildService::BuySoulgems));
+        let knights_table = service_table(&knights());
+        assert!(knights_table[0].contains(&GuildService::ReceiveHouse));
+        assert!(knights_table[0].contains(&GuildService::ReceiveArmor));
+    }
+
+    #[test]
+    fn rank_table_top_row_matches_max_promotion() {
+        let table = rank_table();
+        assert_eq!(calculate_new_rank(100, &skills_all(90), &fighters()), 9);
+        assert_eq!(table[9].reputation, 90);
+        assert_eq!(is_eligible(table[0].reputation, &skills_all(90), &fighters()), true);
     }
 }

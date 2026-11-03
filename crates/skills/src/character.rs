@@ -20,7 +20,7 @@
 
 use daggerfall_behavior::locomotion::{max_breath, max_encumbrance, PlayerBody};
 
-use crate::bio::{parse_effect, BiographyEffect};
+use crate::bio::{parse_effect, BiographyEffect, PlayerMod};
 use crate::career::Career;
 use crate::rng::Rng64;
 use crate::stats::RpgStats;
@@ -106,6 +106,22 @@ impl Attribute {
             Attribute::Personality => "PER",
             Attribute::Speed => "SPD",
             Attribute::Luck => "LCK",
+        }
+    }
+
+    /// Canonical long name, exactly the `DFCareer.Stats` member
+    /// (`DFCareer.cs:429-438`): `Strength, Intelligence, Willpower, Agility,
+    /// Endurance, Personality, Speed, Luck`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Attribute::Strength => "Strength",
+            Attribute::Intelligence => "Intelligence",
+            Attribute::Willpower => "Willpower",
+            Attribute::Agility => "Agility",
+            Attribute::Endurance => "Endurance",
+            Attribute::Personality => "Personality",
+            Attribute::Speed => "Speed",
+            Attribute::Luck => "Luck",
         }
     }
 }
@@ -1125,6 +1141,29 @@ impl Character {
 
     // ── biography ───────────────────────────────────────────────────────
 
+    /// Stores one biography player mod on the character
+    /// (`PlayerEntity.cs:172-177`: `BiographyResistPoisonMod`,
+    /// `BiographyResistDiseaseMod`, `BiographyResistMagicMod`,
+    /// `BiographyAvoidHitMod`, `BiographyFatigueMod`,
+    /// `BiographyReactionMod`).
+    ///
+    /// This is the **single write path** for [`PlayerMod`]:
+    /// [`Self::apply_biography_effects`] delegates here, so the parser, the
+    /// census ([`PlayerMod::ALL`]) and the stored state cannot drift apart.
+    /// The stored field is the mechanical effect; its consumers live outside
+    /// this crate (only [`PlayerMod::AvoidHit`] has one today:
+    /// `daggerfall_behavior::combat::adjustments`, `FormulaHelper.cs:1224-1251`).
+    pub fn apply_player_mod(&mut self, kind: PlayerMod, amount: i32) {
+        match kind {
+            PlayerMod::ResistPoison => self.biography.resist_poison = amount,
+            PlayerMod::ResistDisease => self.biography.resist_disease = amount,
+            PlayerMod::ResistMagic => self.biography.resist_magic = amount,
+            PlayerMod::AvoidHit => self.biography.avoid_hit = amount,
+            PlayerMod::Fatigue => self.biography.fatigue = amount,
+            PlayerMod::Reaction => self.biography.reaction = amount,
+        }
+    }
+
     /// Applies biography effects (`ApplyPlayerEffect`, `BiogFile.cs:248-445`).
     ///
     /// Applies skills and stores the `RP/RD/MR/TH/FT/RR` mods. `GP`, `IT` and
@@ -1139,16 +1178,7 @@ impl Character {
                     report.skills += 1;
                 }
                 BiographyEffect::PlayerMod { kind, amount } => {
-                    match kind {
-                        crate::bio::PlayerMod::ResistPoison => self.biography.resist_poison = amount,
-                        crate::bio::PlayerMod::ResistDisease => {
-                            self.biography.resist_disease = amount
-                        }
-                        crate::bio::PlayerMod::ResistMagic => self.biography.resist_magic = amount,
-                        crate::bio::PlayerMod::AvoidHit => self.biography.avoid_hit = amount,
-                        crate::bio::PlayerMod::Fatigue => self.biography.fatigue = amount,
-                        crate::bio::PlayerMod::Reaction => self.biography.reaction = amount,
-                    }
+                    self.apply_player_mod(kind, amount);
                     report.mods += 1;
                 }
                 BiographyEffect::Gold(_) | BiographyEffect::Item { .. } => report.deferred += 1,

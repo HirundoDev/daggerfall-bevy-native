@@ -32,7 +32,11 @@ fn arena2_dir() -> Option<std::path::PathBuf> {
     let root = std::env::var("DF_APP_ROOT")
         .ok()
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var("HOME").ok().map(|h| std::path::Path::new(&h).join("Games/Daggerfall/app")))?;
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| std::path::Path::new(&h).join("Games/Daggerfall/app"))
+        })?;
     let dir = root.join("ARENA2");
     dir.is_dir().then_some(dir)
 }
@@ -73,11 +77,17 @@ fn navmesh_measure_real_disk() {
         // N3 diagnosis: at which budget does the A→B route resolve?
         println!(
             "BUDGET_DIAG {} components={} unreachable_regions={} found_at={:?} final={}",
-            block.name, block.diagnosis.components, block.diagnosis.unreachable_regions,
-            block.diagnosis.found_at, block.diagnosis.final_outcome,
+            block.name,
+            block.diagnosis.components,
+            block.diagnosis.unreachable_regions,
+            block.diagnosis.found_at,
+            block.diagnosis.final_outcome,
         );
     }
-    println!("UNIQUE_RDB={} PLACED_BLOCKS={}", measurement.unique_rdb, measurement.placed_blocks);
+    println!(
+        "UNIQUE_RDB={} PLACED_BLOCKS={}",
+        measurement.unique_rdb, measurement.placed_blocks
+    );
     println!("AGGREGATE_DIGEST={aggregate:016x}");
     println!(
         "LEVELS_OBSERVED max={} partial_blocks={}",
@@ -95,7 +105,12 @@ fn navmesh_measure_real_disk() {
     let cross = &dungeon.cross_path;
     println!(
         "CROSSPATH outcome={} steps={} crossings={} door_crossings={} blocks={} digest={:016x}",
-        cross.outcome, cross.steps, cross.crossings, cross.door_crossings, cross.blocks, cross.digest,
+        cross.outcome,
+        cross.steps,
+        cross.crossings,
+        cross.door_crossings,
+        cross.blocks,
+        cross.digest,
     );
     println!("DUNGEON_DIGEST={:016x}", dungeon.digest);
 
@@ -164,8 +179,14 @@ fn navmesh_measure_real_disk() {
 
     // N3 gate (design §3.8 B): the route between two adjacent blocks crosses
     // the border at least once; the assembly is stable ×2.
-    assert!(dungeon.stable, "dungeon assembly digest must be identical ×2");
-    assert!(dungeon.boundaries > 0, "the dungeon must have adjacent boundaries");
+    assert!(
+        dungeon.stable,
+        "dungeon assembly digest must be identical ×2"
+    );
+    assert!(
+        dungeon.boundaries > 0,
+        "the dungeon must have adjacent boundaries"
+    );
     assert_eq!(
         cross.outcome, "Found",
         "cross-boundary route must resolve (got {:?})",

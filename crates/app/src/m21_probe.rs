@@ -47,7 +47,6 @@
 //! **Outputs (§7):** `EXIT=0` ⟺ all checks OK · `EXIT=1` on any
 //! FAIL (line `FAIL <id> got=<v> want=<v>`) · `EXIT=2` with no readable disk.
 
-use std::path::PathBuf;
 
 use daggerfall_behavior::durability::{
     apply_wear, days_remaining, repair_cost, repair_time_seconds, repair_time_seconds_for_damage,
@@ -127,29 +126,6 @@ fn print_rows(title: &str, rows: &[Row]) -> bool {
 }
 
 // ── source custody (Mode A, installation root) ──────────────────────────
-
-/// Mode A installation root: `$DF_APP_ROOT` or by default
-/// `$HOME/Games/Daggerfall/app` (same resolution as `mode_a_arena2_dir`
-/// in `main.rs`, without the `ARENA2/` step: `FALL.EXE` lives at the ROOT —
-/// spec §0, never inside `ARENA2/`).
-fn install_root() -> Result<PathBuf, String> {
-    match std::env::var_os("DF_APP_ROOT") {
-        Some(value) => Ok(PathBuf::from(value)),
-        None => {
-            let home =
-                std::env::var_os("HOME").ok_or("HOME not defined (set $DF_APP_ROOT)")?;
-            Ok(PathBuf::from(home).join("Games/Daggerfall/app"))
-        }
-    }
-}
-
-/// Reads `FALL.EXE` from the installation root. `Err` ⇒ the caller closes
-/// with `EXIT=2` (never a PASS without retail data).
-fn load_fall_exe() -> Result<Vec<u8>, String> {
-    let root = install_root()?;
-    let path = root.join("FALL.EXE");
-    std::fs::read(&path).map_err(|err| format!("FALL.EXE unreadable: {err} ({path:?})"))
-}
 
 /// SHA-256 in lowercase hex (spec §7 digests: census and loot).
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -573,7 +549,7 @@ pub fn run_item_001() -> i32 {
     println!(
         "PROBE-ITEM-001 - items/material/condition/durability M21 (REQ-L99-054 · CR-776ad8a5 · spec §1/§2/§4)"
     );
-    let data = match load_fall_exe() {
+    let data = match daggerfall_app::mode_a::read_install_file(daggerfall_inventory::retail_manifest::FALL_EXE) {
         Ok(data) => data,
         Err(reason) => {
             println!("{reason}");

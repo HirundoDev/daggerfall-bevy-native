@@ -730,12 +730,9 @@ mod tests {
     /// The six `SPOP.RCI` rows: one 22×22 **centre cell**, not a nine-slice.
     const SPOP_IDS: [u16; 6] = [34, 35, 37, 39, 47, 53];
 
-    /// ARENA2 of the probe: `DAGGERFALL_ARENA2`, then the shared resolution.
+    /// ARENA2 of the probe: the shared resolution (data contract §4.1).
     fn retail_dir() -> Option<PathBuf> {
-        match std::env::var("DAGGERFALL_ARENA2") {
-            Ok(value) if !value.trim().is_empty() => Some(PathBuf::from(value)),
-            _ => crate::m37_ui1_probe::arena2_dir(),
-        }
+        crate::m37_ui1_probe::arena2_dir()
     }
 
     /// Every retail asset named by a composition (the probe's own extra list).

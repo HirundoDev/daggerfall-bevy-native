@@ -5,17 +5,18 @@
 //! do not grade any game rule): a session that starts and ticks, a scene
 //! transition that delivers `Done` once, a door (`GameEvent::DoorActivated`)
 //! that arrives through the bus and is consumed by the transition exactly once
-//! with no double load, the five module sections landing in the v2 envelope
+//! with no double load, the five module sections landing in the v3 envelope
 //! through their owners, and a `snapshot → restore → snapshot` roundtrip.
 //!
 //! ## Measured state (M34/W34-0, `CR-2d5c8f41`)
 //!
 //! `passed=12/12 blocked=0 failed=0 controls=4/4 falsifiers=6/6`, envelope
-//! digest `0378d769efaa402a` (the probe's own pair is identical, and the same
-//! digest was observed in two separate processes). Step 12 runs against the 12
-//! canonical M33 codecs attached by [`attach_m33_codecs`]
-//! (`coverage(&M33_SECTIONS)=12/12`), so it is a real `snapshot → restore →
-//! snapshot`, never a blocked one. The R-8 addendum
+//! digest `df7dc616e97c2783` (**v3**, 13 sections: the M34/W34-0 digest of the
+//! twelve-section v2 envelope is retired with that envelope). Step 12 runs
+//! against the 13 canonical M33 codecs attached by [`attach_m33_codecs`]
+//! (`coverage(&M33_SECTIONS)=13/13`, printed as `M33 canonical codecs=13/13`),
+//! so it is a real `snapshot → restore → snapshot`, never a blocked one. The
+//! R-8 addendum
 //! `SceneTransition::{begin, complete, fail}` is ratified (see
 //! `daggerfall_heart::session` docs): steps 04/05 observe `begin`+`complete`,
 //! control C4 observes `fail`.
@@ -26,7 +27,7 @@
 //! - `EXIT=2` when `SaveState v2`/M33 is not available **at run time**: the
 //!   twelve steps are still executed and the count of passed checks is
 //!   printed, but a `snapshot → restore → snapshot` of the **whole game
-//!   state** needs the 12 canonical sections of M33 §3.3 to have a module
+//!   state** needs the 13 canonical sections of M33 §3.3 to have a module
 //!   codec. A section without a codec leaves step 12 `blocked` (never passed);
 //!   empty or synthetic sections are **not** evidence of availability, and
 //!   filling them would be the false positive §7 forbids.
@@ -38,7 +39,7 @@
 //!
 //! Steps 6-11 use synthetic payloads written **through the owner rule** by the
 //! module that owns the section (the probe stands in for M30/M23/M29/M28/M32,
-//! which have no v2 codec yet). What they prove is the spine: the section
+//! which have no v3 section codec of their own yet). What they prove is the spine: the section
 //! reaches the envelope, once, under its owner, and its bytes are the ones the
 //! event produced. They prove nothing about M30/M23/M29/M28/M32 semantics.
 
@@ -311,7 +312,7 @@ struct Run {
     digest: u64,
 }
 
-/// Registry of the probe: the 12 canonical M33 sections (declared AND
+/// Registry of the probe: the 13 canonical M33 sections (declared AND
 /// codec-attached via [`attach_m33_codecs`]) + the three the spine itself
 /// needs (`legal`, `rest`, `session`), each declared by its owner.
 fn build_registry() -> Result<SectionRegistry, String> {

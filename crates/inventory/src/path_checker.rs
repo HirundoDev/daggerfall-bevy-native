@@ -80,11 +80,13 @@ impl PathChecker {
     }
 
     /// True when `dir` looks like a Daggerfall data root: it contains an
-    /// `ARENA2` directory with `ARCH3D.BSA` inside. Case is tried both ways
-    /// for installations copied from case-insensitive filesystems.
+    /// `ARENA2` directory with `ARCH3D.BSA` inside (data contract §4.3 L0).
+    ///
+    /// One implementation: the probe delegates to
+    /// [`crate::retail_manifest::looks_like_data_root`], which is also what
+    /// [`crate::data_root::DataRoot::resolve`] and the §4.2 scoring use.
     pub fn looks_like_data_root(dir: &Path) -> bool {
-        dir.join("ARENA2").join("ARCH3D.BSA").is_file()
-            || dir.join("arena2").join("ARCH3D.BSA").is_file()
+        crate::retail_manifest::looks_like_data_root(dir)
     }
 }
 

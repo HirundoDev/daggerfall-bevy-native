@@ -290,14 +290,68 @@ pub(crate) fn push_rect_box(
     let [x, y, z] = min;
     let (x1, y1, z1) = (x + size[0], y + size[1], z + size[2]);
     // Bottom (-Y) and top (+Y).
-    push_quad(positions, normals, indices, [0.0, -1.0, 0.0], [x, y, z1], [x1, y, z1], [x1, y, z], [x, y, z]);
-    push_quad(positions, normals, indices, [0.0, 1.0, 0.0], [x, y1, z], [x1, y1, z], [x1, y1, z1], [x, y1, z1]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [0.0, -1.0, 0.0],
+        [x, y, z1],
+        [x1, y, z1],
+        [x1, y, z],
+        [x, y, z],
+    );
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [0.0, 1.0, 0.0],
+        [x, y1, z],
+        [x1, y1, z],
+        [x1, y1, z1],
+        [x, y1, z1],
+    );
     // -Z and +Z.
-    push_quad(positions, normals, indices, [0.0, 0.0, -1.0], [x1, y, z], [x, y, z], [x, y1, z], [x1, y1, z]);
-    push_quad(positions, normals, indices, [0.0, 0.0, 1.0], [x, y, z1], [x1, y, z1], [x1, y1, z1], [x, y1, z1]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [0.0, 0.0, -1.0],
+        [x1, y, z],
+        [x, y, z],
+        [x, y1, z],
+        [x1, y1, z],
+    );
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [0.0, 0.0, 1.0],
+        [x, y, z1],
+        [x1, y, z1],
+        [x1, y1, z1],
+        [x, y1, z1],
+    );
     // -X and +X.
-    push_quad(positions, normals, indices, [-1.0, 0.0, 0.0], [x, y, z], [x, y, z1], [x, y1, z1], [x, y1, z]);
-    push_quad(positions, normals, indices, [1.0, 0.0, 0.0], [x1, y, z1], [x1, y, z], [x1, y1, z], [x1, y1, z1]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [-1.0, 0.0, 0.0],
+        [x, y, z],
+        [x, y, z1],
+        [x, y1, z1],
+        [x, y1, z],
+    );
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [1.0, 0.0, 0.0],
+        [x1, y, z1],
+        [x1, y, z],
+        [x1, y1, z],
+        [x1, y1, z1],
+    );
 }
 
 /// Concatenates N specs preserving positions/normals/indices (corrected
@@ -318,7 +372,9 @@ pub(crate) fn concat_specs(specs: &[&MeshSpec]) -> MeshSpec {
         // UVs/textures (M12): per-vertex copy if the spec brings them
         // aligned 1:1; otherwise (synthetic mesh) fill defaults to
         // preserve the [`MeshSpec::texture_alignment_valid`] invariant.
-        if spec.uvs.len() == spec.positions.len() && spec.face_textures.len() == spec.positions.len() {
+        if spec.uvs.len() == spec.positions.len()
+            && spec.face_textures.len() == spec.positions.len()
+        {
             uvs.extend_from_slice(&spec.uvs);
             face_textures.extend_from_slice(&spec.face_textures);
         } else {
@@ -351,12 +407,27 @@ mod tests {
         // Sampling at the wall layer: the shop AABB reaches
         // x=5 (the point stays inside bounds, strict `classify_point`).
         // Solid outside the opening, free in the opening (layers 17/18).
-        assert_eq!(grid.classify_point([SHOP_X_MAX, 1.6, 13.0]), CellStatus::Solid);
-        assert_eq!(grid.classify_point([SHOP_X_MAX, 1.6, 24.0]), CellStatus::Solid);
-        assert_eq!(grid.classify_point([SHOP_X_MAX, 1.6, 17.5]), CellStatus::Free);
-        assert_eq!(grid.classify_point([SHOP_X_MAX, 1.6, 18.5]), CellStatus::Free);
+        assert_eq!(
+            grid.classify_point([SHOP_X_MAX, 1.6, 13.0]),
+            CellStatus::Solid
+        );
+        assert_eq!(
+            grid.classify_point([SHOP_X_MAX, 1.6, 24.0]),
+            CellStatus::Solid
+        );
+        assert_eq!(
+            grid.classify_point([SHOP_X_MAX, 1.6, 17.5]),
+            CellStatus::Free
+        );
+        assert_eq!(
+            grid.classify_point([SHOP_X_MAX, 1.6, 18.5]),
+            CellStatus::Free
+        );
         // Lintel: the opening's ceiling layer is solid (upper closure).
-        assert_eq!(grid.classify_point([SHOP_X_MAX, 2.3, 18.0]), CellStatus::Solid);
+        assert_eq!(
+            grid.classify_point([SHOP_X_MAX, 2.3, 18.0]),
+            CellStatus::Solid
+        );
         // South/north/west walls closed at eye height.
         assert_eq!(grid.classify_point([3.0, 1.6, 10.5]), CellStatus::Solid);
         assert_eq!(grid.classify_point([3.0, 1.6, 25.5]), CellStatus::Solid);
@@ -389,7 +460,10 @@ mod tests {
         assert!(shop.contains_interior([3.0, 1.6, 20.0]));
         assert!(!shop.contains_interior([6.0, 1.6, 20.0]), "lane = exterior");
         assert!(!shop.contains_interior([3.0, 1.6, 8.0]), "outside in z");
-        assert!(!shop.contains_interior([3.0, 3.5, 20.0]), "above the ceiling");
+        assert!(
+            !shop.contains_interior([3.0, 3.5, 20.0]),
+            "above the ceiling"
+        );
     }
 
     #[test]

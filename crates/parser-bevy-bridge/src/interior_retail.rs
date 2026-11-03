@@ -214,11 +214,7 @@ fn rotate_rdb(v: [f32; 3], rotation_da: [i32; 3]) -> [f32; 3] {
     let x_rot = rotation_da[0] as f32 / ROTATION_DIVISOR;
     let y_rot = rotation_da[1] as f32 / ROTATION_DIVISOR;
     let z_rot = rotation_da[2] as f32 / ROTATION_DIVISOR;
-    let (yaw, pitch, roll) = (
-        y_rot.to_radians(),
-        x_rot.to_radians(),
-        -z_rot.to_radians(),
-    );
+    let (yaw, pitch, roll) = (y_rot.to_radians(), x_rot.to_radians(), -z_rot.to_radians());
 
     let (sy, cy) = yaw.sin_cos();
     let v = [v[0] * cy + v[2] * sy, v[1], -v[0] * sy + v[2] * cy];
@@ -322,7 +318,16 @@ pub fn build_retail_interior(
                 match resolved {
                     Some((id, spec)) => {
                         let triangles = spec.triangle_count();
-                        push_placed(&mut mp, &mut mn, &mut mi, &mut muv, &mut mft, &spec, position, rotation_da);
+                        push_placed(
+                            &mut mp,
+                            &mut mn,
+                            &mut mi,
+                            &mut muv,
+                            &mut mft,
+                            &spec,
+                            position,
+                            rotation_da,
+                        );
                         models.push(RetailModel {
                             position,
                             model_id: id,
@@ -753,10 +758,8 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
     let mut first_offender = String::new();
     for (kind, p) in placements {
         total += 1;
-        let inside = p[0] >= nx0 - tol
-            && p[0] <= nx1 + tol
-            && p[2] >= nz0 - tol
-            && p[2] <= nz1 + tol;
+        let inside =
+            p[0] >= nx0 - tol && p[0] <= nx1 + tol && p[2] >= nz0 - tol && p[2] <= nz1 + tol;
         if !inside {
             out_of_bounds += 1;
             if first_offender.is_empty() {
@@ -812,9 +815,7 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
                  {scan_summary}",
                 side.label(),
             ),
-            None => format!(
-                "no wall-flanked opening on the 4 sides · {scan_summary}"
-            ),
+            None => format!("no wall-flanked opening on the 4 sides · {scan_summary}"),
         },
     });
 
@@ -959,8 +960,7 @@ pub fn run_retail_interior_probe(interior: &RetailInterior) -> RetailInteriorRep
         .count();
     checks.push(ProbeCheck {
         id: "retail_interior_walk_contained",
-        ok: inner_blocked >= 1
-            && inside_footprint(deep.pos, (x0, x1), (z0, z1)),
+        ok: inner_blocked >= 1 && inside_footprint(deep.pos, (x0, x1), (z0, z1)),
         detail: format!(
             "inside: {} {d_steps}p → {:.2} (block {:?}, target {:.1}) · +lateral {p_steps}p → \
              {:.2} (block {:?}) · −lateral {m_steps}p → {:.2} (block {:?}) · lateral \

@@ -177,7 +177,10 @@ mod tests {
         nav.open(WindowId::INVENTORY).expect("inventory");
         nav.open(WindowId::QUESTS).expect("quests");
         nav.open(WindowId::HUD).expect("hud");
-        assert_eq!(nav.stack(), &[WindowId::INVENTORY, WindowId::QUESTS, WindowId::HUD]);
+        assert_eq!(
+            nav.stack(),
+            &[WindowId::INVENTORY, WindowId::QUESTS, WindowId::HUD]
+        );
         assert_eq!(nav.depth(), 3);
         assert_eq!(nav.top(), Some(WindowId::HUD));
 
@@ -193,7 +196,10 @@ mod tests {
         assert_eq!(nav.top(), Some(WindowId::HUD));
 
         nav.open(WindowId::QUESTS).expect("reopen");
-        assert_eq!(nav.stack(), &[WindowId::INVENTORY, WindowId::HUD, WindowId::QUESTS]);
+        assert_eq!(
+            nav.stack(),
+            &[WindowId::INVENTORY, WindowId::HUD, WindowId::QUESTS]
+        );
         assert_eq!(nav.top(), Some(WindowId::QUESTS));
         assert!(nav.title(WindowId::QUESTS).is_some());
     }

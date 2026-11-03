@@ -30,8 +30,8 @@
 
 use std::array;
 
-use daggerfall_parser_rs::image::{asset_index_range_resolved, DecodedImage};
 use daggerfall_nervous::events::WindowId;
+use daggerfall_parser_rs::image::{asset_index_range_resolved, DecodedImage};
 
 use super::error::{
     UiCompatError, RULE_SURFACE_CANVAS, RULE_SURFACE_COVERAGE, RULE_SURFACE_MINIMUM,
@@ -183,6 +183,7 @@ impl SurfaceNode {
             source: self.source,
             text: None,
             ink: DEFAULT_INK,
+            tracking: 0,
         }
     }
 }
@@ -351,13 +352,9 @@ pub fn place_nine_slice(
     }
     // Geometry, not just area: the three bands must abut (left + middle = right)
     // on both axes, so two pieces can never overlap while the sum still adds up.
-    for bands in [
-        (offsets_x, widths),
-        (offsets_y, heights),
-    ] {
+    for bands in [(offsets_x, widths), (offsets_y, heights)] {
         let (offsets, sizes) = bands;
-        if offsets[0] + sizes[0] as i16 != offsets[1]
-            || offsets[1] + sizes[1] as i16 != offsets[2]
+        if offsets[0] + sizes[0] as i16 != offsets[1] || offsets[1] + sizes[1] as i16 != offsets[2]
         {
             return Err(UiCompatError::Surface(RULE_SURFACE_COVERAGE));
         }
@@ -538,12 +535,20 @@ mod tests {
     #[test]
     fn falsifier_a1_orphan_asset_is_error() {
         let assets = bank();
-        let spec = SurfaceSpec::owned("GHOST00I0.IMG", UiRect::new(0, 0, 32, 32), SurfaceSource::Whole);
+        let spec = SurfaceSpec::owned(
+            "GHOST00I0.IMG",
+            UiRect::new(0, 0, 32, 32),
+            SurfaceSource::Whole,
+        );
         assert_eq!(
             place(&spec, &assets),
             Err(UiCompatError::Surface(RULE_SURFACE_ORPHAN))
         );
-        let slice = SurfaceSpec::owned("GHOST00I0.IMG", UiRect::new(0, 0, 64, 64), SurfaceSource::Whole);
+        let slice = SurfaceSpec::owned(
+            "GHOST00I0.IMG",
+            UiRect::new(0, 0, 64, 64),
+            SurfaceSource::Whole,
+        );
         assert_eq!(
             place_nine_slice(&slice, &assets),
             Err(UiCompatError::Surface(RULE_SURFACE_ORPHAN))
@@ -569,7 +574,11 @@ mod tests {
             Err(UiCompatError::Surface(RULE_SURFACE_CANVAS))
         );
 
-        let clipped = SurfaceSpec::owned("MAIN00I0.IMG", UiRect::new(0, 0, 40, 20), SurfaceSource::Whole);
+        let clipped = SurfaceSpec::owned(
+            "MAIN00I0.IMG",
+            UiRect::new(0, 0, 40, 20),
+            SurfaceSource::Whole,
+        );
         assert_eq!(
             place(&clipped, &assets),
             Err(UiCompatError::Surface(RULE_SURFACE_WHOLE))
@@ -684,7 +693,11 @@ mod tests {
     fn derived_kind_comes_from_the_asset() {
         let assets = bank();
         let mask = place(
-            &SurfaceSpec::owned("MASK99I0.IMG", UiRect::new(0, 0, 64, 64), SurfaceSource::Whole),
+            &SurfaceSpec::owned(
+                "MASK99I0.IMG",
+                UiRect::new(0, 0, 64, 64),
+                SurfaceSource::Whole,
+            ),
             &assets,
         )
         .expect("mask");
@@ -692,7 +705,11 @@ mod tests {
         assert_eq!(mask.palette.family, PaletteFamily::Hud);
 
         let sprite = place(
-            &SurfaceSpec::owned("MAIN00I0.IMG", UiRect::new(0, 154, 320, 46), SurfaceSource::Whole),
+            &SurfaceSpec::owned(
+                "MAIN00I0.IMG",
+                UiRect::new(0, 154, 320, 46),
+                SurfaceSource::Whole,
+            ),
             &assets,
         )
         .expect("sprite");
@@ -718,7 +735,9 @@ mod tests {
         let mut first = Framebuffer::new();
         composition.paint(&mut first, &assets).expect("first paint");
         let mut second = Framebuffer::new();
-        composition.paint(&mut second, &assets).expect("second paint");
+        composition
+            .paint(&mut second, &assets)
+            .expect("second paint");
         assert_eq!(first, second);
         assert!(crate::ui_spec::palette_compliance(&first).is_empty());
         assert!(!first.palettes.is_empty());

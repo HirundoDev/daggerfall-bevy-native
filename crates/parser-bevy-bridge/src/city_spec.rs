@@ -227,7 +227,10 @@ pub fn street_spawn(layout: &CityLayout, gap: usize) -> ([f32; 3], String) {
     let z = layout.lot_origin(0, 0)[1] + CITY_BLOCK_M * 0.5;
     (
         [x, 0.0, z],
-        format!("Street-{g} (gap x={x:.1} m, width {:.0} m)", layout.street_gap(g)),
+        format!(
+            "Street-{g} (gap x={x:.1} m, width {:.0} m)",
+            layout.street_gap(g)
+        ),
     )
 }
 
@@ -235,21 +238,26 @@ pub fn street_spawn(layout: &CityLayout, gap: usize) -> ([f32; 3], String) {
 /// texture keys (M12) are concatenated with defaults for the synthetic
 /// specs, preserving the 1:1 alignment with `positions`.
 fn concat_specs(a: &MeshSpec, b: &MeshSpec, c: &MeshSpec) -> MeshSpec {
-    let mut positions = Vec::with_capacity(a.positions.len() + b.positions.len() + c.positions.len());
-    let mut indices =
-        Vec::with_capacity(a.indices.len() + b.indices.len() + c.indices.len());
+    let mut positions =
+        Vec::with_capacity(a.positions.len() + b.positions.len() + c.positions.len());
+    let mut indices = Vec::with_capacity(a.indices.len() + b.indices.len() + c.indices.len());
     let mut uvs = Vec::with_capacity(positions.capacity());
     let mut face_textures = Vec::with_capacity(positions.capacity());
     for spec in [a, b, c] {
         let base = positions.len() as u32;
         positions.extend_from_slice(&spec.positions);
         indices.extend(spec.indices.iter().map(|idx| idx + base));
-        if spec.uvs.len() == spec.positions.len() && spec.face_textures.len() == spec.positions.len() {
+        if spec.uvs.len() == spec.positions.len()
+            && spec.face_textures.len() == spec.positions.len()
+        {
             uvs.extend_from_slice(&spec.uvs);
             face_textures.extend_from_slice(&spec.face_textures);
         } else {
             uvs.extend(std::iter::repeat_n([0.0, 0.0], spec.positions.len()));
-            face_textures.extend(std::iter::repeat_n(crate::mesh_spec::NO_TEXTURE, spec.positions.len()));
+            face_textures.extend(std::iter::repeat_n(
+                crate::mesh_spec::NO_TEXTURE,
+                spec.positions.len(),
+            ));
         }
     }
     let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
@@ -298,17 +306,71 @@ fn push_box(
     let [x, y, z] = min;
     let (x1, y1, z1) = (x + side, y + height, z + side);
     // Bottom face (normal -Y) — keeps the floor ray from falling into the void.
-    push_quad(positions, normals, indices, [0.0, -1.0, 0.0], [x, y, z1], [x1, y, z1], [x1, y, z], [x, y, z]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [0.0, -1.0, 0.0],
+        [x, y, z1],
+        [x1, y, z1],
+        [x1, y, z],
+        [x, y, z],
+    );
     // Top (+Y).
-    push_quad(positions, normals, indices, [0.0, 1.0, 0.0], [x, y1, z], [x1, y1, z], [x1, y1, z1], [x, y1, z1]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [0.0, 1.0, 0.0],
+        [x, y1, z],
+        [x1, y1, z],
+        [x1, y1, z1],
+        [x, y1, z1],
+    );
     // -Z.
-    push_quad(positions, normals, indices, [0.0, 0.0, -1.0], [x1, y, z], [x, y, z], [x, y1, z], [x1, y1, z]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [0.0, 0.0, -1.0],
+        [x1, y, z],
+        [x, y, z],
+        [x, y1, z],
+        [x1, y1, z],
+    );
     // +Z.
-    push_quad(positions, normals, indices, [0.0, 0.0, 1.0], [x, y, z1], [x1, y, z1], [x1, y1, z1], [x, y1, z1]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [0.0, 0.0, 1.0],
+        [x, y, z1],
+        [x1, y, z1],
+        [x1, y1, z1],
+        [x, y1, z1],
+    );
     // -X.
-    push_quad(positions, normals, indices, [-1.0, 0.0, 0.0], [x, y, z], [x, y, z1], [x, y1, z1], [x, y1, z]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [-1.0, 0.0, 0.0],
+        [x, y, z],
+        [x, y, z1],
+        [x, y1, z1],
+        [x, y1, z],
+    );
     // +X.
-    push_quad(positions, normals, indices, [1.0, 0.0, 0.0], [x1, y, z1], [x1, y, z], [x1, y1, z], [x1, y1, z1]);
+    push_quad(
+        positions,
+        normals,
+        indices,
+        [1.0, 0.0, 0.0],
+        [x1, y, z1],
+        [x1, y, z],
+        [x1, y1, z],
+        [x1, y1, z1],
+    );
 }
 
 /// Sampling step (WORLD meters fit-to-lot) of the landmark solidity test
@@ -421,7 +483,10 @@ fn push_transformed(
     };
     let center_x = (min[0] + max[0]) * 0.5;
     let center_z = (min[2] + max[2]) * 0.5;
-    let lot_center = [origin[0] + CITY_BLOCK_M * 0.5, origin[1] + CITY_BLOCK_M * 0.5];
+    let lot_center = [
+        origin[0] + CITY_BLOCK_M * 0.5,
+        origin[1] + CITY_BLOCK_M * 0.5,
+    ];
     let base = positions.len() as u32;
     for (p, n) in spec.positions.iter().zip(spec.normals.iter()) {
         positions.push([
@@ -440,7 +505,10 @@ fn push_transformed(
         face_textures.extend_from_slice(&spec.face_textures);
     } else {
         uvs.extend(std::iter::repeat_n([0.0, 0.0], spec.positions.len()));
-        face_textures.extend(std::iter::repeat_n(crate::mesh_spec::NO_TEXTURE, spec.positions.len()));
+        face_textures.extend(std::iter::repeat_n(
+            crate::mesh_spec::NO_TEXTURE,
+            spec.positions.len(),
+        ));
     }
     indices.extend(spec.indices.iter().map(|idx| idx + base));
 }
@@ -494,7 +562,11 @@ mod tests {
         let (min, max) = city.combined.bounds().expect("non-empty mesh");
         let total = layout.total_m();
         for axis in [0usize, 2] {
-            assert!((min[axis] - 0.0).abs() < 1e-4, "min[{axis}] = {}", min[axis]);
+            assert!(
+                (min[axis] - 0.0).abs() < 1e-4,
+                "min[{axis}] = {}",
+                min[axis]
+            );
             assert!(
                 (max[axis] - total).abs() < 1e-4,
                 "max[{axis}] = {} ≠ total {total}",
@@ -516,12 +588,30 @@ mod tests {
         let mut indices = Vec::new();
         // 6 cube faces (quads).
         let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
-            ([0.0, -1.0, 0.0], [[-s, 0.0, s], [s, 0.0, s], [s, 0.0, -s], [-s, 0.0, -s]]),
-            ([0.0, 1.0, 0.0], [[-s, h, -s], [s, h, -s], [s, h, s], [-s, h, s]]),
-            ([0.0, 0.0, -1.0], [[s, 0.0, -s], [-s, 0.0, -s], [-s, h, -s], [s, h, -s]]),
-            ([0.0, 0.0, 1.0], [[-s, 0.0, s], [s, 0.0, s], [s, h, s], [-s, h, s]]),
-            ([-1.0, 0.0, 0.0], [[-s, 0.0, -s], [-s, 0.0, s], [-s, h, s], [-s, h, -s]]),
-            ([1.0, 0.0, 0.0], [[s, 0.0, s], [s, 0.0, -s], [s, h, -s], [s, h, s]]),
+            (
+                [0.0, -1.0, 0.0],
+                [[-s, 0.0, s], [s, 0.0, s], [s, 0.0, -s], [-s, 0.0, -s]],
+            ),
+            (
+                [0.0, 1.0, 0.0],
+                [[-s, h, -s], [s, h, -s], [s, h, s], [-s, h, s]],
+            ),
+            (
+                [0.0, 0.0, -1.0],
+                [[s, 0.0, -s], [-s, 0.0, -s], [-s, h, -s], [s, h, -s]],
+            ),
+            (
+                [0.0, 0.0, 1.0],
+                [[-s, 0.0, s], [s, 0.0, s], [s, h, s], [-s, h, s]],
+            ),
+            (
+                [-1.0, 0.0, 0.0],
+                [[-s, 0.0, -s], [-s, 0.0, s], [-s, h, s], [-s, h, -s]],
+            ),
+            (
+                [1.0, 0.0, 0.0],
+                [[s, 0.0, s], [s, 0.0, -s], [s, h, -s], [s, h, s]],
+            ),
         ];
         for (normal, quad) in faces {
             let base = positions.len() as u32;
@@ -560,6 +650,9 @@ mod tests {
             x > gap_lo && x < gap_hi,
             "spawn x={x} outside the street [{gap_lo},{gap_hi}]"
         );
-        assert!(name.contains("Street-1"), "deterministic street name: {name}");
+        assert!(
+            name.contains("Street-1"),
+            "deterministic street name: {name}"
+        );
     }
 }

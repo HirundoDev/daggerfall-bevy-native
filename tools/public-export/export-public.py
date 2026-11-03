@@ -76,6 +76,13 @@ EMAIL_ALLOW = ("reference/dfu-spec/", "NOTICE",
                # Synthetic fixture identity for the gate's own git invocation
                # (`-c user.email=...`, reserved TLD, not a person).
                "crates/promotion-gate/src/baseline.rs")
+# Declared exemptions of the same class (synthetic fixtures, reserved TLD, not people):
+# the guard self-tests assert on their own fake identities.
+EMAIL_FIXTURE_ALLOW = ("scripts/guard/verify-manifest.sh",
+                       "scripts/guard/verify-guard.sh",
+                       "scripts/guard/lane-integrity.py")
+# Not a user path: a unit test feeds `/home/u` as a placeholder HOME to `config_path`.
+PII_ALLOW = ("crates/inventory/src/config_file.rs",)
 SECRET_PATTERNS = [
     (re.compile(rb"AKIA[0-9A-Z]{16}"), "aws-access-key"),
     (re.compile(rb"ghp_[A-Za-z0-9]{36}"), "github-token"),
@@ -395,7 +402,7 @@ def main():
 
     hits = {}
     big = []
-    owner_hits, upstream_emails, other_emails = [], [], []
+    owner_hits, upstream_emails, other_emails, fixture_emails = [], [], [], []
     spanish_files = []
     lang_flagged, lang_scanned = [], 0
     for p, data in walk_text(out):
@@ -403,11 +410,13 @@ def main():
         if any(m in data for m in OWNER_MARKERS):
             owner_hits.append(rel)
         for m in EMAIL_RX.finditer(data):
-            (upstream_emails if rel.startswith(EMAIL_ALLOW) or rel in EMAIL_ALLOW else other_emails).append(
-                {"file": rel, "email": m.group(0).decode("utf-8", "replace")})
+            bucket = (upstream_emails if rel.startswith(EMAIL_ALLOW) or rel in EMAIL_ALLOW
+                      else fixture_emails if rel in EMAIL_FIXTURE_ALLOW
+                      else other_emails)
+            bucket.append({"file": rel, "email": m.group(0).decode("utf-8", "replace")})
         if rel.startswith(SCAN_SKIP):
             continue
-        if any(rx.search(data) for rx in PII_PATTERNS):
+        if rel not in PII_ALLOW and any(rx.search(data) for rx in PII_PATTERNS):
             hits.setdefault("pii", []).append(rel)
         if not rel.startswith(RETAIL_ALLOW) and any(mk in data for mk in RETAIL_MARKERS):
             hits.setdefault("retail_text", []).append(rel)
@@ -469,7 +478,8 @@ def main():
     check("owner_email_absent", bool(owner_hits), {"files": sorted(set(owner_hits))[:20]})
     check("emails_other_absent", bool(other_emails),
           {"count": len(other_emails), "files": other_emails[:20],
-           "upstream_allowlisted": len(upstream_emails)})
+           "upstream_allowlisted": len(upstream_emails),
+           "fixture_allowlisted": len(fixture_emails)})
     bad_links = broken_links(out, rels)
     check("internal_links_resolved", bool(bad_links), {"broken": len(bad_links), "detail": bad_links[:20]})
     check("public_name_absent_internal", bool(hits.get("internal_name")),

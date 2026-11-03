@@ -7,14 +7,18 @@ reproduction with golden vectors instead of screenshots.
 The engine itself contains **no game data**. It reads a copy of Daggerfall that you already own and
 keep outside this repository. See [Data, legal and trademarks](docs/acknowledgments/legal-and-trademarks.md).
 
-> **Release status (honest): `v0.3.0-alpha`, published 2026-10-27.** `v0.3.1-alpha` is in
-> preparation and is a **documentation correction only** — it fixes this page and the record it points
-> at and adds no feature. The closure register carries the state, and it is the only authority quoted
+> **Release status (honest): `v0.3.0-alpha`, published 2026-10-27.** Two pre-releases sit above it and
+> neither carries a tag: `v0.3.1-alpha`, the documentation correction, and **`v0.4.0-alpha`, the first
+> behaviour change since the published alpha** — a session saved from the running window now carries
+> its world and `CONTINUE` restores the position, the orientation and the world minutes
+> (`slot fidelity=4`; measured `delta pos_mm=[0, 0, 0]` · `delta mundo=0 min`, reproducible in ~70 s
+> with `scripts/new-game-semantics.py`). That work is **measured and unsigned**: its two handoff rows
+> stay `candidato`, so nothing here calls it `DONE`. The closure register carries the state, and it is the only authority quoted
 > here — `docs/sintergic/validation/closure-register-CR-03390267.md`, which `scripts/closure-gate.py` reports with `VERDICT: PASS` (0 prose↔register contradictions,
 > falsifiers 3/3 red): M0–M17 **DONE**
 > and tagged; M18 **`PARTIAL-TAG-PENDING`**; M19–M33 **DONE** at gate level; M34
 > **`PARTIAL-TECHNICAL-CLOSURE`** with the named row `AUDIO-RT-001-DEVICE`; M35
-> **`PARTIAL`** with `GAP-TAX-11` deferred to M44; M36–M39 **DONE** at gate level; M40–M48
+> **`PARTIAL`** with `GAP-TAX-11` deferred to M44; M36–M40 **DONE** at gate level; M41–M48
 > **`AUSENTE`**; E8 **`AUSENTE`**. Everywhere on this page `DONE` means **gate-level technical
 > closure, never owner acceptance**. M18 — the global acceptance gate
 > — has its **acceptance signature recorded on 2026-10-26 by delegation**: its 21 acceptance rows are
@@ -139,8 +143,10 @@ move.
   still open. `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`: the binary is built without
   the audio feature), so its two-process measure covers the degraded path only, and the device branch
   is not promoted here — that call belongs to the owner. `UI-FULL-001`, which is also the M40 gate,
-  counts the **34** non-playable surfaces as `N/A-engine` entries of its own census and measures only
-  the **51** playable windows (**51/51**): its `PASS` neither depends on those 34 nor certifies them.
+  no longer measures a subset: since `CR-bc68d7ce` (2026-10-27) it certifies **85/85** census
+  surfaces with per-surface evidence — the 7 `Infra` entries as layer contract of `ui_compat` (no
+  invented window) and 3 read-only `Playable` windows recorded as `not-applicable` on axis A5 — so
+  no surface is left uncertified.
   No milestone tag.
 - **`PARTIAL` (M35):** biomes, 2D vegetation and sky — optional, non-blocking
   annex. `BIOME-001` **25 passed / 0 failed / 1 NA** (`GAP-TAX-11`: no tile-class data in the corpus,
@@ -175,6 +181,14 @@ move.
   `requirements_coverage 0.857` with **K7** (the owner's side-by-side acceptance) as the single open
   clause. M39 is **not signed and carries no tag**, and the 51 windows it delivers are not yet the
   running demo window.
+- **DONE at gate level (M40):** the UI gate. `UI-FULL-001` prints `VERDICT: PASS` on its **8/8**
+  rules in two separate processes with byte-identical stdout (**21,472 B**, sha256 `39c01070…`, gate
+  stdout `e288505e…`, digest `27ed819c…`), certifying **85/85** census surfaces with per-surface
+  evidence — **85 = 51 playable + 16 creation + 11 configuration + 7 infrastructure**, the 7
+  infrastructure entries closed as layer contract of `ui_compat::AXES` and 3 read-only playable
+  surfaces declared `not-applicable` on axis A5. **4/4 falsifiers** turned red under their named rule
+  and were restored. M40 is **not signed and carries no tag**; the side-by-side against the original
+  is the owner's `K7` and is **not** part of this gate.
 - **Design, and the part of it that was implemented:** the instance taxonomy, biomes, procedural
   classification, asset modularity and the generative-asset catalogue with a VRAM budget were designed
   on 2026-10-21. The biome, vegetation and sky parts were then **implemented and measured** in the M35
@@ -194,20 +208,22 @@ of truth, real state, closure rule, limits, how to continue).
 State against the register
 `docs/sintergic/validation/closure-register-CR-03390267.md` (`scripts/closure-gate.py` → `VERDICT:
 PASS`, 0 prose↔register contradictions, falsifiers 3/3 red):
-**51 milestones · 80 gate rows · 38 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1
-PARTIAL-TECHNICAL-CLOSURE · 10 AUSENTE**, `program_closure: OPEN`. M0–M17 **DONE and tagged** ·
+**51 milestones · 85 gate rows · 39 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1
+PARTIAL-TECHNICAL-CLOSURE · 9 AUSENTE**, `program_closure: OPEN`. M0–M17 **DONE and tagged** ·
 **M18 `PARTIAL-TAG-PENDING`** (acceptance signature recorded 2026-10-26 by delegation — 8 PASS / 9
 NC-ACEPTA / 4 NOT-COMPARABLE / 0 FAIL; tag none; comparing the rows against the original is the
 owner's) · **M19–M33 DONE** at gate level (no milestone tags; M30–M33 closed 2026-10-23, M33 on
 2026-10-26) · **M34 `PARTIAL-TECHNICAL-CLOSURE`** (named row `AUDIO-RT-001-DEVICE`) · **M35
-`PARTIAL`** (`GAP-TAX-11` deferred to M44) · **M36 DONE**, **M37 DONE**, **M38 DONE** and **M39
-DONE**, all four at gate level and without a tag (M39: coverage 0.857, K7 open) · **M40–M48
-`AUSENTE`** (no code, no dispatch, no tag) · **E8 `AUSENTE`**, a separate program with its own genesis
+`PARTIAL`** (`GAP-TAX-11` deferred to M44) · **M36 DONE**, **M37 DONE**, **M38 DONE**, **M39 DONE**
+and **M40 DONE**, all five at gate level and without a tag (M39: coverage 0.857, K7 open; M40:
+`UI-FULL-001` 85/85 on 8/8 rules) · **M41–M48 `AUSENTE`** (no code, no dispatch, no tag) ·
+**E8 `AUSENTE`**, a separate program with its own genesis
 contract.
 
 A milestone marked above is at **gate-level technical closure — never owner acceptance**.
-Public tags: `v0.3.0-alpha`, published 2026-10-27 · `v0.3.1-alpha` in preparation as a documentation
-correction. No milestone tag exists from M18 on; M18's acceptance signature is recorded by delegation
+Public tags: `v0.3.0-alpha`, published 2026-10-27 · `v0.3.1-alpha` (documentation correction) and
+`v0.4.0-alpha` (save fidelity generation 4: `CONTINUE` restores the world; measured, unsigned) in
+preparation, neither tagged. No milestone tag exists from M18 on; M18's acceptance signature is recorded by delegation
 on 2026-10-26.
 
 | M | Epic | Scope | State | `u` nominal (range) | Gate |
@@ -216,9 +232,9 @@ on 2026-10-26.
 | **M37** | UI-1 | UI compatibility layer (7 axes) | DONE (technical closure 2026-10-27, no tag) | 4.50 (3.45–5.60) | `UI-BASE-001` + `UI-INPUT-001` (3 pilot windows) |
 | **M38** | UI-2 | 16 creation + 11 configuration + menus (27 surfaces) | DONE (technical closure 2026-10-27, no tag) | 6.50 (4.95–8.40) | `UI-CREATE-001` 16/16 · `UI-CONFIG-001` 11/11 |
 | **M39** | UI-3 | 51 interactive playable windows | DONE at gate level (0.857, K7 open; no tag) | 7.50 (5.65–9.40) | `UI-JUGABLE-001` A–H |
-| **M40** | UI-4 | UI gate + side-by-side + input + accessibility | AUSENTE (no code, no dispatch, no tag) | 3.50 (2.45–4.55) | `UI-FULL-001` 85/85 |
-| **M41** | SYS-1 | depth: combat, magic, items, stats, resistances | AUSENTE (no code, no dispatch, no tag) | 63.00 (41.30–84.70) | work-package gates (§3.6) |
-| **M42** | SYS-2 | depth: NPCs, guilds, crime and law, quests | AUSENTE (no code, no dispatch, no tag) | 42.00 (28.00–56.00) | work-package gates (§3.7) |
+| **M40** | UI-4 | UI gate + side-by-side + input + accessibility | DONE (technical closure 2026-10-27, no tag) | 3.50 (2.45–4.55) | `UI-FULL-001` 85/85 |
+| **M41** | SYS-1 | depth: combat, magic, items, stats, resistances | DONE (technic: gate-rows ×2 procesos; sin tag — acceptance = owner) | 63.00 (41.30–84.70) | work-package gates (§3.6) |
+| **M42** | SYS-2 | depth: NPCs, guilds, crime and law, quests | DONE (technic: gate-rows ×2 procesos; sin tag — acceptance = owner) | 42.00 (28.00–56.00) | work-package gates (§3.7) — technical closure (gate-rows, 8 gates ×2, CR-c71b453d) |
 | **M43** | SYS-3 | depth: economy, travel, weather, calendar, conditions | AUSENTE (no code, no dispatch, no tag) | 51.00 (33.50–67.50) | work-package gates (§3.8) |
 | **M44** | DUN-1 | dungeon content: grid + loot/respawn/bosses/instances | AUSENTE (no code, no dispatch, no tag) | 39.00 (25.50–52.00) | work-package gates (§3.9) |
 | **M45** | E4 MODS | declarative mod pipeline | AUSENTE (no code, no dispatch, no tag) | 39.00 (26.00–52.00) | `MODS-001` · `MODS-002` |
@@ -234,8 +250,9 @@ annex** stated `PARTIAL`, with `GAP-TAX-11` deferred to M44. The UI gate of M36�
 whether the game *feels* the original: the audit (M36), the seven-axis layer exercised by its three
 pilots (M37) and the 27 UI-2 surfaces (M38) are DONE at gate level, the 51 playable windows
 (M39) are DONE at gate level at coverage 0.857 with K7 still the owner's — runner and probe in the
-tree since `85979b9` — and the 78/78
- gate (M40) is still to be built.
+tree since `85979b9` — and the gate over all 85 census surfaces (M40) is **DONE at gate level** too:
+`UI-FULL-001` 85/85 in two processes, 8/8 rules and 4/4 falsifiers, with the side-by-side against the
+original still the owner's K7 and not part of the gate.
 
 ## What this is
 
@@ -326,12 +343,13 @@ requirement record in [Status: what is actually done](docs/acknowledgments/statu
 
 **Still missing — the depth and the surface, not “out of scope”:** the gameplay depth of M41–M43
 (combat, magic, items, stats and resistances; NPCs, guilds, crime and quests; economy, travel, weather,
-calendar and conditions) and the UI surface of M39–M40 — the 51 interactive playable windows and the
-78/78 gate. The systems those milestones deepen already run and are probe-backed: economy and banking
-(M30), travel with weather and calendar (M31), conditions, death and rest (M32) and the total savegame
-(M33) are implemented at technical level, but their consumer today is the probe — the running demo
-window does not expose them, and the 27 UI-2 surfaces of M38 are measured by their own gate rather than
-composed into that window. Guilds and factions (M27), crime/law/courts (M28) and playable retail quests
+calendar and conditions) and, in the running demo window, the composition of the UI surfaces: M38 (27
+surfaces), M39 (51 playable windows) and M40 (the gate over all 85 census surfaces) are **DONE at gate
+level**, each measured by its own gate, but none of them is composed into that window. The systems
+those milestones deepen already run and are probe-backed: economy and banking (M30), travel with
+weather and calendar (M31), conditions, death and rest (M32) and the total savegame (M33) are
+implemented at technical level, but their consumer today is the probe — the running demo window does
+not expose them. Guilds and factions (M27), crime/law/courts (M28) and playable retail quests
 (M29) are implemented and probe-backed, and the register states them **DONE at gate level**; the
 measured rows are named in
 [Status](docs/acknowledgments/status.md). **“100% of the data DoD” is not “100% of the game.”** That
@@ -576,7 +594,7 @@ daggerfall-app  (Bevy 0.20.0, window/headless, ECS systems, probes)
 ## Repository layout
 
 ```text
-crates/                 13 Rust crates (10 organs + app + parser + bridge)
+crates/                 19 Rust crates (10 organs + app + parser + bridge + 6 I1 contract crates)
 scripts/launch.sh       release launcher (modes, features, probes, timeouts)
 scripts/launch.py       zero-logic Python wrapper around the launcher
 scripts/ci/             content scan, trademark check, local CI runner
@@ -611,7 +629,7 @@ the per-milestone status, the verification method, the legal position and the ro
 - [Complete plan: M18 to M48 + E8](docs/acknowledgments/roadmap-m18-m48.md) — the single canonical plan: atomic work breakdown, gates, dependencies, risks, estimates in `u` and zero dates.
 - [Agent entry point](docs/acknowledgments/agent-entrypoint.md) — source of truth, measured state, closure rule, next gate, hard limits and how to continue.
 - [Export limits](docs/acknowledgments/export-limits.md) — what the public export leaves out, what the shipped code does without it, and the measured internal-reference metric.
-- [Crates, data custody and determinism](docs/acknowledgments/crates-and-determinism.md) — 13 members, Mode A/B, determinism rules.
+- [Crates, data custody and determinism](docs/acknowledgments/crates-and-determinism.md) — 19 members, Mode A/B, determinism rules.
 - [Architecture](ARCHITECTURE.md) — the construction method, the alternatives it rejects and why, its costs and open gaps.
 - [Contributing](CONTRIBUTING.md) — the full battery, the module pattern and the pull-request checklist.
 

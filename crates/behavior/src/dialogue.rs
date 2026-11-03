@@ -432,7 +432,13 @@ pub struct QuestTopic {
     pub same_location: bool,
     /// The resource **is** the NPC being talked to.
     pub is_dialog_partner: bool,
+    /// Region scope (`TalkManager.cs:1464-1465` convention): `None` = no
+    /// constraint, `Some(-1)` = every region, otherwise only that region
+    /// when the context pins one. W42-2 (SYS-DIALOGUE-001). M26 callers
+    /// leave it `None` (admit-all, previous behaviour).
+    pub region: Option<i16>,
 }
+
 
 /// Dialogue data context (all borrowed, 0 invention).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -444,6 +450,11 @@ pub struct TalkContext<'a> {
     /// Informative factions in fixed-table order (34 entries in
     /// DFU, `TalkManager.cs:378`); the index fixes the answer ID.
     pub info_factions: &'a [u32],
+    /// Region pinned by the player's locality (`TalkManager.cs:1464-1465`
+    /// convention): `None` = no pin (every topic admitted). W42-2
+    /// (SYS-DIALOGUE-001): faction/quest topics out of this region are
+    /// refused — 0 out-of-context answers.
+    pub current_region: Option<i16>,
 }
 
 /// The four topic lists (`TalkManager.cs:3064-3478`).
@@ -495,6 +506,138 @@ impl TopicLists {
         self.tell_me_about.is_empty() && self.location.is_empty()
     }
 }
+/// W42-2 (SYS-DIALOGUE-001): region gate shared by quest/faction topics.
+/// `None` scope or `None` pin = admit (M26 behaviour); `Some(-1)` = every
+/// region; otherwise the two pinned values must match.
+pub fn region_admits(topic_region: Option<i16>, current_region: Option<i16>) -> bool {
+    match (topic_region, current_region) {
+        (None, _) | (_, None) => true,
+        (Some(-1), _) | (_, Some(-1)) => true,
+        (Some(a), Some(b)) => a == b,
+    }
+}
+
+/// W42-2 (SYS-DIALOGUE-001): the closed context — every key the lists below
+/// can emit for this context. An answer is legal **iff** its key is in this
+/// set; anything else is out-of-context (gate: 0 out-of-context answers).
+pub fn topic_keys_in_context(lists: &TopicLists) -> Vec<String> {
+    let mut keys = Vec::with_capacity(lists.len());
+    for list in [
+        &lists.tell_me_about,
+        &lists.location,
+        &lists.person,
+        &lists.thing,
+    ] {
+        for topic in list {
+            keys.push(topic.key.clone());
+        }
+    }
+    keys
+}
+
+/// W42-2 (SYS-DIALOGUE-001): membership of one answer key in the closed
+/// context. `false` ⇒ the caller must refuse (no invented answer, no
+/// fallback text — the M26 negative branch).
+pub fn topic_in_context(lists: &TopicLists, key: &str) -> bool {
+    topic_keys_in_context(lists).iter().any(|k| k == key)
+}
+
+/// W42-2 (SYS-DIALOGUE-001): filtered topic assembly. Same contract as
+/// [`assemble_topics`] plus the region pin: a quest topic whose scope
+/// (its `region` field, `TalkManager.cs:1464-1465` convention) does not
+/// admit `current_region` is refused before it reaches any list.
+/// `None` pin = admit-all (M26 behaviour, 0 construction sites change).
+pub fn assemble_topics_in_region(
+    context: &TalkContext<'_>,
+    current_region: Option<i16>,
+) -> TopicLists {
+    let mut lists = TopicLists::default();
+    lists.tell_me_about.push(Topic {
+        key: "news".to_string(),
+        kind: TopicKind::AnyNews,
+        faction_id: None,
+        text_id: None,
+    });
+    lists.tell_me_about.push(Topic {
+        key: "where_am_i".to_string(),
+        kind: TopicKind::WhereAmI,
+        faction_id: None,
+        text_id: None,
+    });
+    for quest in context.quest_topics {
+        if !quest.available_for_dialog || quest.is_dialog_partner {
+            continue;
+        }
+        if !region_admits(quest.region, current_region) {
+            continue;
+        }
+        if quest.has_entry_in_tell_me_about {
+            lists.tell_me_about.push(Topic {
+                key: quest.key.clone(),
+                kind: quest.kind,
+                faction_id: None,
+                text_id: None,
+            });
+        }
+        if quest.same_location && quest.has_entry_in_where_is {
+            match quest.kind {
+                TopicKind::QuestPerson => lists.person.push(Topic {
+                    key: quest.key.clone(),
+                    kind: quest.kind,
+                    faction_id: None,
+                    text_id: None,
+                }),
+                TopicKind::QuestLocation => lists.location.push(Topic {
+                    key: quest.key.clone(),
+                    kind: quest.kind,
+                    faction_id: None,
+                    text_id: None,
+                }),
+                _ => {}
+            }
+        }
+    }
+    for (index, faction) in context.info_factions.iter().enumerate() {
+        let key = format!("org:{faction}");
+        if lists
+            .tell_me_about
+            .iter()
+            .any(|topic| topic.kind == TopicKind::Organization && topic.key == key)
+        {
+            continue;
+        }
+        lists.tell_me_about.push(Topic {
+            key,
+            kind: TopicKind::Organization,
+            faction_id: Some(*faction),
+            text_id: (index < INFO_FACTION_TABLE_LEN).then(|| organization_answer(index)),
+        });
+    }
+    for building in context.buildings {
+        lists.location.push(Topic {
+            key: building.key(),
+            kind: TopicKind::LocalBuilding,
+            faction_id: None,
+            text_id: None,
+        });
+    }
+    lists
+}
+
+/// W42-2 (SYS-DIALOGUE-001): retail-text guard for served answers. The
+/// `resolver` answers "does this `TEXT.RSC` ID exist in the user's file";
+/// `None` text = the answer carries its own bytes (file rumor text,
+/// `textLength`-measured) and is inherently retail. `false` ⇒ refuse.
+pub fn answer_text_is_retail(
+    text_id: Option<u16>,
+    resolver: impl Fn(u16) -> bool,
+) -> bool {
+    match text_id {
+        None => true,
+        Some(id) => resolver(id),
+    }
+}
+
 
 /// Assembles the topic lists (`AssembleTopicLists`,
 /// `TalkManager.cs:3064-3478`): fixed ones (news, where am I), visible
@@ -683,6 +826,7 @@ mod tests {
             has_entry_in_where_is: true,
             same_location: true,
             is_dialog_partner: false,
+            region: None,
         }];
         let factions_a = [42u32, 40];
         let factions_b = [42u32, 41];
@@ -690,11 +834,13 @@ mod tests {
             buildings: &buildings,
             quest_topics: &quests,
             info_factions: &factions_a,
+            current_region: None,
         });
         let b = assemble_topics(&TalkContext {
             buildings: &buildings,
             quest_topics: &quests,
             info_factions: &factions_b,
+            current_region: None,
         });
         assert!(!a.visible_lists_empty());
         assert_eq!(a.tell_me_about.len(), 5); // news + where + quest person + 2 orgs
@@ -706,6 +852,83 @@ mod tests {
             buildings: &buildings,
             quest_topics: &quests,
             info_factions: &factions_a,
+            current_region: None,
         }).digest());
+    }
+    #[test]
+    fn region_gate_admits_and_refuses() {
+        assert!(region_admits(None, Some(5)));
+        assert!(region_admits(Some(5), None));
+        assert!(region_admits(Some(-1), Some(5)));
+        assert!(region_admits(Some(5), Some(-1)));
+        assert!(region_admits(Some(5), Some(5)));
+        assert!(!region_admits(Some(5), Some(6)));
+    }
+
+    #[test]
+    fn region_pin_refuses_out_of_region_quest_topics() {
+        let buildings: [BuildingTopic; 0] = [];
+        let quests = [
+            QuestTopic {
+                key: "Qhere".to_string(),
+                kind: TopicKind::QuestPerson,
+                available_for_dialog: true,
+                has_entry_in_tell_me_about: true,
+                has_entry_in_where_is: true,
+                same_location: true,
+                is_dialog_partner: false,
+                region: Some(5),
+            },
+            QuestTopic {
+                key: "Qaway".to_string(),
+                kind: TopicKind::QuestPerson,
+                available_for_dialog: true,
+                has_entry_in_tell_me_about: true,
+                has_entry_in_where_is: true,
+                same_location: true,
+                is_dialog_partner: false,
+                region: Some(6),
+            },
+        ];
+        let factions: [u32; 0] = [];
+        let context = TalkContext {
+            buildings: &buildings,
+            quest_topics: &quests,
+            info_factions: &factions,
+            current_region: None,
+        };
+        let pinned = assemble_topics_in_region(&context, Some(5));
+        assert!(topic_in_context(&pinned, "Qhere"));
+        assert!(!topic_in_context(&pinned, "Qaway"));
+        // Unpinned = admit-all (M26 behaviour preserved).
+        let open = assemble_topics_in_region(&context, None);
+        assert!(topic_in_context(&open, "Qhere"));
+        assert!(topic_in_context(&open, "Qaway"));
+    }
+
+    #[test]
+    fn context_membership_is_closed() {
+        let buildings: [BuildingTopic; 0] = [];
+        let quests: [QuestTopic; 0] = [];
+        let factions = [42u32];
+        let lists = assemble_topics(&TalkContext {
+            buildings: &buildings,
+            quest_topics: &quests,
+            info_factions: &factions,
+            current_region: None,
+        });
+        assert!(topic_in_context(&lists, "news"));
+        assert!(topic_in_context(&lists, "where_am_i"));
+        assert!(topic_in_context(&lists, "org:42"));
+        assert!(!topic_in_context(&lists, "org:43"));
+        assert!(!topic_in_context(&lists, ""));
+    }
+
+    #[test]
+    fn retail_guard_accepts_file_text_and_checked_ids() {
+        // `None` = rumor carries its own bytes (file text, inherently retail).
+        assert!(answer_text_is_retail(None, |_| false));
+        assert!(answer_text_is_retail(Some(860), |id| id == 860));
+        assert!(!answer_text_is_retail(Some(861), |id| id == 860));
     }
 }

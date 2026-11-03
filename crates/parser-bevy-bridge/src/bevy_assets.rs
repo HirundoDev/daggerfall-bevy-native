@@ -29,7 +29,10 @@ use crate::mesh_spec::MeshSpec;
 
 /// [`MeshSpec`] → `Handle<Mesh>` (`TriangleList` indexado).
 pub fn mesh_from_spec(spec: &MeshSpec, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, spec.positions.clone());
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, spec.normals.clone());
     // M12 (DoD §c): retail UVs in `[0,1]` (already normalized by
@@ -59,7 +62,10 @@ impl std::fmt::Display for TextureAssetError {
                 write!(f, "non-positive texture dimensions: {width}x{height}")
             }
             Self::DataLengthMismatch { expected, got } => {
-                write!(f, "RGBA bytes {got} do not cover the declared size ({expected} expected)")
+                write!(
+                    f,
+                    "RGBA bytes {got} do not cover the declared size ({expected} expected)"
+                )
             }
         }
     }
@@ -159,7 +165,8 @@ pub fn split_by_texture(spec: &MeshSpec) -> Vec<TextureGroup> {
     for tri in spec.indices.chunks_exact(3) {
         let key = spec.face_textures[tri[0] as usize];
         debug_assert!(
-            tri.iter().all(|idx| spec.face_textures[*idx as usize] == key),
+            tri.iter()
+                .all(|idx| spec.face_textures[*idx as usize] == key),
             "triangle with mixed texture keys (invariant M12 broken)"
         );
         let group = groups.entry(key).or_default();

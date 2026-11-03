@@ -97,6 +97,7 @@ use daggerfall_behavior::locomotion::{
 use daggerfall_combat::actor::{Combatant, EntityKind};
 use daggerfall_combat::engine::{resolve_attack, AttackInput, DeathSequence};
 use daggerfall_combat::rng::{actor_seed, Dice100 as CombatDice100};
+use daggerfall_inventory::data_root::DataRoot;
 use daggerfall_inventory::equipment::{EquipResult, EquipSlot, ItemEquipTable, ItemWear};
 use daggerfall_inventory::items::{
     apply_armor_material, apply_weapon_material, condition_percent, parse_item_templates,
@@ -105,13 +106,16 @@ use daggerfall_inventory::items::{
 use daggerfall_inventory::loot::{
     generate_container_with_counts, generate_container_with_templates,
 };
+use daggerfall_inventory::retail_manifest;
 use daggerfall_parser_bevy_bridge as bridge;
 use daggerfall_parser_bevy_bridge::npc_spec::{
     region, subclimate_race, NpcSpec, NpcWorld, PopulationRequest, FACE_COUNT,
     OCCUPATIONS, PERSON_FLAT_ARCHIVE,
 };
+use daggerfall_parser_bevy_bridge::menu_spec::{MenuScreen, MENU_HEIGHT, MENU_WIDTH};
 use daggerfall_parser_bevy_bridge::ui_spec::{
-    compose, UiAssets, UiPanel, CANVAS_HEIGHT, CANVAS_WIDTH, DEFAULT_FONT, FONT_FILES,
+    compose_sized, UiAssets, UiPanel, UiPanelId, CANVAS_HEIGHT, CANVAS_WIDTH,
+    DEFAULT_FONT, FONT_FILES, MENU_ACTIVE_ROW, MENU_ROWS,
 };
 use daggerfall_parser_rs::image::FntFile;
 use daggerfall_parser_rs::namegen::{Gender, NameGen};
@@ -141,9 +145,12 @@ pub const NPC_SEED: u32 = 20_261_020;
 /// M19 engine dice seed (deterministic; window + probe DEMO-001).
 pub const M19_SEED: u64 = 20_261_020;
 /// Retail character class of the demo (Spellsword, spec §2).
-pub const M20_CLASS_FILE: &str = "CLASS01.CFG";
+///
+/// One source: the canonical manifest ([`retail_manifest`]) owns the file
+/// names, so the preflight, the reader and every probe agree.
+pub use daggerfall_inventory::retail_manifest::M20_CLASS_FILE;
 /// Retail biography of the scene (spec §6.1).
-const M20_BIO_FILE: &str = "BIO.DAT";
+pub const M20_BIO_FILE: &str = retail_manifest::M20_BIO_FILE;
 // ── M21 (spec §8): parameters of the 5 demo blocks ──────────────────────
 /// M21 template indices (groups `Armor 102..=112` / `Weapons 113..=131`,
 /// `ItemEnums.cs`): Buckler 109, Longsword 120, Claymore 122, Dagger 113.
@@ -209,39 +216,102 @@ pub const SAMPLE_SPACING_M: f32 = bridge::SAMPLE_SPACING_M;
 /// archive the demo feeds it is corrected, and the race/region archives
 /// (`TEXTURE.334` Daggerfall people, `.346` Wayrest, `.183` Noble, `.381`+ male
 /// redguard) stay an explicit residual.
-pub const PERSON_FLAT_FILE: &str = "TEXTURE.182";
+pub const PERSON_FLAT_FILE: &str = retail_manifest::PERSON_FLAT_FILE;
 
 /// Retail flat archive of the city watch. The file header reads `    Guard`
 /// (20 records) — the archive B3-a draws the guard billboard from.
-pub const GUARD_FLAT_FILE: &str = "TEXTURE.399";
+pub const GUARD_FLAT_FILE: &str = retail_manifest::GUARD_FLAT_FILE;
 
-/// Mandatory retail files to compose the demo (core + UI).
-const REQUIRED_CORE: &[&str] = &[
-    "MAPS.BSA",
-    "BLOCKS.BSA",
-    "ARCH3D.BSA",
-    "WOODS.WLD",
-    "NAMEGEN.DAT",
-    "TEXTURE.256",
-    PERSON_FLAT_FILE,
-    GUARD_FLAT_FILE,
-    "TEXT.RSC",
-    "PAL.PAL",
-    "FMAP_PAL.COL",
-    "ART_PAL.COL",
-    // M20 (spec §9): the demo's real character.
-    M20_CLASS_FILE,
-    M20_BIO_FILE,
-];
-
-/// Composition error: missing retail data (exit 2) vs invalid data
-/// (exit 1).
+/// Composition error. Both kinds are fatal for the product path: without a
+/// composed world there is no session, so the failure exits **2** with an
+/// `E-DATA-002|003|004` line (data contract §4.4, D3) — a retail installation
+/// that cannot be composed is never replaced by a degraded one.
 #[derive(Debug)]
 pub enum DemoError {
-    /// ARENA2 or a mandatory retail file is missing.
-    MissingData(String),
+    /// ARENA2 or a mandatory retail file is missing/unusable.
+    MissingData(MissingRetail),
     /// The data is present but does not compose (parse/validation).
     Invalid(String),
+}
+
+/// Retail data that could not be opened, with the facts the player message
+/// needs (§4.4 of the data contract): which failure it is and the install root
+/// the missing path is relative to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MissingRetail {
+    /// The data root itself was rejected before any file lookup. The string
+    /// is already the resolver's `E-DATA-00x` line (§4.4) and is printed
+    /// verbatim.
+    Root(String),
+    /// A mandatory retail file is not there (`E-DATA-003`).
+    File {
+        /// Install root that was searched (`ARENA2`'s parent).
+        root: PathBuf,
+        /// Path relative to `root`, e.g. `ARENA2/MAPS.BSA`.
+        rel: String,
+        /// Preflight wording, kept verbatim for the probes.
+        detail: String,
+    },
+    /// The file is there but cannot be used (`E-DATA-004`).
+    Unreadable(String),
+}
+
+impl MissingRetail {
+    /// Mandatory file the preflight did not find in `dir` (`E-DATA-003`).
+    ///
+    /// `label` keeps the original preflight wording (`""`, `"UI asset"`,
+    /// `"font"`) so the probes' text does not change.
+    fn missing_file(dir: &Path, name: &str, label: &str) -> Self {
+        let root = dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| dir.to_path_buf());
+        let sub = dir
+            .file_name()
+            .map(|subdir| subdir.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let what = if label.is_empty() {
+            String::new()
+        } else {
+            format!("{label} ")
+        };
+        Self::File {
+            root,
+            rel: format!("{sub}/{name}"),
+            detail: format!("missing {what}{name} in {}", dir.display()),
+        }
+    }
+
+    /// **§4.4 (D3)** line the product prints when the session cannot open.
+    pub fn player_message(&self) -> String {
+        match self {
+            Self::File { root, rel, .. } => format!(
+                "E-DATA-003: data folder \"{}\" is incomplete: missing {rel}.",
+                root.display()
+            ),
+            Self::Root(line) => line.clone(),
+            Self::Unreadable(detail) => format!("E-DATA-004: {detail}"),
+        }
+    }
+}
+
+impl std::fmt::Display for MissingRetail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Root(detail) | Self::Unreadable(detail) => f.write_str(detail),
+            Self::File { detail, .. } => f.write_str(detail),
+        }
+    }
+}
+
+impl DemoError {
+    /// **§4.4 (D3)** player-facing line: the code plus the folder/file facts.
+    pub fn player_message(&self) -> String {
+        match self {
+            Self::MissingData(missing) => missing.player_message(),
+            Self::Invalid(reason) => format!("E-DATA-004: {reason}"),
+        }
+    }
 }
 
 impl std::fmt::Display for DemoError {
@@ -484,6 +554,13 @@ pub struct DemoScene {
     pub npcs: Vec<DemoNpc>,
     /// Composed M17 panels.
     pub panels: Vec<DemoPanel>,
+    /// **CR-4a9c1e77** — the `main-menu` panel composed once **per active row**
+    /// (`index = row`, [`MENU_ROWS`] pictures). `panels` carries the row
+    /// `MENU_ACTIVE_ROW` picture and nothing else: it is one *state*, not the
+    /// menu, so the window cannot move the selection out of it (§2 defect).
+    /// The window uploads these once and swaps the handle as the shell's
+    /// selection moves; composition stays off the frame loop.
+    pub menu_rows: Vec<DemoPanel>,
     /// Total UI nodes (composition evidence).
     pub panel_nodes: usize,
     /// First-person spawn.
@@ -788,30 +865,35 @@ impl Fnv1a64 {
 
 /// Resolves the ARENA2 directory and requires the demo retail files.
 fn arena2_dir() -> Result<PathBuf, DemoError> {
-    let dir = crate::mode_a_arena2_dir()
-        .map_err(|reason| DemoError::MissingData(format!("ARENA2: {reason}")))?;
-    for name in REQUIRED_CORE {
-        let path = dir.join(name);
-        if !path.is_file() {
-            return Err(DemoError::MissingData(format!(
-                "missing {name} in {}",
-                dir.display()
+    // **§4.1** — one resolver owns the precedence; its `E-DATA-002` line is
+    // already player-facing and is passed through verbatim.
+    let root = daggerfall_app::mode_a::data_root().map_err(|reason| {
+        DemoError::MissingData(MissingRetail::Root(reason))
+    })?;
+    let dir = root.arena2_dir().to_path_buf();
+    // **§4.3 L1** — presence against the canonical manifest (D11: 13 core +
+    // 43 UI images + 5 fonts), one case-insensitive lookup per name.
+    let present = |name: &str| root.resolve_relative(&root.rel(name)).is_ok();
+    for name in retail_manifest::CORE_REQUIRED {
+        if !present(name) {
+            return Err(DemoError::MissingData(MissingRetail::missing_file(
+                &dir, name, "",
             )));
         }
     }
     for name in PANEL_ASSETS {
-        if !dir.join(name).is_file() {
-            return Err(DemoError::MissingData(format!(
-                "missing UI asset {name} in {}",
-                dir.display()
+        if !present(name) {
+            return Err(DemoError::MissingData(MissingRetail::missing_file(
+                &dir,
+                name,
+                "UI asset",
             )));
         }
     }
     for name in FONT_FILES {
-        if !dir.join(name).is_file() {
-            return Err(DemoError::MissingData(format!(
-                "missing font {name} in {}",
-                dir.display()
+        if !present(name) {
+            return Err(DemoError::MissingData(MissingRetail::missing_file(
+                &dir, name, "font",
             )));
         }
     }
@@ -819,26 +901,26 @@ fn arena2_dir() -> Result<PathBuf, DemoError> {
 }
 
 fn read_retail(dir: &Path, name: &str) -> Result<Vec<u8>, DemoError> {
-    let path = dir.join(name);
-    std::fs::read(&path).map_err(|err| DemoError::MissingData(format!("{name}: {err}")))
+    // **§4.6** — one reader: the `DataRoot` that owns the lookup rule (exact
+    // case first, then the sorted variants) and the provenance.
+    let root = DataRoot::from_arena2(dir).map_err(|err| {
+        DemoError::MissingData(MissingRetail::Unreadable(format!(
+            "{name}: {}",
+            err.message()
+        )))
+    })?;
+    root.read(&root.rel(name))
+        .map_err(|err| DemoError::MissingData(MissingRetail::Unreadable(format!("{name}: {}", err.message()))))
 }
 
 /// Parses the retail item table: `FALL.EXE` lives in the install ROOT
 /// (spec M21 §0), never in `ARENA2/`. The single parse shared by the demo and
 /// the window (0 duplicated logic).
 pub(crate) fn retail_item_templates() -> Result<Vec<ItemTemplate>, String> {
-    arena2_dir()
-        .map_err(|err| err.to_string())
-        .and_then(|dir| {
-            let root = dir
-                .parent()
-                .ok_or_else(|| "ARENA2 without a parent directory".to_string())?
-                .to_path_buf();
-            let bytes = std::fs::read(root.join(FALL_EXE_FILENAME))
-                .map_err(|err| format!("unreadable FALL.EXE ({root:?}): {err}"))?;
-            parse_item_templates(&bytes)
-                .map_err(|err| format!("FALL.EXE templates: {err:?}"))
-        })
+    // **§4.1** — the install root comes from the resolver (rank 1-5), never
+    // from `ARENA2`'s parent guessed twice.
+    let bytes = daggerfall_app::mode_a::read_install_file(FALL_EXE_FILENAME)?;
+    parse_item_templates(&bytes).map_err(|err| format!("FALL.EXE templates: {err:?}"))
 }
 
 /// M22 kit over the retail table: the steel cuirass (102, plate `0x0201`) and
@@ -2110,14 +2192,20 @@ fn m20_rgba_digest(rgba: &[u8]) -> u64 {
     hash.0
 }
 
-/// Composes an M17 panel and converts it to RGBA with transparency.
-fn panel_rgba(panel: &UiPanel, assets: &UiAssets) -> Result<DemoPanel, DemoError> {
-    let framebuffer = compose(std::slice::from_ref(panel), assets)
+/// Composes a panel on **its own canvas** and converts it to RGBA.
+///
+/// The canvas size comes from the composed [`Framebuffer`] — 320×200 for the
+/// retail panels, 320×180 for the modern menu — so a panel is never padded or
+/// cropped into a foreign canvas (`compose_sized`, one compositor).
+fn panel_rgba(panel: &UiPanel, assets: &UiAssets, width: u16, height: u16) -> Result<DemoPanel, DemoError> {
+    let framebuffer = compose_sized(std::slice::from_ref(panel), assets, width, height)
         .map_err(|err| DemoError::Invalid(format!("panel {}: {err:?}", panel.id.as_str())))?;
-    let mut rgba = vec![0u8; CANVAS_WIDTH as usize * CANVAS_HEIGHT as usize * 4];
+    debug_assert_eq!(framebuffer.width, width);
+    debug_assert_eq!(framebuffer.height, height);
+    let mut rgba = vec![0u8; width as usize * height as usize * 4];
     let mut opaque = 0usize;
-    for y in 0..CANVAS_HEIGHT {
-        for x in 0..CANVAS_WIDTH {
+    for y in 0..height {
+        for x in 0..width {
             let index = framebuffer.pixel(x, y);
             if index == 0 {
                 continue;
@@ -2126,7 +2214,7 @@ fn panel_rgba(panel: &UiPanel, assets: &UiAssets) -> Result<DemoPanel, DemoError
                 continue;
             };
             let [r, g, b] = entry.colors[index as usize];
-            let at = (y as usize * CANVAS_WIDTH as usize + x as usize) * 4;
+            let at = (y as usize * width as usize + x as usize) * 4;
             rgba[at] = r;
             rgba[at + 1] = g;
             rgba[at + 2] = b;
@@ -2136,11 +2224,19 @@ fn panel_rgba(panel: &UiPanel, assets: &UiAssets) -> Result<DemoPanel, DemoError
     }
     Ok(DemoPanel {
         id: panel.id.as_str().to_string(),
-        width: CANVAS_WIDTH,
-        height: CANVAS_HEIGHT,
+        width,
+        height,
         rgba,
         opaque,
     })
+}
+
+/// Canvas of a panel: the menu screen owns 320×180, the retail panels 320×200.
+fn panel_canvas(panel: &UiPanel) -> (u16, u16) {
+    match panel.id {
+        UiPanelId::MainMenu => (MENU_WIDTH, MENU_HEIGHT),
+        _ => (CANVAS_WIDTH, CANVAS_HEIGHT),
+    }
 }
 
 /// Composes the full integrated demo (single pass, deterministic).
@@ -2384,7 +2480,39 @@ pub fn compose_demo_with_overrides(overrides: &M18Overrides) -> Result<DemoScene
     let panel_nodes = panels.iter().map(|panel| panel.nodes.len()).sum();
     let mut composed = Vec::with_capacity(panels.len());
     for panel in &panels {
-        composed.push(panel_rgba(panel, &assets)?);
+        let (width, height) = panel_canvas(panel);
+        composed.push(panel_rgba(panel, &assets, width, height)?);
+    }
+    // **CR-4a9c1e77** — the menu's selection is a *painted* state: one picture
+    // per row, composed here once (the frame loop never composes). The row
+    // `MENU_ACTIVE_ROW` picture must be byte-identical to the `main-menu`
+    // entry of `panels`, or the surface would change when the window swaps it
+    // in: measured below, not assumed.
+    let mut menu_rows = Vec::with_capacity(MENU_ROWS);
+    let continue_enabled = crate::ui_assets::continue_enabled();
+    for row in 0..MENU_ROWS {
+        let screen = crate::ui_assets::menu_screen(row, continue_enabled);
+        let panel = screen
+            .compose(&assets)
+            .map_err(|err| DemoError::Invalid(format!("main-menu row {row}: {err}")))?;
+        menu_rows.push(panel_rgba(&panel, &assets, MENU_WIDTH, MENU_HEIGHT)?);
+    }
+    let declared_menu = composed
+        .iter()
+        .find(|panel| panel.id == crate::m18_phase::MENU_PANEL_ID)
+        .ok_or_else(|| {
+            DemoError::Invalid(format!(
+                "panel {} missing from the session composition",
+                crate::m18_phase::MENU_PANEL_ID
+            ))
+        })?;
+    let active = menu_rows
+        .get(MENU_ACTIVE_ROW)
+        .ok_or_else(|| DemoError::Invalid("main-menu active row missing".to_string()))?;
+    if active.rgba != declared_menu.rgba {
+        return Err(DemoError::Invalid(format!(
+            "main-menu row {MENU_ACTIVE_ROW} is not the panel the session declares"
+        )));
     }
     let ink = hud_ink(&assets);
     for npc in &mut npcs {
@@ -2427,6 +2555,7 @@ pub fn compose_demo_with_overrides(overrides: &M18Overrides) -> Result<DemoScene
         terrain,
         npcs,
         panels: composed,
+        menu_rows,
         panel_nodes,
         spawn,
         spawn_band: None,
@@ -2471,6 +2600,28 @@ pub fn compose_demo_with_overrides(overrides: &M18Overrides) -> Result<DemoScene
         apply_cs14_scenario(&mut scene);
     }
     scene.m20_refresh_hud();
+    // **FG-01 / `GAP-FG01-02`** — censo vivo de puertas de la composición: una
+    // línea estable (una sola, sin tiempos) que `scripts/fg01-world-doors.py`
+    // lee como evidencia. `retail` = puertas que vienen del dato (`.RMB` +
+    // planos ARCH3D con archivo 74); `scenario` = la puerta de CS-14
+    // ([`apply_cs14_scenario`]), que es un activo de escenario, no dato.
+    let composed_doors: usize = scene.city.buildings.iter().map(|b| b.doors.len()).sum();
+    let scenario_doors = usize::from(scene.cs14_door.is_some());
+    let buildings_with_doors = scene
+        .city
+        .buildings
+        .iter()
+        .filter(|b| !b.doors.is_empty())
+        .count();
+    println!(
+        "FG01-02 VE: world doors composed={} retail={} scenario={} buildings={} \
+         buildings_with_doors={}",
+        composed_doors,
+        composed_doors.saturating_sub(scenario_doors),
+        scenario_doors,
+        scene.city.buildings.len(),
+        buildings_with_doors
+    );
     Ok(scene)
 }
 

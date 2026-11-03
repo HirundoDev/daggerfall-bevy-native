@@ -161,7 +161,12 @@ impl DungeonGrid {
                 u8::from(block.parsed)
             );
         }
-        let _ = writeln!(out, "doors {} removed {}", self.doors.len(), self.doors_removed);
+        let _ = writeln!(
+            out,
+            "doors {} removed {}",
+            self.doors.len(),
+            self.doors_removed
+        );
         for (i, door) in self.doors.iter().enumerate() {
             let _ = writeln!(
                 out,
@@ -260,14 +265,17 @@ pub fn dedupe_doors(candidates: Vec<DungeonDoor>) -> (Vec<DungeonDoor>, usize) {
 
 /// First flat of `record` in object order (DFU `[0]` of the marker list).
 fn first_marker(block: &RdbBlock, record: u16) -> Option<[i32; 3]> {
-    block.objects.iter().find_map(|object| match object.resource {
-        RdbResource::Flat(flat)
-            if is_editor_marker(flat.texture_archive(), flat.texture_record(), record) =>
-        {
-            Some(object.position)
-        }
-        _ => None,
-    })
+    block
+        .objects
+        .iter()
+        .find_map(|object| match object.resource {
+            RdbResource::Flat(flat)
+                if is_editor_marker(flat.texture_archive(), flat.texture_record(), record) =>
+            {
+                Some(object.position)
+            }
+            _ => None,
+        })
 }
 
 /// Action doors of one parsed block, in object order.
@@ -358,7 +366,9 @@ where
                     }
                 }
             }
-            Err(error) => grid.unparsed_blocks.push((block.name.clone(), error.to_string())),
+            Err(error) => grid
+                .unparsed_blocks
+                .push((block.name.clone(), error.to_string())),
         }
         grid.blocks.push(placed);
     }
@@ -376,7 +386,7 @@ pub fn block_name(block: &DungeonBlock) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daggerfall_parser_rs::maps::{DungeonHeader, LocationRecordElement, LocationDungeon};
+    use daggerfall_parser_rs::maps::{DungeonHeader, LocationDungeon, LocationRecordElement};
 
     fn door(at: [f32; 3]) -> DungeonDoor {
         DungeonDoor {
@@ -488,7 +498,10 @@ mod tests {
         assert!(!grid.blocks[0].parsed);
         assert_eq!(grid.missing_blocks.len(), 3);
         assert!(grid.doors.is_empty());
-        assert_eq!((grid.min_x, grid.max_x, grid.min_z, grid.max_z), (-3, 1, -2, 2));
+        assert_eq!(
+            (grid.min_x, grid.max_x, grid.min_z, grid.max_z),
+            (-3, 1, -2, 2)
+        );
         assert_eq!(grid.extent_m(), (5.0 * RDB_SIDE_M, 5.0 * RDB_SIDE_M));
         // No record → no markers (never fabricated).
         assert_eq!(grid.start_marker, None);

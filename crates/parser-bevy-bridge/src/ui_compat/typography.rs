@@ -39,9 +39,7 @@ use super::error::{
     RULE_INK_RANGE, RULE_INK_TRANSPARENT,
 };
 use super::fnv1a64;
-use crate::ui_spec::{
-    palette_hash, Framebuffer, UiAnchor, UiAssets, UiNode, UiNodeKind, UiRect,
-};
+use crate::ui_spec::{palette_hash, Framebuffer, UiAnchor, UiAssets, UiNode, UiNodeKind, UiRect};
 
 /// The five retail fonts, by role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -107,9 +105,7 @@ impl RetailFont {
             .trim_end_matches(".fnt")
             .trim_end_matches(".FNT")
             .to_ascii_uppercase();
-        Self::all()
-            .into_iter()
-            .find(|font| font.stem() == stem)
+        Self::all().into_iter().find(|font| font.stem() == stem)
     }
 }
 
@@ -167,6 +163,7 @@ impl GlyphRun {
             source: None,
             text: Some(self.text.clone()),
             ink: self.ink,
+            tracking: 0,
         }
     }
 }
@@ -356,7 +353,10 @@ mod tests {
         assert_eq!(wide.height, wide_face.fixed_height);
         assert_ne!(wide.height, narrow.height);
         assert_eq!(wide.mask.len(), wide.width as usize * wide.height as usize);
-        assert_eq!(narrow.mask.len(), narrow.width as usize * narrow.height as usize);
+        assert_eq!(
+            narrow.mask.len(),
+            narrow.width as usize * narrow.height as usize
+        );
 
         let again = glyphs(RetailFont::Large, 127, "AB", &assets).expect("again");
         assert_eq!(wide.digest, again.digest);

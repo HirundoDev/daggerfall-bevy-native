@@ -112,56 +112,96 @@ static SPECS: [WindowSpec; 17] = [
     WindowSpec {
         id: "DaggerfallHUD",
         asset_retail: Some("COMPASS.IMG"),
-        rect: UiRect { x: 0, y: 186, width: 320, height: 14 },
+        rect: UiRect {
+            x: 0,
+            y: 186,
+            width: 320,
+            height: 14,
+        },
     },
     // TSV anchor=Declared · DFU:…/DaggerfallInventoryWindow.cs:141 — RCI
     // 320x200 without header, the panel's baseTexture.
     WindowSpec {
         id: "DaggerfallInventoryWindow",
         asset_retail: Some("INVE00I0.IMG"),
-        rect: UiRect { x: 0, y: 0, width: 320, height: 200 },
+        rect: UiRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+        },
     },
     // TSV anchor=Declared · DFU:…/DaggerfallCharacterSheetWindow.cs:30 —
     // RCI 320x200 parchment; levels and skills in DefaultFont.
     WindowSpec {
         id: "DaggerfallCharacterSheetWindow",
         asset_retail: Some("INFO00I0.IMG"),
-        rect: UiRect { x: 0, y: 0, width: 320, height: 200 },
+        rect: UiRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+        },
     },
     // TSV anchor=Declared · DFU:…/DaggerfallQuestJournalWindow.cs:28 — RCI
     // 320x200 book; the title uses LargeFont FONT0000 (line 163).
     WindowSpec {
         id: "DaggerfallQuestJournalWindow",
         asset_retail: Some("LGBK00I0.IMG"),
-        rect: UiRect { x: 0, y: 0, width: 320, height: 200 },
+        rect: UiRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+        },
     },
     // TSV anchor=Declared · DFU:…/DaggerfallMessageBox.cs:231 — SPOP.RCI
     // 9x22x22 multi-record parchment; rect = border record (trap 2).
     WindowSpec {
         id: "DaggerfallMessageBox",
         asset_retail: Some("SPOP.RCI"),
-        rect: UiRect { x: 0, y: 0, width: 22, height: 22 },
+        rect: UiRect {
+            x: 0,
+            y: 0,
+            width: 22,
+            height: 22,
+        },
     },
     // TSV anchor=Header · DFU:…/DaggerfallPauseOptionsWindow.cs:26 — IMG
     // with its own header (12612 B / 12600 px).
     WindowSpec {
         id: "DaggerfallPauseOptionsWindow",
         asset_retail: Some("OPTN00I0.IMG"),
-        rect: UiRect { x: 85, y: 40, width: 150, height: 84 },
+        rect: UiRect {
+            x: 85,
+            y: 40,
+            width: 150,
+            height: 84,
+        },
     },
     // TSV anchor=Declared · DFU:…/DaggerfallBookReaderWindow.cs:30 — RCI
     // 320x200; the font can be switched by book token (line 236).
     WindowSpec {
         id: "DaggerfallBookReaderWindow",
         asset_retail: Some("BOOK00I0.IMG"),
-        rect: UiRect { x: 0, y: 0, width: 320, height: 200 },
+        rect: UiRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+        },
     },
     // TSV anchor=Declared · DFU:…/DaggerfallPlayerHistoryWindow.cs:25 — RCI
     // 320x200; ChangeFont to FONT0003 at line 55.
     WindowSpec {
         id: "DaggerfallPlayerHistoryWindow",
         asset_retail: Some("LGBK00I0.IMG"),
-        rect: UiRect { x: 0, y: 0, width: 320, height: 200 },
+        rect: UiRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+        },
     },
     // TSV anchor=Declared · DFU:…/DaggerfallInputMessageBox.cs:146 —
     // parchment via SetDaggerfallPopupStyle(Parchment, …); same 9x22x22
@@ -169,14 +209,24 @@ static SPECS: [WindowSpec; 17] = [
     WindowSpec {
         id: "DaggerfallInputMessageBox",
         asset_retail: Some("SPOP.RCI"),
-        rect: UiRect { x: 0, y: 0, width: 22, height: 22 },
+        rect: UiRect {
+            x: 0,
+            y: 0,
+            width: 22,
+            height: 22,
+        },
     },
     // TSV anchor=Header · DFU:…/DaggerfallListPickerWindow.cs:31 — IMG with
     // its own header (x/y/w/h read from the file).
     WindowSpec {
         id: "DaggerfallListPickerWindow",
         asset_retail: Some("PICK00I0.IMG"),
-        rect: UiRect { x: 60, y: 36, width: 200, height: 128 },
+        rect: UiRect {
+            x: 60,
+            y: 36,
+            width: 200,
+            height: 128,
+        },
     },
     // ── G2 (W34-2b) comercio — 7 ─────────────────────────────────────────
     // TSV anchor=Declared · DFU:…/DaggerfallInventoryWindow.cs:141 — inherits
@@ -186,49 +236,84 @@ static SPECS: [WindowSpec; 17] = [
     WindowSpec {
         id: "DaggerfallTradeWindow",
         asset_retail: Some("INVE00I0.IMG"),
-        rect: UiRect { x: 0, y: 0, width: 320, height: 200 },
+        rect: UiRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+        },
     },
     // TSV anchor=Header · DFU:…/DaggerfallBankingWindow.cs:26 — IMG with its
     // own header.
     WindowSpec {
         id: "DaggerfallBankingWindow",
         asset_retail: Some("BANK00I0.IMG"),
-        rect: UiRect { x: 48, y: 5, width: 225, height: 181 },
+        rect: UiRect {
+            x: 48,
+            y: 5,
+            width: 225,
+            height: 181,
+        },
     },
     // TSV anchor=Header · DFU:…/DaggerfallBankPurchasePopUp.cs:49 — IMG with
     // its own header.
     WindowSpec {
         id: "DaggerfallBankPurchasePopUp",
         asset_retail: Some("BANK01I0.IMG"),
-        rect: UiRect { x: 48, y: 15, width: 225, height: 129 },
+        rect: UiRect {
+            x: 48,
+            y: 15,
+            width: 225,
+            height: 129,
+        },
     },
     // TSV anchor=Header · DFU:…/DaggerfallTavernWindow.cs:48 — IMG with its
     // own header.
     WindowSpec {
         id: "DaggerfallTavernWindow",
         asset_retail: Some("TVRN00I0.IMG"),
-        rect: UiRect { x: 95, y: 47, width: 130, height: 44 },
+        rect: UiRect {
+            x: 95,
+            y: 47,
+            width: 130,
+            height: 44,
+        },
     },
     // TSV anchor=Header · DFU:…/DaggerfallRestWindow.cs:62 — IMG with its own
     // header.
     WindowSpec {
         id: "DaggerfallRestWindow",
         asset_retail: Some("REST00I0.IMG"),
-        rect: UiRect { x: 83, y: 50, width: 154, height: 41 },
+        rect: UiRect {
+            x: 83,
+            y: 50,
+            width: 154,
+            height: 41,
+        },
     },
     // TSV anchor=Header · DFU:…/DaggerfallMerchantRepairPopupWindow.cs:43 —
     // IMG with its own header.
     WindowSpec {
         id: "DaggerfallMerchantRepairPopupWindow",
         asset_retail: Some("REPR01I0.IMG"),
-        rect: UiRect { x: 95, y: 47, width: 130, height: 51 },
+        rect: UiRect {
+            x: 95,
+            y: 47,
+            width: 130,
+            height: 51,
+        },
     },
     // TSV anchor=Header · DFU:…/DaggerfallMerchantServicePopupWindow.cs:40 —
     // IMG with its own header.
     WindowSpec {
         id: "DaggerfallMerchantServicePopupWindow",
         asset_retail: Some("GNRC01I0.IMG"),
-        rect: UiRect { x: 95, y: 56, width: 130, height: 42 },
+        rect: UiRect {
+            x: 95,
+            y: 56,
+            width: 130,
+            height: 42,
+        },
     },
 ];
 
@@ -260,6 +345,7 @@ pub fn nodes(window: &str) -> Option<Vec<UiNode>> {
         source: surface_source(window),
         text: None,
         ink: DEFAULT_INK,
+        tracking: 0,
     });
     nodes.push(text_node(spec.rect, DECLARED_BODY_FONT, "text"));
     if window == "DaggerfallQuestJournalWindow" {
@@ -337,6 +423,7 @@ fn text_node(rect: UiRect, font: &'static str, id: &str) -> UiNode {
         source: None,
         text: Some(String::new()),
         ink: DEFAULT_INK,
+        tracking: 0,
     }
 }
 
@@ -407,7 +494,10 @@ mod tests {
     #[test]
     fn g2_is_the_seven_comercio_windows() {
         let ids: Vec<&str> = specs()[G1.len()..].iter().map(|spec| spec.id).collect();
-        assert_eq!(ids, G2, "G2 rows must be the partition's 7 comercio windows");
+        assert_eq!(
+            ids, G2,
+            "G2 rows must be the partition's 7 comercio windows"
+        );
     }
 
     #[test]
@@ -421,7 +511,11 @@ mod tests {
                 spec.id
             );
             let rect = spec.rect;
-            assert!(rect.x >= 0 && rect.y >= 0, "{} has a negative origin", spec.id);
+            assert!(
+                rect.x >= 0 && rect.y >= 0,
+                "{} has a negative origin",
+                spec.id
+            );
             assert!(
                 rect.x + rect.width as i16 <= CANVAS_WIDTH as i16,
                 "{} right edge {} > {CANVAS_WIDTH}",
@@ -443,21 +537,77 @@ mod tests {
         let tsv: [(&str, &str, i16, i16, u16, u16); 17] = [
             ("DaggerfallHUD", "COMPASS.IMG", 0, 186, 320, 14),
             ("DaggerfallInventoryWindow", "INVE00I0.IMG", 0, 0, 320, 200),
-            ("DaggerfallCharacterSheetWindow", "INFO00I0.IMG", 0, 0, 320, 200),
-            ("DaggerfallQuestJournalWindow", "LGBK00I0.IMG", 0, 0, 320, 200),
+            (
+                "DaggerfallCharacterSheetWindow",
+                "INFO00I0.IMG",
+                0,
+                0,
+                320,
+                200,
+            ),
+            (
+                "DaggerfallQuestJournalWindow",
+                "LGBK00I0.IMG",
+                0,
+                0,
+                320,
+                200,
+            ),
             ("DaggerfallMessageBox", "SPOP.RCI", 0, 0, 22, 22),
-            ("DaggerfallPauseOptionsWindow", "OPTN00I0.IMG", 85, 40, 150, 84),
+            (
+                "DaggerfallPauseOptionsWindow",
+                "OPTN00I0.IMG",
+                85,
+                40,
+                150,
+                84,
+            ),
             ("DaggerfallBookReaderWindow", "BOOK00I0.IMG", 0, 0, 320, 200),
-            ("DaggerfallPlayerHistoryWindow", "LGBK00I0.IMG", 0, 0, 320, 200),
+            (
+                "DaggerfallPlayerHistoryWindow",
+                "LGBK00I0.IMG",
+                0,
+                0,
+                320,
+                200,
+            ),
             ("DaggerfallInputMessageBox", "SPOP.RCI", 0, 0, 22, 22),
-            ("DaggerfallListPickerWindow", "PICK00I0.IMG", 60, 36, 200, 128),
+            (
+                "DaggerfallListPickerWindow",
+                "PICK00I0.IMG",
+                60,
+                36,
+                200,
+                128,
+            ),
             ("DaggerfallTradeWindow", "INVE00I0.IMG", 0, 0, 320, 200),
             ("DaggerfallBankingWindow", "BANK00I0.IMG", 48, 5, 225, 181),
-            ("DaggerfallBankPurchasePopUp", "BANK01I0.IMG", 48, 15, 225, 129),
+            (
+                "DaggerfallBankPurchasePopUp",
+                "BANK01I0.IMG",
+                48,
+                15,
+                225,
+                129,
+            ),
             ("DaggerfallTavernWindow", "TVRN00I0.IMG", 95, 47, 130, 44),
             ("DaggerfallRestWindow", "REST00I0.IMG", 83, 50, 154, 41),
-            ("DaggerfallMerchantRepairPopupWindow", "REPR01I0.IMG", 95, 47, 130, 51),
-            ("DaggerfallMerchantServicePopupWindow", "GNRC01I0.IMG", 95, 56, 130, 42),
+            (
+                "DaggerfallMerchantRepairPopupWindow",
+                "REPR01I0.IMG",
+                95,
+                47,
+                130,
+                51,
+            ),
+            (
+                "DaggerfallMerchantServicePopupWindow",
+                "GNRC01I0.IMG",
+                95,
+                56,
+                130,
+                42,
+            ),
         ];
         for (index, (id, asset, x, y, width, height)) in tsv.iter().enumerate() {
             let spec = specs()[index];

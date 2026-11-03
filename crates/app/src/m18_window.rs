@@ -79,12 +79,24 @@
 //!
 //! **Custody (PRE-2 §8 rule 3 / INV-L99-6):** Mode A only; retail bytes are
 //! read at runtime and 0 assets are packaged.
+//!
+//! **Menu screen (CR-625ff0ea):** like the 1996 original, the main menu is its
+//! own screen. While the surface is `Menu`/`Create` the two world cameras are
+//! **off** (`WorldCamera` 3D + `WorldUiCamera` 2D) and [`MenuScreenCamera`] is on:
+//! an opaque black camera in its own render layer ([`MENU_LAYER`]) that can only
+//! extract the retail panels — 0 pixels of scene reach the window. `Enter`
+//! reverses it (`m18_phase_screen`), and [`m18_sim_evidence`] publishes the
+//! world-tick counter with the phase so "the game is not running behind the
+//! menu" is measured, not assumed.
 
 use bevy::camera::ClearColorConfig;
+use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::system::SystemParam;
 use bevy::image::ImagePlugin;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
+use bevy::app::AppExit;
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use crate::shell_slots;
 
 // M35 (V7): the two annex modules live next to this one and are declared here
 // because `main.rs` is the trunk of the binary and does not know them. Both
@@ -113,6 +125,10 @@ use daggerfall_behavior::law::{
     GUARD_REPLACE_MIN_ANGLE_DEGREES, GUARD_REPLACE_ONE_IN,
 };
 use crate::m2_player;
+use crate::shell::{self, ShellState};
+// M-SHELL fase 3 (`CR-a602cafc`): una sola ruta de sesión — la ventana traduce
+// teclas y llama; las transiciones viven en `shell_route` (medibles sin GPU).
+use crate::shell_route;
 use crate::ui_weather::{Precipitation, WeatherKind};
 use daggerfall_parser_rs::climate::ClimateMap;
 
@@ -178,7 +194,7 @@ struct M23Magic(daggerfall_app::m23_window::MagicLayer);
 
 /// Composed scene inserted as a resource (the demo builds it once).
 #[derive(Resource)]
-struct DemoWorld(DemoScene);
+pub(crate) struct DemoWorld(pub(crate) DemoScene);
 
 /// World NPCs: billboard entity + position in the city frame.
 #[derive(Resource)]
@@ -221,7 +237,7 @@ struct M28Law {
 /// Reach of the demo binding that bashes the nearest building door. Declared
 /// demo binding (the retail binding is *activate with this mode*), never a DFU
 /// number: the lock roll itself is the source's.
-const DOOR_REACH_M: f32 = 2.5;
+pub(crate) const DOOR_REACH_M: f32 = 2.5;
 
 impl M28Law {
     fn new() -> Self {
@@ -250,6 +266,13 @@ struct DemoCaptions {
 struct DemoUi {
     sprites: Vec<Entity>,
     current: usize,
+    /// **CR-4a9c1e77** — the `main-menu` panel uploaded once per active row
+    /// (`index = row`). `sprites[current]` shows one of them at a time; the
+    /// row on screen is `menu_row`, and it only ever follows
+    /// `shell::ShellState::Menu { selection }`.
+    menu_rows: Vec<Handle<Image>>,
+    /// Row `main-menu` is currently painted with.
+    menu_row: Option<usize>,
 }
 
 /// M20 HUD on the 2D camera (sprite replaceable with the R key).
@@ -262,11 +285,17 @@ struct DemoHud {
 ///
 /// `spawned` is the idempotency cursor: the system only instantiates the guards
 /// whose position appeared in `M28Law::guards` **after** the last frame, so a
-/// guard is never duplicated. `sprites` keeps `(billboard, actor label,
-/// position)` so [`m18_billboards`] rotates both quads toward the camera.
+/// guard is never duplicated. `replaced` is the second cursor
+/// ([`m28_guards_replace_npcs`]): the NPCs already turned into guards. Both live
+/// in the resource — not in `Local`s — so `NEW GAME` (CR-178183d7) can put the
+/// street back to its first frame: a `Local` survives the reset and the new
+/// session would start with the previous census. `sprites` keeps
+/// `(billboard, actor label, position)` so [`m18_billboards`] rotates both quads
+/// toward the camera and the reset can despawn them.
 #[derive(Resource, Default)]
 struct DemoGuardBillboards {
     spawned: usize,
+    replaced: usize,
     sprites: Vec<(Entity, Entity, Vec3)>,
 }
 
@@ -287,6 +316,20 @@ struct DemoOverlays {
     /// On-screen position of each overlay (restored when it is shown again).
     dialogue_at: Vec3,
     journal_at: Vec3,
+    /// **M-QST (CR-3c7a91e6):** the quest prompt own sprite — painted from the
+    /// state, not from a key. `None` until a state paints something.
+    quest: Option<Entity>,
+    /// State the prompt was last painted for (`None` = never painted).
+    quest_state: Option<daggerfall_behavior::mainquest::State>,
+    /// Position of the prompt (restored when it is hidden).
+    quest_at: Vec3,
+    /// `true` once the sprite is actually on screen: the spawn is parked and
+    /// hidden (see [`PARKED_Y`]), so the visibility write happens the frame
+    /// after the spawn and only then is the evidence line true.
+    quest_shown: bool,
+    /// `true` when the sprite could not be composed (reported once, never a
+    /// retry loop).
+    quest_failed: bool,
 }
 
 /// **B3-d (CS-12)** — the window's precipitation bridge.
@@ -338,7 +381,7 @@ pub fn run_windowed_m18(
     if path_checker.use_custom_universe() {
         return Err("M18 supports Mode A only (ModeState=B is out of scope)".into());
     }
-    let scene = match crate::m18_demo::compose_demo_with_overrides(&overrides) {
+    let mut scene = match crate::m18_demo::compose_demo_with_overrides(&overrides) {
         Ok(scene) => scene,
         Err(err) => {
             // **CS-08/09/10** — a requested band spawn that cannot be honoured is
@@ -352,9 +395,51 @@ pub fn run_windowed_m18(
                 );
                 std::process::exit(2);
             }
-            return Err(err.to_string());
+            // **D3 (data contract §4.4)** — a composition failure is fatal for
+            // the product: name the retail folder/file that is missing (or the
+            // file that does not compose) and exit 2. There is no fallback to
+            // the empty F0 app: it has no plugins and no window, so it reported
+            // a missing retail installation as a successful launch.
+            eprintln!("{}", err.player_message());
+            std::process::exit(2);
         }
     };
+    // ── FG-01 · `--door-spawn` ───────────────────────────────────────────
+    // Applied on the composition, before the camera, `Locomotion` and
+    // `Transit` read the spawn (no `M18Overrides` change: it is not a map
+    // origin). A refused placement exits 2 instead of opening the world
+    // anywhere else — the same contract as `--spawn`.
+    if std::env::args().any(|arg| arg == "--door-spawn") {
+        match crate::m18_doors::apply_door_spawn(&mut scene) {
+            Ok(door) => println!(
+                "FG01 VE: door-spawn eye=({:.2},{:.2},{:.2}) yaw={:.4} ({:.1}°) · door at \
+                 ({:.2},{:.2}) {:.2} m away · doors in composition {} · interior {}{}",
+                scene.spawn.eye[0],
+                scene.spawn.eye[1],
+                scene.spawn.eye[2],
+                scene.spawn.yaw,
+                scene.spawn.yaw.to_degrees(),
+                door[0],
+                door[2],
+                crate::m18_doors::planar_distance_m(scene.spawn.eye, door),
+                crate::m18_doors::door_sites(&scene).len(),
+                crate::m18_doors::INTERIOR_BLOCK_NAME,
+                if std::env::var("M18_CS14").is_ok() {
+                    ""
+                } else {
+                    " (CS-14 scenario door NOT injected: set M18_CS14=1)"
+                },
+            ),
+            Err(error) => {
+                println!("FG01 VE: door-spawn refused — {error}");
+                eprintln!(
+                    "M18: --door-spawn {error} — refusing to open the world at any other \
+                     point (exit 2)"
+                );
+                std::process::exit(2);
+            }
+        }
+    }
     // B1-a: the override is named in the evidence (never a silent change).
     if let Some(origin) = overrides.origin {
         println!(
@@ -426,11 +511,19 @@ pub fn run_windowed_m18(
     );
     println!(
         "M18 VE: terrain world-span x/z {:.1}..{:.1} m · city {:.1} m · WASD+mouse-look · \
-         Esc releases the cursor · 1-6 UI panels · J dialogue overlay · I journal overlay",
+         Esc releases the cursor · 1-3/5-6 UI panels (4 = menu screen) · J dialogue overlay · \
+         I journal overlay",
         scene.terrain.inner_neg_m(),
         scene.terrain.outer_m(),
         city_m,
     );
+
+    // F1 (`CR-a602cafc`): la evidencia de arriba ya está publicada. Sin
+    // servidor gráfico NO se intenta la ventana — winit aborta con
+    // «Failed to build event loop» (rc=101) y ese pánico no es del producto.
+    if !crate::window_limb_ready("demo") {
+        return Ok(());
+    }
 
     App::new()
         .add_plugins(
@@ -438,7 +531,7 @@ pub fn run_windowed_m18(
                 .set(ImagePlugin::default_nearest())
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: "DAGGERFALL-LIKE — M20 demo (DFU character + HUD)".to_string(),
+                        title: "DAGGERFALL-LIKE — SHELL BOOT".to_string(),
                         resolution: (1280u32, 720u32).into(),
                         ..default()
                     }),
@@ -467,6 +560,15 @@ pub fn run_windowed_m18(
         // [`crate::m18_phase::phase_playing`] and the game clock advances 0
         // minutes (the startup composition is the menu backdrop).
         .insert_resource(crate::m18_phase::AppPhase::Menu)
+        // CR-625ff0ea: contador de frames del mundo (0 en `Menu`, >0 en
+        // `Playing`). Vive en un recurso propio para que la evidencia lo lea sin
+        // tocar el bundle del mundo.
+        .init_resource::<WorldSimTicks>()
+        // CR-178183d7: the world half of `NEW GAME` travels as a message from
+        // the ECS-free `confirm_create` decision to `m18_new_game_reset`.
+        .add_message::<NewGameStarted>()
+        // CR-7a3e9c14: el mundo restaurado viaja como mensaje (misma forma).
+        .add_message::<SessionRestored>()
         .add_systems(
             Startup,
             (
@@ -476,8 +578,16 @@ pub fn run_windowed_m18(
                 m18_spawn_weather,
                 m2_player::m2_setup_cursor,
                 m19_spawn_player,
+                // FG-01: the door registry + transit (wiring only; the
+                // interior block is assembled on the first door).
+                crate::m18_doors::m18_door_startup,
                 m20_spawn_progression,
                 m14_audio_startup,
+                // M-SHELL fase 1: mide los hechos del shell (pasos de carga con
+                // sus unidades reales, HUD, identidad retail, destino de viaje)
+                // ANTES de que el mundo avance y en el mismo `Startup` que la
+                // composición que lee.
+                shell_startup,
             ),
         )
         // Phase / camera-shell keys that run in BOTH phases: `m18_phase_keys`
@@ -489,22 +599,89 @@ pub fn run_windowed_m18(
         // with `.chain()` (Enter handler → gated world bundle), so the frame that
         // enters the world is the first frame that ticks in both consumers and
         // the probe can never measure an order the window does not declare.
+        //
+        // **M-SHELL (CR-ca78eb76):** `shell_pump` publica como máximo una línea
+        // de evidencia por frame en orden de encolado; `shell_progress` hace las
+        // transiciones del shell; `shell_keys` es el único dueño de las teclas
+        // de mundo que el shell consume (`M`, `T`, `Escape`, `Q`) y por eso va
+        // ANTES del muestreo de acciones del jugador (una sola lectura del
+        // `Escape` de pausa, nunca dos efectos).
         .add_systems(
             Update,
             (
+                shell_pump.before(shell_progress),
+                // Orden declarado (CR-6d086222): cuando las dos encolan una
+                // línea en la MISMA frame, la del autómata gana. Sin esta
+                // arista el par estaba sólo serializado por el `ResMut<Shell>`
+                // compartido — orden no declarado que el ejecutor puede
+                // resolver a cualquiera de los dos lados.
+                shell_progress.before(shell_keys),
+                shell_focus_pending,
                 m18_phase_keys
+                    .before(shell_keys)
+                    .before(m2_player::m2_gather_action)
+                    .before(m18_apply_player_action),
+                shell_keys
                     .before(m2_player::m2_gather_action)
                     .before(m18_apply_player_action),
                 m18_yaw_keys,
                 m18_phase_ui,
+                // CR-4a9c1e77: la fila activa se PINTA — tras fijar la
+                // superficie, el sprite del `main-menu` recibe la imagen de la
+                // fila seleccionada (una comparación por frame, sin componer).
+                m18_menu_selection_ui.after(m18_phase_ui),
+                // CR-625ff0ea: la superficie manda en la pantalla — el panel y
+                // el fondo se aplican en el mismo frame (`m18_phase_ui` elige
+                // el panel, `m18_phase_screen` las cámaras) y la evidencia de
+                // simulación se publica detrás.
+                m18_phase_screen.after(m18_phase_ui),
+                // CR-178183d7: the reset runs on the frame the wizard confirms,
+                // after the phase change (that is the decision) and before the
+                // first tick of the session — so `m18_sim_evidence` publishes
+                // the NEW session (1), never the tail of the old one. The
+                // evidence is read after the tick for the same reason.
+                m18_new_game_reset
+                    .after(m18_phase_keys)
+                    .before(m18_apply_player_action)
+                    .before(m18_world_tick),
+                // CR-7a3e9c14: el slot restaurado se aplica en el mismo frame
+                // de la decisión y ANTES del primer paso de la sesión.
+                m18_session_restored
+                    .after(m18_phase_keys)
+                    .before(m18_apply_player_action)
+                    .before(m18_world_tick),
+                // El snapshot del shell se mide DESPUÉS del paso del frame:
+                // es la posición que la cámara muestra, no la del frame previo.
+                m18_shell_world_snapshot
+                    .after(m18_apply_player_action)
+                    .run_if(crate::m18_phase::phase_playing),
+                m18_sim_evidence
+                    .after(m18_phase_screen)
+                    .after(m18_world_tick),
             ),
         )
         // World-only shell keys (m-7): `T` re-samples the terrain (a world
         // mutation) and `1-4` reveal the world panels — neither belongs to the
-        // menu, which shows the retail `main-menu` composition only.
+        // menu, which shows the retail `main-menu` composition only. La pausa
+        // congela también estas teclas (`shell_world_live`): con el mapa abierto
+        // `T` es viaje rápido y `m18_origin_toggle` se retira.
         .add_systems(
             Update,
-            (m18_origin_toggle, m18_switch_panel).run_if(crate::m18_phase::phase_playing),
+            (m18_origin_toggle, m18_switch_panel)
+                .run_if(crate::m18_phase::phase_playing)
+                .run_if(shell_world_live),
+        )
+        // M-QST (CR-3c7a91e6): el prompt de la quest se pinta del ESTADO, no de
+        // una tecla — sin pulsar `I`. Corre en `Playing` (también con el juego
+        // en pausa: no toca el mundo, sólo su sprite) y DESPUÉS de los dos
+        // únicos escritores del estado: `shell_keys` aplica `Y`/`N`/`P`/`X` y
+        // `m14_melee_sfx` aplica la muerte del objetivo.
+        .add_systems(
+            Update,
+            m18_quest_prompt
+                .run_if(crate::m18_phase::phase_playing)
+                .after(shell_keys)
+                .after(m14_melee_sfx),
         )
         // World systems: gated by the phase (B1-d). `m19_update_title` stays
         // ungated so the bar shows `MENU` / `PLAYING` in both states.
@@ -539,6 +716,9 @@ pub fn run_windowed_m18(
                 // B3-d (CS-12): `O` cycles to the next precipitating climate.
                 m18_weather_key,
                 m18_apply_player_action,
+                // FG-01: `E` walks the player through the door, after the
+                // step that produced the position the reach test reads.
+                crate::m18_doors::m18_door_interact.after(m18_apply_player_action),
                 // M20: the driver consumes the signals of the M19 frame and the
                 // game clock before the title/HUD consumers read the character.
                 m20_progression_tick.after(m18_apply_player_action),
@@ -549,7 +729,20 @@ pub fn run_windowed_m18(
                 // `Startup` — the menu is silent.
                 m14_song_on_playing,
             )
-                .run_if(crate::m18_phase::phase_playing),
+                .run_if(crate::m18_phase::phase_playing)
+                // La pausa congela el mundo: `world_ticks` no avanza mientras
+                // `ShellState::Paused` (SH-09 lo mide comparando ticks).
+                .run_if(shell_world_live),
+        )
+        // CR-625ff0ea: el contador de simulación viaja con **las mismas dos
+        // puertas** que el bundle del mundo (fase `Playing` + sesión viva), así
+        // que en `Menu`/`Create`/pausa vale 0 por construcción. Registro aparte
+        // porque el bundle ya está en el límite de aridad de `add_systems`.
+        .add_systems(
+            Update,
+            m18_world_tick
+                .run_if(crate::m18_phase::phase_playing)
+                .run_if(shell_world_live),
         )
         .add_systems(Update, m19_update_title)
         // M14: the two real game events (fall from the M19 frame, melee swing
@@ -563,7 +756,10 @@ pub fn run_windowed_m18(
                 m22_enemy_retaliation.after(m14_melee_sfx),
                 m14_drain_audio.after(m14_fall_sfx).after(m14_melee_sfx),
             )
-                .run_if(crate::m18_phase::phase_playing),
+                .run_if(crate::m18_phase::phase_playing)
+                // El audio del mundo es parte del mundo: en pausa no suena un
+                // golpe ni cae nadie.
+                .run_if(shell_world_live),
         )
         .run();
     Ok(())
@@ -822,6 +1018,7 @@ fn m14_melee_sfx(
     law: Res<M28Law>,
     mut upload: M20HudUpload,
     mut audio_dice: Local<Option<daggerfall_combat::Dice100>>,
+    mut shell: ResMut<shell::Shell>
 ) {
     if !action.attack {
         return;
@@ -849,6 +1046,12 @@ fn m14_melee_sfx(
         return;
     };
     let strike = &report.strike;
+    // M-QST: la muerte del objetivo es la transición `Act1Hunt → Act1Return`.
+    // La tabla decide si esta muerte cuenta (una segunda muerte en
+    // `Act1Return` se publica como rechazo, no avanza el acto).
+    if strike.target_died {
+        crate::mainquest_route::on_defeat(&mut shell);
+    }
     let attack = &strike.attack;
     println!(
         "M14 VE: melee swing (unarmed) → {} · target={} hit={} chance={} damage={} part={} · enemy HP \
@@ -1095,6 +1298,372 @@ fn m14_drain_audio(mut audio_state: ResMut<GameAudio>, mut warned: Local<bool>) 
     }
 }
 
+// ── Pantalla del menú (**CR-625ff0ea**) ─────────────────────────────────────
+//
+// La 1996 no enseña el mundo detrás del menú: el menú **es** su propia
+// pantalla. Tres marcadores separan las cámaras para que la separación sea
+// estructural (no un `if` en cada sistema):
+
+/// Cámara 3D del mundo. Se apaga en `Menu`/`Create`: ningún píxel de escena
+/// llega a la ventana.
+#[derive(Component)]
+struct WorldCamera;
+
+/// Cámara 2D del mundo (paneles, HUD, overlays, lluvia sobre el 3D). Se apaga
+/// en `Menu`/`Create` por la misma razón.
+#[derive(Component)]
+struct WorldUiCamera;
+
+/// Cámara de la pantalla del menú: **opaca** (`ClearColorConfig::Custom` negro)
+/// y aislada en [`MENU_LAYER`], así que solo puede extraer los paneles retail
+/// — nunca el HUD, la lluvia, las leyendas ni la escena.
+#[derive(Component)]
+struct MenuScreenCamera;
+
+/// Capa de render exclusiva del panel de menú. Los paneles pertenecen a la capa
+/// 0 **y** a ésta (las dos cámaras del mundo los ven como hasta ahora); el resto
+/// del 2D del mundo se queda solo en la capa 0.
+const MENU_LAYER: usize = 1;
+
+/// Frames que el **bundle de mundo** ejecutó (**CR-625ff0ea**).
+///
+/// Solo lo incrementa un sistema que corre con [`crate::m18_phase::phase_playing`]
+/// y `shell_world_live`, así que en `Menu`/`Create` vale **0 por construcción**
+/// (no por confianza): es el contador que la evidencia publica para probar que
+/// el mundo no simula mientras el menú está en pantalla.
+#[derive(Resource, Default)]
+struct WorldSimTicks {
+    frames: u64,
+}
+
+/// **NEW GAME (CR-178183d7)** — the world-side half of "a new game is a new
+/// game".
+///
+/// `Enter` on the wizard confirms the character in
+/// [`crate::shell_route::confirm_create`], which is deliberately ECS-free (it
+/// owns the shell contract and the headless pass). The world reset cannot live
+/// there — it needs `World` — so `m18_phase_keys` writes this message at the
+/// **same** decision point (`Some(character)` = the wizard confirmed) and
+/// [`m18_new_game_reset`] consumes it in the same frame, ordered after the
+/// phase change and before the first world tick. `continue`/`load` never write
+/// it: they are the only paths that keep the session, by design.
+#[derive(Message)]
+struct NewGameStarted;
+
+/// **CONTINUE real (`CR-7a3e9c14`)** — the world-side half of "resuming
+/// restores the world".
+///
+/// `continue`/`load` decide in `shell_route`/`shell_slots` (ECS-free) what the
+/// document declares restorable; applying it needs the ECS, so
+/// `m18_phase_keys` writes this message at that decision point and
+/// [`m18_session_restored`] consumes it in the same frame, ordered after the
+/// phase change and before the first step of the session — the same shape as
+/// [`NewGameStarted`], and the reason the restored position is not overwritten
+/// by the first `m18_apply_player_action` of the resumed session.
+#[derive(Message)]
+struct SessionRestored {
+    /// Slot the world came from (evidence of the interior warning).
+    slot: usize,
+    /// World the slot declares authoritative (mm, orientation, site, minute).
+    world: shell_slots::WorldSnapshot,
+}
+
+/// **CONTINUE real (`CR-7a3e9c14`)** — aplica el mundo que el slot declara.
+///
+/// Tres piezas, y las tres son necesarias:
+///
+/// 1. **Reloj**: `GameClock::from_total_minutes` + **re-siembra** de
+///    `last_minute` y `carry`. Restaurar `total_minutes` sin re-sembrar los dos
+///    haría que `while p.clock.last_minute < now { progression.minute() …
+///    m23_magic_round() }` recorriera el delta entero en UN frame (la trampa
+///    medida: 358 tallies y 358 rondas de magia de golpe).
+/// 2. **Posición**: `Locomotion` es la autoridad; la cámara se reescribe aquí y
+///    `m18_apply_player_action` (ordenada después) la vuelve a componer desde
+///    `Locomotion` en el mismo frame, así que no hay ventana de un frame con la
+///    cámara vieja.
+/// 3. **Orientación**: `M2Player.yaw/pitch` + `Quat::from_euler(YXZ, …)`, la
+///    misma convención que el paso del jugador.
+///
+/// Un slot que declara interior/mazmorra restaura reloj y orientación pero **no**
+/// teletransporta la posición a coordenadas de otra escena: la reentrada al
+/// bloque no está en el alcance (`FG-01` resuelve la puerta, no la reentrada
+/// desde un slot) y el aviso `W-SAVE-002` lo declara en el canal.
+fn m18_session_restored(
+    mut restored: MessageReader<SessionRestored>,
+    mut cameras: Query<(&mut Transform, &mut m2_player::M2Player), With<WorldCamera>>,
+    mut m19: ResMut<M19Player>,
+    mut progression: ResMut<ProgressionClock>,
+    mut doors: ResMut<crate::m18_doors::DoorWorld>,
+    mut shell: ResMut<shell::Shell>,
+) {
+    let Some(message) = restored.read().last() else {
+        return;
+    };
+    let slot = message.slot;
+    let world = message.world;
+    progression.clock = GameClock::from_total_minutes(world.world_minutes);
+    progression.carry = 0.0;
+    progression.last_minute = world.world_minutes as i64;
+    let eye = world.pos_meters();
+    let exterior = world.environment == 1;
+    if exterior {
+        m19.locomotion.position = eye;
+        m19.locomotion.horizontal_velocity = [0.0, 0.0];
+        m19.locomotion.vertical_velocity = 0.0;
+        m19.locomotion.falling = false;
+        m19.locomotion.fall_start_y = eye[1];
+        // La prueba de alcance de puertas del próximo frame lee esta posición.
+        doors.transit.position = eye;
+    } else {
+        shell.say(
+            0.0,
+            shell::interior_not_restored_line(slot, world.environment),
+        );
+    }
+    if let Ok((mut transform, mut player)) = cameras.single_mut() {
+        player.yaw = world.yaw;
+        player.pitch = world.pitch;
+        transform.rotation = Quat::from_euler(EulerRot::YXZ, world.yaw, world.pitch, 0.0);
+        if exterior {
+            transform.translation = Vec3::from_array(eye);
+        }
+    }
+    shell.snapshot = Some(world);
+    println!(
+        "M18 VE: SHELL resume — slot {slot} world restored pos_mm=({},{},{}) yaw_mrad={} \
+         world_minutes={} environment={}",
+        world.pos_mm[0],
+        world.pos_mm[1],
+        world.pos_mm[2],
+        shell_slots::radians_to_mrad(world.yaw),
+        world.world_minutes,
+        world.environment
+    );
+}
+
+/// Mide el estado de mundo de la sesión UNA vez por frame jugado y lo deja en
+/// [`shell::Shell::snapshot`] (`CR-7a3e9c14`).
+///
+/// Es el único productor del snapshot: la ventana mide (`Locomotion`, cámara,
+/// `ProgressionClock`, escena de puertas), el shell solo declara y la puerta de
+/// escritura (`shell_route::write_slot`) sigue sin tocar la ECS. Corre después
+/// del paso del jugador para que la posición medida sea la que la cámara
+/// muestra.
+fn m18_shell_world_snapshot(
+    mut shell: ResMut<shell::Shell>,
+    m19: Res<M19Player>,
+    progression: Res<ProgressionClock>,
+    doors: Res<crate::m18_doors::DoorWorld>,
+    cameras: Query<&m2_player::M2Player, With<WorldCamera>>,
+) {
+    let Ok(player) = cameras.single() else {
+        return;
+    };
+    // `environment`/`map_id` salen de la escena compuesta, no de un literal: el
+    // exterior es el mapa abierto (`65535`) y el interior declara su bloque.
+    let site = shell.location;
+    let (environment, map_id) = match doors.scene {
+        daggerfall_nervous::events::SceneId::Exterior => (1, shell_slots::MAP_ID_OPEN_WORLD),
+        daggerfall_nervous::events::SceneId::Interior => (
+            2,
+            site.map(|(_, _, block)| i64::from(block)).unwrap_or(0),
+        ),
+        // El menú no es un estado de mundo: `environment = 0` hace que el slot
+        // resultante declare generación 3 en vez de mentir con un sitio.
+        daggerfall_nervous::events::SceneId::Menu => (0, 0),
+    };
+    let (region_index, location_index) = site
+        .map(|(region, location, _)| (i64::from(region), i64::from(location)))
+        .unwrap_or((0, 0));
+    shell.snapshot = Some(shell_slots::WorldSnapshot::from_meters(
+        m19.locomotion.position,
+        player.yaw,
+        player.pitch,
+        environment,
+        map_id,
+        region_index,
+        location_index,
+        progression.clock.total_minutes(),
+    ));
+}
+
+/// Único dueño del contador: corre **dentro** del bundle gateado del mundo.
+fn m18_world_tick(mut ticks: ResMut<WorldSimTicks>) {
+    ticks.frames += 1;
+}
+
+/// Los recursos que `NEW GAME` devuelve a su primer frame, agrupados para que
+/// [`m18_new_game_reset`] quepa en la aridad del `SystemParam` y el reset se
+/// lea como una lista (un recurso por línea, sin accessors).
+#[derive(SystemParam)]
+struct NewGameState<'w> {
+    world: ResMut<'w, DemoWorld>,
+    m19: ResMut<'w, M19Player>,
+    progression: ResMut<'w, Progression>,
+    clock: ResMut<'w, ProgressionClock>,
+    ticks: ResMut<'w, WorldSimTicks>,
+    combat: ResMut<'w, DemoCombat>,
+    magic: ResMut<'w, M23Magic>,
+    law: ResMut<'w, M28Law>,
+    guards: ResMut<'w, DemoGuardBillboards>,
+    doors: ResMut<'w, crate::m18_doors::DoorWorld>,
+}
+
+/// **NEW GAME (CR-178183d7)** — a new game must be indistinguishable from a
+/// first game: nothing of the session that ended may survive in the world.
+///
+/// Before this system, `SHELL create done` reset the wizard, the slot, the
+/// quest and the session clock (`shell_route::confirm_create`) — the ECS half
+/// kept the avatar where it stood, the clock where it was, the law census, the
+/// guard billboards and the interior stage. This system is that half, and it
+/// runs **only** on [`NewGameStarted`], i.e. on the wizard's confirm:
+/// `continue`/`load` are the paths that must keep the session and never reach
+/// here.
+///
+/// Everything it writes is something the *first* frame of a session owns:
+///
+/// | State | First frame | Reset |
+/// |:---|:---|:---|
+/// | Character | `Character::starting(career, M19_SEED, 1)` | same call |
+/// | HUD | `m20_refresh_hud` over that character | same call + upload |
+/// | Combat | `compose_demo_fight(scene)` | same call |
+/// | Magic | `MagicLayer::new(M19_SEED)` | same call |
+/// | Skills | `SkillDriver::new(M19_SEED)` | same call |
+/// | Clock | `GameClock::classic_default()` | same call |
+/// | World ticks | `0` (published as `1` by the first tick) | `0` |
+/// | Avatar | spawn eye/yaw, `Locomotion::new`, `Dice100` seeded | same |
+/// | Law | `M28Law::new()` (0 guards) | same |
+/// | Stage | exterior, 0 interior entities | despawned |
+
+fn m18_new_game_reset(
+    mut commands: Commands,
+    mut started: MessageReader<NewGameStarted>,
+    mut state: NewGameState,
+    mut cameras: Query<(&mut Transform, &mut m2_player::M2Player), With<WorldCamera>>,
+    replaced: Query<Entity, With<ReplacedByGuard>>,
+    mut visibilities: Query<&mut Visibility>,
+    mut upload: M20HudUpload,
+) {
+    if started.read().count() == 0 {
+        return;
+    }
+
+    // ── Stage: the interior of the ended session is released, not kept ────
+    let released = state.doors.reset_to_exterior(&state.world.0);
+    let released_count = released.len();
+    for entity in released {
+        commands.entity(entity).despawn();
+    }
+
+    // ── Guards: the billboard quads of the census are released ───────────
+    let billboards = std::mem::take(&mut state.guards.sprites);
+    let billboard_count = billboards.len();
+    for (billboard, label, _) in billboards {
+        for entity in [billboard, label] {
+            if entity != Entity::PLACEHOLDER {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+
+    // ── Law: a new game starts with the city at 0 guards ────────────────
+    *state.law = M28Law::new();
+    state.guards.spawned = 0;
+    state.guards.replaced = 0;
+
+    // ── NPCs the watch had replaced go back to the street ───────────────
+    let mut restored = 0usize;
+    for entity in &replaced {
+        commands.entity(entity).remove::<ReplacedByGuard>();
+        if let Ok(mut visibility) = visibilities.get_mut(entity) {
+            *visibility = Visibility::Inherited;
+            restored += 1;
+        }
+    }
+
+    // ── Character + HUD: the same call the composition makes ────────────
+    let hud_before = state.world.0.m20_hud_digest();
+    let career = state.world.0.character.career.clone();
+    state.world.0.m20_target = None;
+    state.world.0.character =
+        daggerfall_skills::character::Character::starting(
+            career,
+            &mut daggerfall_skills::rng::Rng64::new(M19_SEED),
+            1,
+        );
+    state.world.0.m20_refresh_hud();
+    let hud_after = state.world.0.m20_hud_digest();
+
+    // ── Combat + body: `compose_demo_fight` over the fresh character ─────
+    let fight = crate::m18_demo::compose_demo_fight(&state.world.0);
+    state.combat.session = fight.session;
+    state.combat.enemy_attack = fight.enemy_attack;
+    state.combat.player_level = fight.player_level;
+    m20_sync_character(
+        &mut state.world.0,
+        &mut *state.m19,
+        &mut *state.combat,
+    );
+
+    // ── Magic + skills: their first-frame seeded layers ─────────────────
+    state.magic.0 = daggerfall_app::m23_window::MagicLayer::new(M19_SEED);
+    state.progression.0 = SkillDriver::new(M19_SEED);
+
+    // ── Clock: `classic_default`, minute 0, no carry ────────────────────
+    let clock = GameClock::classic_default();
+    let last_minute = clock.total_minutes() as i64;
+    state.clock.clock = clock;
+    state.clock.last_minute = last_minute;
+    state.clock.carry = 0.0;
+
+    // ── Sim ticks: the first tick of the new session publishes 1 ────────
+    state.ticks.frames = 0;
+
+    // ── Avatar + camera: the spawn the composition chose ────────────────
+    let spawn = state.world.0.spawn;
+    state.m19.locomotion =
+        Locomotion::new(spawn.eye, bridge::EYE_HEIGHT_M, bridge::PLAYER_RADIUS_M);
+    state.m19.dice = Dice100::new(M19_SEED);
+    state.m19.sneak = false;
+    state.m19.pending_fall = None;
+    state.m19.last_signals = MotionSignals::default();
+    match cameras.single_mut() {
+        Ok((mut transform, mut player)) => {
+            transform.translation = Vec3::from_array(spawn.eye);
+            transform.rotation = Quat::from_rotation_y(spawn.yaw);
+            player.yaw = spawn.yaw;
+            player.pitch = 0.0;
+            player.radius = bridge::PLAYER_RADIUS_M;
+        }
+        Err(error) => println!(
+            "M18 VE: NEW GAME — no world camera to return to the spawn ({error}); the avatar \
+             is reset and the camera keeps its transform"
+        ),
+    }
+    // ── HUD sprite: the drawn layer follows the refreshed buffer ─────────
+    upload.apply(&state.world.0);
+
+    println!(
+        "M18 VE: NEW GAME reset — career={} · clock={} min · sim ticks={} · hud digest \
+         {:016x}→{:016x} · pos=({:.1},{:.1},{:.1}) yaw={:.2} · scene={} · guards={} · stage \
+         entities despawned={} · billboards despawned={} · npcs restored={}",
+        state.world.0.character.career.name,
+        state.clock.clock.total_minutes(),
+        state.ticks.frames,
+        hud_before,
+        hud_after,
+        spawn.eye[0],
+        spawn.eye[1],
+        spawn.eye[2],
+        spawn.yaw,
+        state.doors.scene_label,
+        state.law.guards.len(),
+        released_count,
+        billboard_count,
+        restored,
+    );
+}
+
 /// Builds the scene: textured city + terrain + NPCs + UI + cameras.
 fn m18_spawn_world(
     mut commands: Commands,
@@ -1225,6 +1794,7 @@ fn m18_spawn_world(
     // ── 3D first-person camera + light ─────────────────────────────────
     commands.spawn((
         Camera3d::default(),
+        WorldCamera,
         Transform::from_translation(Vec3::from_array(scene.spawn.eye))
             .with_rotation(Quat::from_rotation_y(scene.spawn.yaw)),
         m2_player::M2Player {
@@ -1245,11 +1815,28 @@ fn m18_spawn_world(
     // ── D4 · overlaid M17 UI (2D camera over the 3D one) ───────────────
     commands.spawn((
         Camera2d,
+        WorldUiCamera,
         Camera {
             order: 1,
             clear_color: ClearColorConfig::None,
             ..default()
         },
+    ));
+    // **CR-625ff0ea** — la pantalla del menú: cámara propia, `order: 2`, fondo
+    // negro **opaco** y capa [`MENU_LAYER`]. `m18_phase_screen` la enciende
+    // mientras la superficie es el menú y apaga las dos del mundo, así que el
+    // mundo no puede asomar por ninguna franja; al entrar al juego ocurre lo
+    // contrario y el mundo se pinta como antes.
+    commands.spawn((
+        Camera2d,
+        MenuScreenCamera,
+        Camera {
+            order: 2,
+            is_active: false,
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
+        RenderLayers::layer(MENU_LAYER),
     ));
     let mut panel_sprites = Vec::with_capacity(scene.panels.len());
     for (index, panel) in scene.panels.iter().enumerate() {
@@ -1271,31 +1858,78 @@ fn m18_spawn_world(
                 continue;
             }
         };
-        let mut entity = commands.spawn((
+        let scale = panel_present_scale(&panel.id);
+        let presented = presented_size(panel.width, panel.height, scale);
+        // **CR-178183d7** — la ventana del demo (1280×720): el menú `×4` la
+        // llena exactamente (`letterbox = 0`); el mundo `×2` conserva sus
+        // franjas (30,10) como en M17.
+        let bands = letterbox(Vec2::new(1280.0, 720.0), presented);
+        let entity = commands.spawn((
             Sprite {
                 image,
-                custom_size: Some(Vec2::new(
-                    f32::from(panel.width) * 2.0,
-                    f32::from(panel.height) * 2.0,
-                )),
+                custom_size: Some(presented),
                 ..default()
             },
-            Transform::from_xyz(0.0, if index == 0 { 0.0 } else { PARKED_Y }, 0.0),
+            // La capa es de la PANTALLA (CR-178183d7): el menú `×4` solo en
+            // `MENU_LAYER`, el mundo `×2` solo en la capa `0` — ver
+            // [`panel_layers`]. El `main-menu` ya no se dibuja en el mundo.
+            panel_layers(&panel.id),
+            Transform::from_xyz(0.0, surface_y(index, 0), 0.0),
+            // Same twin rule as the runtime owner: parked ⇒ also hidden.
+            surface_visibility(index, 0),
         ));
-        if index != 0 {
-            entity.insert(Visibility::Hidden);
-        }
         panel_sprites.push(entity.id());
+        println!(
+            "M18 VE: present \"{}\" {}×{} ×{} = {}×{} · letterbox {}×{} · layer {}",
+            panel.id,
+            panel.width,
+            panel.height,
+            scale as u8,
+            presented.x as u32,
+            presented.y as u32,
+            bands.x as u32,
+            bands.y as u32,
+            if panel.id == crate::m18_phase::MENU_PANEL_ID {
+                "menu (1)"
+            } else {
+                "world (0)"
+            },
+        );
     }
     // Default world view (panel 0 + HUD); `m18_phase_ui` applies the `Menu`
     // surface (`main-menu` full screen, HUD hidden) on the first frame.
     let drawn_panels = panel_sprites.len();
+    // **CR-4a9c1e77** — the menu's rows are uploads, not compositions: the demo
+    // composed them once at startup (`DemoScene::menu_rows`) and the frame loop
+    // only swaps a handle when the shell's selection moves.
+    let mut menu_rows = Vec::with_capacity(scene.menu_rows.len());
+    for (row, panel) in scene.menu_rows.iter().enumerate() {
+        match bridge::image_from_rgba(
+            &panel.rgba,
+            u32::from(panel.width),
+            u32::from(panel.height),
+            &mut images,
+        ) {
+            Ok(image) => menu_rows.push(image),
+            Err(err) => {
+                eprintln!(
+                    "M18 VE: main-menu row {row} not uploaded — {}×{}: {err}",
+                    panel.width, panel.height
+                );
+                menu_rows.clear();
+                break;
+            }
+        }
+    }
     commands.insert_resource(DemoUi {
         sprites: panel_sprites,
         current: 0,
+        menu_rows,
+        menu_row: None,
     });
     println!(
-        "M18 VE: 1996 UI → {}/{} overlaid panels drawn (320×200 canvas ×2) · keys 1-6",
+        "M18 VE: 1996 UI → {}/{} overlaid panels drawn (world 320×200 ×2 · menu 320×180 ×4) · \
+         keys 1-3/5-6",
         drawn_panels,
         scene.panels.len()
     );
@@ -1430,28 +2064,967 @@ fn spawn_terrain_meshes(
     entities
 }
 
+// ── M-SHELL fase 1 (CR-ca78eb76) ─────────────────────────────────────────
+//
+// The state machine, the line contract and the travel plan live in
+// [`crate::shell`]; these systems are its Bevy wiring: measure the `Startup`
+// facts, drive the transitions and emit the `SHELL VE:` lines through the
+// mirror. Contract: `scripts/shell-001.py`; doc:
+// `docs/sintergic/playability/SHELL-001.md`.
+
+/// `CLIMATE.PAK` parsed once — the terrain lookup of the fast travel
+/// (`daggerfall_heart::travel`). `None` when the retail file is unavailable:
+/// the travel then refuses with a line instead of inventing a route.
+#[derive(Resource, Default)]
+struct ShellClimate(Option<ClimateMap>);
+
+/// Measures the shell facts at `Startup`, **before the world advances**.
+///
+/// - loading steps: one entry per real workload with the units it resolved
+///   (panels, settlement pixels, buildings, textures, terrain samples);
+/// - HUD facts: the composed `hud` panel (opaque pixels) + its digest, measured
+///   once so `MENU` and `PLAYING` publish the SAME selector;
+/// - retail identity `(region, location_id, block)` + the settlement pixels of
+///   the region (one `MAPS.BSA` pass);
+/// - the `map-local` panel index of the composition.
+///
+/// Nothing here reads `dt`, the clock or the RNG: `PROC-two-runs` compares the
+/// lines byte for byte.
+fn shell_startup(mut commands: Commands, world: Res<DemoWorld>) {
+    let scene = &world.0;
+    let hud = shell::HudFacts {
+        panel: crate::m18_phase::HUD_PANEL_ID.to_string(),
+        opaque: scene
+            .panels
+            .iter()
+            .find(|panel| panel.id == crate::m18_phase::HUD_PANEL_ID)
+            .map(|panel| panel.opaque)
+            .unwrap_or_else(|| {
+                scene
+                    .m20_hud
+                    .rgba
+                    .chunks_exact(4)
+                    .filter(|pixel| pixel[3] > 0)
+                    .count()
+            }),
+        digest: scene.m20_hud_digest(),
+    };
+    let (location, settlements) = match crate::m10_probe::shell_settlements() {
+        Ok((identity, pixels)) => {
+            println!(
+                "M18 VE: SHELL retail index — region {} · location {} · block {} · {} settlement pixels",
+                identity.0,
+                identity.1,
+                identity.2,
+                pixels.len()
+            );
+            (Some(identity), pixels)
+        }
+        Err(err) => {
+            println!(
+                "M18 VE: SHELL retail index unavailable ({err}) — 0 settlements and no `world` row \
+                 (0 invented coordinates)"
+            );
+            (None, Vec::new())
+        }
+    };
+    let steps = vec![
+        shell::LoadingStep {
+            work: "panels",
+            units: scene.panels.len() as u64,
+        },
+        shell::LoadingStep {
+            work: "settlements",
+            units: settlements.len() as u64,
+        },
+        shell::LoadingStep {
+            work: "buildings",
+            units: scene.city.buildings.len() as u64,
+        },
+        shell::LoadingStep {
+            work: "textures",
+            units: scene.textures.len() as u64,
+        },
+        shell::LoadingStep {
+            work: "terrain",
+            units: scene.terrain.heights.len() as u64,
+        },
+    ];
+    let map_panel = scene
+        .panels
+        .iter()
+        .position(|panel| panel.id == shell::MAP_PANEL);
+    let climate = daggerfall_app::mode_a::read_arena2("CLIMATE.PAK")
+        .and_then(|bytes| ClimateMap::parse(&bytes).map_err(|err| format!("CLIMATE.PAK: {err:?}")));
+    let climate = match climate {
+        Ok(map) => Some(map),
+        Err(err) => {
+            println!("M18 VE: SHELL travel climate unavailable ({err}) — T will refuse");
+            None
+        }
+    };
+    commands.insert_resource(ShellClimate(climate));
+    commands.insert_resource(shell::Shell::new(
+        steps,
+        hud,
+        location,
+        scene.map_pixel,
+        settlements,
+        map_panel,
+    ));
+}
+
+/// Advances the dwell timer and publishes **at most one** queued line per
+/// frame, in enqueue order. One line per frame keeps the order strict: two
+/// lines with their delay already elapsed can never overtake each other.
+fn shell_pump(time: Res<Time>, mut shell: ResMut<shell::Shell>) {
+    shell.pump(time.delta_secs());
+}
+
+/// Pide el foco de teclado mientras el shell está en su antesala (`Boot`,
+/// `Loading`, `Menu`) y la ventana no lo tiene.
+///
+/// Las teclas del contrato llegan como eventos X11 **dirigidos a la ventana**,
+/// pero winit sólo entrega `KeyboardInput` con el foco de entrada puesto. La
+/// composición tarda ~14 s en `Startup`: si el foco se pidió mientras la ventana
+/// aún no estaba mapeada nadie vuelve a pedirlo y la sesión queda muda — es el
+/// fallo medido por `SHELL-001` el 2026-10-29 (run1: 0 teclas en 180 s con la
+/// misma evidencia que el control sin entrada). Se reintenta cada
+/// [`shell::FOCUS_RETRY`] s y **sólo antes de jugar**: dentro de la partida la
+/// aplicación no roba el foco.
+fn shell_focus_pending(
+    time: Res<Time>,
+    shell: Res<shell::Shell>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut last: Local<f32>,
+) {
+    if !matches!(
+        shell.state,
+        ShellState::Boot | ShellState::Loading { .. } | ShellState::Menu { .. }
+    ) {
+        return;
+    }
+    let now = time.elapsed_secs();
+    if now - *last < shell::FOCUS_RETRY {
+        return;
+    }
+    for mut window in &mut windows {
+        if window.focused {
+            continue;
+        }
+        *last = now;
+        window.focused = true;
+        println!(
+            "M18 VE: shell window ask-focus (SHELL BOOT|LOADING|MENU) — the session takes the \
+             keyboard before play; a lost focus here is a silent session (SHELL-001 run1, \
+             2026-10-29)"
+        );
+    }
+}
+
+/// The phase transitions of the shell: `Boot → Loading(stepⁿ) → Menu`,
+/// `Paused` (frozen publish) and `Exit` (`AppExit` after the labelled dwell).
+fn shell_progress(mut shell: ResMut<shell::Shell>, mut exit: MessageWriter<AppExit>) {
+    match shell.state {
+        ShellState::Boot if shell.dwell >= shell::BOOT_DWELL => {
+            shell.say(0.0, shell::boot_line());
+            shell.state = ShellState::Loading { step: 0 };
+            shell.dwell = 0.0;
+        }
+        ShellState::Loading { step } if shell.dwell >= shell::LOADING_STEP_DWELL => {
+            if step < shell.steps.len() {
+                let current = shell.steps[step];
+                let total = shell.steps.len() as u32;
+                shell.say(
+                    0.0,
+                    shell::step_line(step as u32 + 1, total, current.work, current.units),
+                );
+                shell.state = ShellState::Loading { step: step + 1 };
+            } else {
+                let steps = shell.steps.len() as u32;
+                let units = shell.units_total;
+                let hud = shell.hud.clone();
+                shell.say(0.0, shell::loaded_line(steps, units));
+                shell.state = ShellState::Menu {
+                    selection: shell::MENU_NEW_GAME,
+                };
+                shell.say(
+                    shell::LABEL_SETTLE,
+                    shell::menu_line(shell::MENU_ITEMS.len(), shell::MENU_NEW_GAME),
+                );
+                // El conjunto de ítems es estático: se declara UNA vez al entrar
+                // al menú. `check_menu_order` (SHELL-002:301) lo lee antes de
+                // cualquier tecla; la tecla muerta del control (`z`) no navega,
+                // así que la declaración no depende de la entrada del jugador.
+                shell.say(shell::LABEL_SETTLE + 0.05, shell::menu_order_line());
+                shell.say(
+                    shell::LABEL_SETTLE + 0.10,
+                    shell::hud_line(false, &hud),
+                );
+            }
+            shell.dwell = 0.0;
+        }
+        ShellState::Exit
+            if !shell.exit_requested
+                && shell.dwell >= shell::EXIT_SETTLE + shell::EXIT_AFTER_LINE =>
+        {
+            shell.exit_requested = true;
+            exit.write(AppExit::Success);
+        }
+        _ => {}
+    }
+}
+
+/// Run condition of every world bundle: the world only ticks in `Playing`
+/// (the pause freezes it, the menu never ran it).
+fn shell_world_live(shell: Res<shell::Shell>) -> bool {
+    shell.state.world_live()
+}
+
+/// `Up`/`Down` navigate the menu; `M` opens the local map (one key, one
+/// action: `T` with the map open is the fast travel, never a terrain
+/// re-sample); `Escape` pauses/resumes; `Q` exits from the pause. `Enter` is
+/// [`m18_phase_keys`] — the phase transition and the shell state change
+/// together, single owner of that key.
+#[allow(clippy::too_many_arguments)] // Bevy system: one parameter per resource the shell keys mutate (keys, shell, doors, climate, player, ui, cursor, sprites)
+fn shell_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut shell: ResMut<shell::Shell>,
+    doors: Res<crate::m18_doors::DoorWorld>,
+    climate: Res<ShellClimate>,
+    mut player: ResMut<M19Player>,
+    mut ui: ResMut<DemoUi>,
+    mut cursors: Query<&mut CursorOptions, With<PrimaryWindow>>,
+    mut visibilities: Query<&mut Visibility>,
+    mut transforms: Query<&mut Transform>,
+) {
+    match shell.state {
+        ShellState::Menu { selection: _ } => match shell.panel {
+            shell::ShellPanel::Load => {
+                if keys.just_pressed(KeyCode::ArrowDown) {
+                    shell_browser_move(&mut shell, true);
+                } else if keys.just_pressed(KeyCode::ArrowUp) {
+                    shell_browser_move(&mut shell, false);
+                } else if keys.just_pressed(KeyCode::Escape) {
+                    shell.panel = shell::ShellPanel::None;
+                    shell.say(0.0, shell::load_close_line());
+                }
+            }
+            shell::ShellPanel::Options => {
+                if keys.just_pressed(KeyCode::ArrowRight) {
+                    shell_options_step(&mut shell, 1);
+                } else if keys.just_pressed(KeyCode::ArrowLeft) {
+                    shell_options_step(&mut shell, -1);
+                } else if keys.just_pressed(KeyCode::ArrowDown) {
+                    shell_options_page_move(&mut shell, 1);
+                } else if keys.just_pressed(KeyCode::ArrowUp) {
+                    shell_options_page_move(&mut shell, -1);
+                } else if keys.just_pressed(KeyCode::Escape) {
+                    shell_options_close(&mut shell);
+                }
+            }
+            shell::ShellPanel::None | shell::ShellPanel::Save => {
+                // Navegación natural del menú de 5 ítems con wrap: el cursor lo
+                // mueven `Up`/`Down` y nada más. Cerrar un panel NO lo mueve ni
+                // re-emite selección (corrección del capitán, CR-4b1c198c).
+                if keys.just_pressed(KeyCode::ArrowDown) {
+                    shell_menu_nav(&mut shell, true);
+                } else if keys.just_pressed(KeyCode::ArrowUp) {
+                    shell_menu_nav(&mut shell, false);
+                }
+            }
+        },
+        ShellState::Playing => {
+            if keys.just_pressed(KeyCode::KeyM) {
+                if !shell.map_open {
+                    match shell.map_panel {
+                        Some(index) => {
+                            shell.map_restore = ui.current;
+                            shell.map_open = true;
+                            m18_apply_surface(index, &mut ui, &mut visibilities, &mut transforms);
+                            shell.say(0.0, shell::map_open_line(shell::MAP_PANEL));
+                        }
+                        None => println!(
+                            "M18 VE: SHELL map — panel `map-local` missing from the composition"
+                        ),
+                    }
+                } else {
+                    let restore = shell.map_restore;
+                    shell.map_open = false;
+                    m18_apply_surface(restore, &mut ui, &mut visibilities, &mut transforms);
+                    shell.say(0.0, shell::map_close_line());
+                }
+            }
+            if keys.just_pressed(KeyCode::KeyT) && shell.map_open {
+                shell_travel(&mut *shell, &doors, &climate, &mut player);
+            }
+            // M-QST: teclas de la quest principal. La tabla decide si cada una
+            // es legal en el estado actual; una tecla fuera de lugar publica un
+            // `refused` y no mueve el estado (no se traga el input).
+            for (key, quest_key) in [
+                (KeyCode::KeyY, crate::mainquest_route::QuestKey::Accept),
+                (KeyCode::KeyN, crate::mainquest_route::QuestKey::Decline),
+                (KeyCode::KeyP, crate::mainquest_route::QuestKey::Deliver),
+                (KeyCode::KeyX, crate::mainquest_route::QuestKey::Abandon),
+            ] {
+                if keys.just_pressed(key) {
+                    crate::mainquest_route::press(&mut shell, quest_key);
+                }
+            }
+            if keys.just_pressed(KeyCode::Escape) {
+                // `pause_begin` encola `pause state=Paused` y `pause frozen=1`
+                // juntas: el congelado ya no espera a un temporizador de reloj
+                // real (su posición era función del frame, no del input).
+                shell.pause_begin();
+                let ticks = shell.paused_ticks;
+                // `m2_escape_cursor` lives inside the frozen bundle: the pause
+                // releases the pointer here, once, on the same key.
+                for mut cursor in &mut cursors {
+                    cursor.visible = true;
+                    cursor.grab_mode = CursorGrabMode::None;
+                }
+                println!("M18 VE: SHELL pause — world frozen at {ticks} game minutes");
+            }
+        }
+        ShellState::Paused => {
+            match shell.panel {
+                shell::ShellPanel::Options => {
+                    if keys.just_pressed(KeyCode::ArrowRight) {
+                        shell_options_step(&mut shell, 1);
+                    } else if keys.just_pressed(KeyCode::ArrowLeft) {
+                        shell_options_step(&mut shell, -1);
+                    } else if keys.just_pressed(KeyCode::ArrowDown) {
+                        shell_options_page_move(&mut shell, 1);
+                    } else if keys.just_pressed(KeyCode::ArrowUp) {
+                        shell_options_page_move(&mut shell, -1);
+                    } else if keys.just_pressed(KeyCode::Escape) {
+                        shell_options_close(&mut shell);
+                    }
+                    return;
+                }
+                shell::ShellPanel::Save => {
+                    if keys.just_pressed(KeyCode::ArrowDown) {
+                        shell_browser_move(&mut shell, true);
+                    } else if keys.just_pressed(KeyCode::ArrowUp) {
+                        shell_browser_move(&mut shell, false);
+                    } else if keys.just_pressed(KeyCode::Escape) {
+                        shell.panel = shell::ShellPanel::None;
+                        println!("M18 VE: SHELL save — browser closed, the world stays paused");
+                    }
+                    return;
+                }
+                shell::ShellPanel::Load | shell::ShellPanel::None => {}
+            }
+            if keys.just_pressed(KeyCode::Escape) {
+                shell.state = ShellState::Playing;
+                shell.dwell = 0.0;
+                shell.say(shell::RESUME_SETTLE, shell::resume_line());
+                println!("M18 VE: SHELL resume — world live again");
+            } else if keys.just_pressed(KeyCode::KeyO) {
+                // Una sola ruta para las dos aperturas: el panel de opciones es
+                // el mismo desde el menú (`Return` en `options`) y desde aquí.
+                shell_open_options(&mut shell);
+            } else if keys.just_pressed(KeyCode::KeyS) {
+                shell_open_save(&mut shell);
+            } else if keys.just_pressed(KeyCode::KeyB) {
+                shell_back_to_menu(&mut shell);
+            } else if keys.just_pressed(KeyCode::KeyQ) {
+                shell.state = ShellState::Exit;
+                shell.dwell = 0.0;
+                shell.say(shell::EXIT_SETTLE, shell::exit_line(0));
+                println!("M18 VE: SHELL exit — Q in the pause menu");
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Fast travel from the session pixel to the nearest settlement of the region
+/// (`daggerfall_heart::travel` over the real `CLIMATE.PAK`): consumes the game
+/// minutes in the session clock, publishes the route and moves the avatar a
+/// declared `TRAVEL_M_PER_PIXEL` per pixel of the route.
+fn shell_travel(
+    shell: &mut shell::Shell,
+    doors: &crate::m18_doors::DoorWorld,
+    climate: &ShellClimate,
+    player: &mut M19Player,
+) {
+    let Some(target) = shell.travel_target else {
+        println!("M18 VE: SHELL travel — no settlement pixel in the region (0 invented destinations)");
+        return;
+    };
+    let Some(climate) = climate.0.as_ref() else {
+        println!("M18 VE: SHELL travel — CLIMATE.PAK unavailable, the route cannot be costed");
+        return;
+    };
+    // El origen es el píxel de sesión que el shell midió en `Startup`: una sola
+    // fuente para la ruta y para `travel from=…`, sin releer el mundo.
+    let from = shell.base_pixel;
+    let lookup = |x: i32, y: i32| climate.climate_index(x, y);
+    match shell::plan_travel(&lookup, (from[0], from[1]), (target[0], target[1])) {
+        Ok(facts) => {
+            shell.clock_minutes += facts.minutes;
+            shell.say(0.0, shell::travel_line(&facts, &doors.scene_label));
+            let dx = (facts.to[0] - facts.from[0]) as f32;
+            let dz = (facts.to[1] - facts.from[1]) as f32;
+            let length = (dx * dx + dz * dz).sqrt().max(1.0);
+            let step = shell::TRAVEL_M_PER_PIXEL * facts.delta_px as f32;
+            player.locomotion.position[0] += step * dx / length;
+            player.locomotion.position[2] += step * dz / length;
+            player.locomotion.horizontal_velocity = [0.0, 0.0];
+            player.locomotion.vertical_velocity = 0.0;
+            player.locomotion.falling = false;
+            println!(
+                "M18 VE: SHELL travel ({},{}) → ({},{}) · {} px · {} min · {} gold · avatar +{:.1} m",
+                facts.from[0],
+                facts.from[1],
+                facts.to[0],
+                facts.to[1],
+                facts.delta_px,
+                facts.minutes,
+                facts.gold,
+                step
+            );
+        }
+        Err(err) => println!("M18 VE: SHELL travel refused — {err}"),
+    }
+}
+
+/// `y` of one sprite of the composed 2D surface: the active panel sits on the
+/// camera plane, every other panel is parked out of view (see [`PARKED_Y`]).
+fn surface_y(at: usize, active: usize) -> f32 {
+    if at == active {
+        0.0
+    } else {
+        PARKED_Y
+    }
+}
+
+/// Visibility of one sprite of the composed 2D surface — always the twin of
+/// [`surface_y`]: a panel is on screen only when it is **both** `Visible` and
+/// unparked, so the two facts are never decided apart.
+fn surface_visibility(at: usize, active: usize) -> Visibility {
+    if at == active {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    }
+}
+
+/// **THE owner of the composed 2D surface** (M-1): puts panel `index` on screen
+/// and parks the rest, moving **visibility and position in the same step**, then
+/// records the index in [`DemoUi::current`].
+///
+/// Two routes need this surface and both call *this* function — the `1-3`/`5-6`
+/// keys and the shell's map (see [`m18_switch_panel`] / [`shell_keys`]) and the
+/// phase selector (see [`m18_phase_ui`]) — so there is exactly one place that
+/// writes [`DemoUi::current`]. Splitting the two facts is the 2026-10-30 defect
+/// (CR-625ff0ea): `m18_phase_ui` flipped the retail `main-menu` (index 3) to
+/// `Visible` while the sprite stayed parked at `y = PARKED_Y`, i.e. off camera,
+/// and the same write of `ui.current` made the key route skip the reposition —
+/// the menu was reported as "no menu appears" with the world on screen.
+///
+/// Returns `false` when the composition has no sprite for `index` (its image
+/// could not be uploaded): the surface is then left untouched instead of
+/// hiding every panel.
+fn m18_apply_surface(
+    index: usize,
+    ui: &mut DemoUi,
+    visibilities: &mut Query<&mut Visibility>,
+    transforms: &mut Query<&mut Transform>,
+) -> bool {
+    if index >= ui.sprites.len() {
+        return false;
+    }
+    let active_y = surface_y(index, index);
+    for (at, entity) in ui.sprites.iter().enumerate() {
+        // One step: the same `at` decides visibility and position, so a panel
+        // can never be `Visible` while parked (or the reverse).
+        if let Ok(mut visibility) = visibilities.get_mut(*entity) {
+            *visibility = surface_visibility(at, index);
+        }
+        // Panels are centred at the origin: parking is the hide the client
+        // surface actually repaints (see [`PARKED_Y`]).
+        if let Ok(mut transform) = transforms.get_mut(*entity) {
+            transform.translation.y = surface_y(at, index);
+        }
+    }
+    ui.current = index;
+    println!(
+        "M18 VE: surface → index {index} on screen at y={active_y:.1} · {} panel(s) parked at y={:.1}",
+        ui.sprites.len().saturating_sub(1),
+        PARKED_Y,
+    );
+    true
+}
+
 /// **B1-d (CS-20)** — `Enter` leaves the menu: `Menu` ⇒ `Playing`, one way.
 ///
-/// The transition itself is the shared pure [`crate::m18_phase::phase_after_enter`];
-/// this system only reads the key (single input surface convention of the demo).
-/// Nothing of the composition changes: the spawn, the yaw and the HUD are the
-/// ones the menu already held.
+/// The phase transition is the shared pure [`crate::m18_phase::phase_after_enter`];
+/// the shell state change ([`ShellState::Playing`]) and the evidence of the new
+/// session (`new_game` + `world` + `hud visible=1`) live here too, so `Enter`
+/// has a single owner and the phase can never be `Playing` while the shell
+/// still says `MENU`. `Enter` on the `quit` item ends the session instead
+/// (`GAP-SHELL-07` keeps the world un-entered: nothing to tear down).
 fn m18_phase_keys(
     keys: Res<ButtonInput<KeyCode>>,
     mut phase: ResMut<crate::m18_phase::AppPhase>,
+    mut shell: ResMut<shell::Shell>,
+    world: Res<DemoWorld>,
+    doors: Res<crate::m18_doors::DoorWorld>,
+    mut started: MessageWriter<NewGameStarted>,
+    mut restored: MessageWriter<SessionRestored>,
 ) {
+    // ── creación: `Right`/`Left` eligen cara, `Down` avanza el canon, `Enter`
+    //    confirma desde cualquier paso (el driver confirma en el paso 2). ──
+    if let ShellState::Create { .. } = shell.state {
+        // Una sola ruta de creación (`shell_route`): la ventana no reimplementa
+        // el canon ni el texto de la evidencia — solo traduce teclas.
+        if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::ArrowLeft) {
+            let next_face =
+                shell_route::create_face(&mut shell, keys.just_pressed(KeyCode::ArrowRight));
+            println!("M18 VE: SHELL create — face {next_face}");
+            return;
+        }
+        if keys.just_pressed(KeyCode::ArrowDown) {
+            shell_route::create_next_step(&mut shell);
+            return;
+        }
+        if !keys.just_pressed(KeyCode::Enter) {
+            return;
+        }
+        // `confirm_create` publica `create done`, la primera `session` y la
+        // entrada al mundo con la escena compuesta de esta ventana.
+        let scene = session_scene(&world, &doors);
+        let slots_present = shell_slots::scan().count();
+        if let Some(character) =
+            shell_route::confirm_create(&mut shell, &mut phase, Some(&scene), slots_present)
+        {
+            println!("M18 VE: SHELL create done — character {character} enters the world");
+            // El mundo no puede resetearse desde `confirm_create` (ECS-free): el
+            // half de mundo viaja como mensaje y lo consume `m18_new_game_reset`
+            // en este mismo frame, después del cambio de fase.
+            started.write(NewGameStarted);
+        }
+        return;
+    }
+
     if !keys.just_pressed(KeyCode::Enter) {
         return;
     }
-    let next = crate::m18_phase::phase_after_enter(*phase);
-    if next != *phase {
+    // La pausa con el browser de guardado abierto: `Enter` escribe el slot.
+    if matches!(shell.state, ShellState::Paused) {
+        if shell.panel == shell::ShellPanel::Save {
+            shell_write_slot(&mut shell);
+        }
+        return;
+    }
+    let ShellState::Menu { selection } = shell.state else {
+        // `Enter` solo significa algo en el menú; la pausa sale con `Q`.
+        return;
+    };
+    match shell.panel {
+        shell::ShellPanel::Load => {
+            if let Some((slot, world)) = shell_load_slot(&mut shell, &mut phase, &world, &doors) {
+                restored.write(SessionRestored { slot, world });
+            }
+        }
+        shell::ShellPanel::Options => {}
+        shell::ShellPanel::None | shell::ShellPanel::Save => match selection {
+            shell::MENU_NEW_GAME => {
+                shell_route::create_begin(&mut shell);
+                println!("M18 VE: SHELL create — the retail wizard opens at step 1");
+            }
+            shell::MENU_CONTINUE => {
+                if let Some((slot, world)) = shell_continue(&mut shell, &mut phase, &world, &doors)
+                {
+                    restored.write(SessionRestored { slot, world });
+                }
+            }
+            shell::MENU_LOAD => shell_open_load(&mut shell),
+            shell::MENU_OPTIONS => shell_open_options(&mut shell),
+            _ => {
+                shell.state = ShellState::Exit;
+                shell.dwell = 0.0;
+                shell.say(shell::EXIT_SETTLE, shell::exit_line(0));
+                println!("M18 VE: SHELL exit — menu item `quit` (no world was ever entered)");
+            }
+        },
+    }
+}
+
+/// `Up`/`Down` del menú: 5 ítems, wrap natural.
+fn shell_menu_nav(shell: &mut shell::Shell, down: bool) {
+    let ShellState::Menu { selection } = shell.state else {
+        return;
+    };
+    let next = if down {
+        shell::selection_after_down(selection)
+    } else {
+        shell::selection_after_up(selection)
+    };
+    shell.state = ShellState::Menu { selection: next };
+    shell.say(0.0, shell::selection_line(next));
+}
+
+/// `Up`/`Down` del browser: el cursor recorre los slots OCUPADOS leídos al
+/// abrir el panel (un perfil vacío no mueve nada) y cada paso declara el slot.
+fn shell_browser_move(shell: &mut shell::Shell, down: bool) {
+    let len = shell.slots.len();
+    if len == 0 {
+        return;
+    }
+    shell.browser_slot = if down {
+        (shell.browser_slot + 1) % len
+    } else {
+        (shell.browser_slot + len - 1) % len
+    };
+    if let Some(facts) = shell.slots.get(shell.browser_slot) {
+        let line = shell::slot_line(facts, shell_slots::FORMAT);
+        shell.say(0.0, line);
+    }
+}
+
+/// Abre el browser de carga del menú con los slots REALES del perfil.
+fn shell_open_load(shell: &mut shell::Shell) {
+    let store = shell_slots::scan();
+    let count = store.count();
+    shell.slots = store.slots;
+    shell.slots_rejected = store.rejected;
+    shell.browser_slot = 0;
+    shell.panel = shell::ShellPanel::Load;
+    shell.say(0.0, shell::load_open_line(count, shell_slots::FORMAT));
+    if let Some(facts) = shell.slots.first() {
+        let line = shell::slot_line(facts, shell_slots::FORMAT);
+        shell.say(0.0, line);
+    }
+    println!("M18 VE: SHELL load — browser open over {count} readable slot(s)");
+}
+
+/// Abre el browser de guardado de la pausa.
+fn shell_open_save(shell: &mut shell::Shell) {
+    let occupied = shell_route::open_save(shell, shell_slots::scan());
+    println!(
+        "M18 VE: SHELL save — browser open over {occupied} occupied slot(s), {} rejected",
+        shell.slots_rejected
+    );
+}
+
+/// Abre el panel de opciones (menú o pausa: una sola ruta).
+fn shell_open_options(shell: &mut shell::Shell) {
+    if shell.options.is_empty() {
         println!(
-            "M18 VE: phase {} → {} (Enter) — world systems live, the clock starts at the \
-             menu's 0 minutes",
-            phase.label(),
-            next.label()
+            "M18 VE: SHELL options — the configuration census resolved no page: \
+             no options line is invented"
         );
-        *phase = next;
+        return;
+    }
+    shell.panel = shell::ShellPanel::Options;
+    let pages = shell.options_pages();
+    let at = shell.options_page.min(pages - 1);
+    shell.options_page = at;
+    let page = shell.options[at].id.clone();
+    shell.say(0.0, shell::options_open_line(&page, pages));
+}
+
+/// Cierra el panel de opciones sin salir del estado (menú o pausa).
+fn shell_options_close(shell: &mut shell::Shell) {
+    shell.panel = shell::ShellPanel::None;
+    shell.say(0.0, shell::options_close_line());
+    println!("M18 VE: SHELL options — panel closed, the state is unchanged");
+}
+
+/// `Right`/`Left` mueven el valor de la página en curso (una sola copia del
+/// valor: el estado sobrevive a cerrar el panel, al menú y a la pausa).
+fn shell_options_step(shell: &mut shell::Shell, delta: i64) {
+    let pages = shell.options_pages();
+    if pages == 0 {
+        return;
+    }
+    let at = shell.options_page.min(pages - 1);
+    let value = shell.options_values[at];
+    let next = if delta >= 0 {
+        value.saturating_add(1)
+    } else {
+        value.saturating_sub(1)
+    };
+    shell.options_values[at] = next;
+    let key = shell.options[at].key.clone();
+    shell.say(0.0, shell::options_set_line(&key, next, pages));
+    println!("M18 VE: SHELL options — {key} = {next} (page {at}, {pages} pages)");
+}
+
+/// `Down`/`Up` recorren las páginas del censo (wrap).
+fn shell_options_page_move(shell: &mut shell::Shell, delta: i64) {
+    let pages = shell.options_pages();
+    if pages == 0 {
+        return;
+    }
+    shell.options_page =
+        ((shell.options_page as i64 + delta).rem_euclid(pages as i64)) as usize;
+    let at = shell.options_page;
+    let page = shell.options[at].id.clone();
+    shell.say(0.0, shell::options_open_line(&page, pages));
+}
+
+/// Escribe el slot elegido por el browser con el reloj de sesión real.
+fn shell_write_slot(shell: &mut shell::Shell) {
+    let Some(dir) = shell_slots::save_dir() else {
+        println!("M18 VE: SHELL save — DF_SAVE_DIR is not set: no slot is guessed");
+        return;
+    };
+    if shell.character.is_none() {
+        println!("M18 VE: SHELL save — no session character: nothing to write");
+        return;
+    }
+    match shell_route::write_slot(shell, &dir) {
+        Ok((index, bytes, _digest)) => {
+            println!("M18 VE: SHELL save — slot {index} written ({bytes} bytes)")
+        }
+        Err(err) => println!("M18 VE: SHELL save — {err}"),
+    }
+}
+
+/// `continue`: sin slots no hay partida (`notice=no-save`, se queda en MENU);
+/// con slots restaura el de mayor índice ocupado (regla declarada: el
+/// documento v3 no guarda instante de escritura).
+fn shell_continue(
+    shell: &mut shell::Shell,
+    phase: &mut crate::m18_phase::AppPhase,
+    world: &DemoWorld,
+    doors: &crate::m18_doors::DoorWorld,
+) -> Option<(usize, shell_slots::WorldSnapshot)> {
+    let store = shell_slots::scan();
+    let count = store.count();
+    if count == 0 {
+        shell.say(0.0, shell::continue_none_line(0));
+        println!("M18 VE: SHELL continue — no save in the profile, the menu stays");
+        return None;
+    }
+    let newest = store.newest().cloned();
+    shell.slots = store.slots;
+    shell.slots_rejected = store.rejected;
+    let Some(facts) = newest else {
+        return None;
+    };
+    let dir = shell_slots::save_dir()?;
+    match shell_slots::read_in(&dir, facts.index) {
+        Ok(doc) => {
+            let minutes = shell_slots::minutes_of(&doc);
+            let character = doc.character.name.clone();
+            let face = doc.character.face_index.max(0) as usize;
+            shell.character = Some(character.clone());
+            shell.face = face;
+            shell.clock_minutes = minutes;
+            shell.session_slot = Some(facts.index);
+            // M-QST: el estado de la quest se rehidrata ANTES de entrar al
+            // mundo, para que el disparador vea el estado real y no re-ofrezca.
+            crate::mainquest_route::restore_into(shell, &doc);
+            let restored = resume_world(shell, facts.index, &doc, "continue");
+            shell.say(
+                0.0,
+                shell::continue_loaded_line(facts.index, shell_slots::FORMAT),
+            );
+            let scene = session_scene(world, doors);
+            shell_route::enter_playing(shell, phase, Some(&scene), false);
+            println!("M18 VE: SHELL continue — slot {} restored", facts.index);
+            restored.map(|world| (facts.index, world))
+        }
+        Err(err) => {
+            println!("M18 VE: SHELL continue — slot {} unreadable: {err}", facts.index);
+            None
+        }
+    }
+}
+
+/// `Return` sobre el slot del browser: restaura la sesión guardada.
+fn shell_load_slot(
+    shell: &mut shell::Shell,
+    phase: &mut crate::m18_phase::AppPhase,
+    world: &DemoWorld,
+    doors: &crate::m18_doors::DoorWorld,
+) -> Option<(usize, shell_slots::WorldSnapshot)> {
+    let Some(facts) = shell.slots.get(shell.browser_slot).cloned() else {
+        println!("M18 VE: SHELL load — the browser has no occupied slot to choose");
+        return None;
+    };
+    let Some(dir) = shell_slots::save_dir() else {
+        println!("M18 VE: SHELL load — DF_SAVE_DIR is not set: no slot is guessed");
+        return None;
+    };
+    match shell_slots::read_in(&dir, facts.index) {
+        Ok(doc) => {
+            let minutes = shell_slots::minutes_of(&doc);
+            let character = doc.character.name.clone();
+            let face = doc.character.face_index.max(0) as usize;
+            shell.character = Some(character.clone());
+            shell.face = face;
+            shell.clock_minutes = minutes;
+            shell.session_slot = Some(facts.index);
+            // M-QST: mismo rehidratado que `continue` — el disparador de
+            // `enter_playing` no puede re-ofrecer lo ya decidido en el slot.
+            crate::mainquest_route::restore_into(shell, &doc);
+            let restored = resume_world(shell, facts.index, &doc, "load");
+            shell.say(
+                0.0,
+                shell::load_done_line(facts.index, shell_slots::FORMAT, minutes, &character),
+            );
+            let scene = session_scene(world, doors);
+            shell_route::enter_playing(shell, phase, Some(&scene), false);
+            println!("M18 VE: SHELL load — slot {} restored", facts.index);
+            restored.map(|world| (facts.index, world))
+        }
+        Err(err) => {
+            println!("M18 VE: SHELL load — slot {} unreadable: {err}", facts.index);
+            None
+        }
+    }
+}
+
+/// Decisión de reanudación de un documento ya leído (`continue` y `load` la
+/// comparten: una sola regla, un solo aviso).
+///
+/// - Generación 4: devuelve el mundo que el slot declara y lo deja en
+///   [`shell::Shell::snapshot`] (el siguiente guardado lo vuelve a declarar).
+/// - Generación 3: publica `W-SAVE-001` con los campos ausentes y **no**
+///   inventa posición ni reloj de mundo — el avatar se queda donde está el
+///   mundo y el reloj de la sesión no salta.
+fn resume_world(
+    shell: &mut shell::Shell,
+    slot: usize,
+    doc: &daggerfall_memory::savegame_v2::SaveGameV2,
+    route: &str,
+) -> Option<shell_slots::WorldSnapshot> {
+    let plan = shell_slots::restore_plan(doc);
+    shell.snapshot = plan.world;
+    match plan.world {
+        Some(world) => Some(world),
+        None => {
+            shell.say(0.0, shell::save_fidelity_warning_line(slot, &plan));
+            println!(
+                "W-SAVE-001: {} slot {slot} is generation {} (missing {}): identity and \
+                 session clock restored, world position and world clock are NOT",
+                route,
+                plan.fidelity,
+                plan.missing().join(",")
+            );
+            None
+        }
+    }
+}
+
+/// Hechos del mundo compuesto que la línea `world` publica: la etiqueta de la
+/// puerta/celda compuesta y los tres contadores del `DemoScene` real. La
+/// entrada al mundo la compone [`crate::shell_route::enter_playing`]: aquí solo
+/// se miden los hechos que la ventana tiene delante.
+fn session_scene(
+    world: &DemoWorld,
+    doors: &crate::m18_doors::DoorWorld,
+) -> crate::shell_route::SessionScene {
+    crate::shell_route::SessionScene {
+        label: doors.scene_label.clone(),
+        buildings: world.0.city.buildings.len(),
+        npcs: world.0.npcs.len(),
+        panels: world.0.panels.len(),
+    }
+}
+
+/// `b` en la pausa: la sesión vuelve al menú (misma ruta que el pase headless).
+fn shell_back_to_menu(shell: &mut shell::Shell) {
+    shell_route::back_to_menu(shell);
+    println!("M18 VE: SHELL menu — back from the session, selection reset to new-game");
+}
+
+/// **CR-4a9c1e77** — paints the row the shell has selected.
+///
+/// The defect this closes: `ui_spec::build_main_menu_panel` bakes
+/// `MENU_ACTIVE_ROW` into the panel, `m18_demo` composed it **once**, and this
+/// setup uploaded that one picture — so `Up`/`Down` moved
+/// `ShellState::Menu { selection }` while the chevron stayed on `NEW GAME`.
+/// The scene now carries one picture per row; this system is the only writer
+/// of [`DemoUi::menu_row`] and swaps the sprite's handle (no composition, no
+/// per-frame work beyond a comparison). The sprite is resolved **at runtime**
+/// through the same [`crate::m18_phase::visible_panel_index`] the surface
+/// owner uses: a setup-time index was what kept the first fix from painting.
+/// Every early exit states its reason once (latched), so a silent return can
+/// never be mistaken for "nothing changed".
+///
+/// Window falsifier: `DF_MENU_ROW_FROZEN=1` pins the painted row to 0, so the
+/// capture ladder of `scripts/menu-selection-capture.py --frozen` must come
+/// out identical (gate RED).
+fn m18_menu_selection_ui(
+    phase: Res<crate::m18_phase::AppPhase>,
+    shell: Res<shell::Shell>,
+    world: Res<DemoWorld>,
+    mut ui: ResMut<DemoUi>,
+    mut sprites: Query<&mut Sprite>,
+    mut said: Local<[bool; 5]>,
+) {
+    // Window falsifier for `PROBE-MENU-LAYOUT-001`: with the row frozen the
+    // chevron cannot move, so the capture ladder must come out identical.
+    let frozen = cfg!(feature = "probes") && std::env::var_os("DF_MENU_ROW_FROZEN").is_some();
+    let effective = screen_phase(*phase, shell.state);
+    if effective != crate::m18_phase::AppPhase::Menu {
+        if !said[0] {
+            said[0] = true;
+            eprintln!("M18 VE: main-menu row not painted — surface is {}", effective.label());
+        }
+        return;
+    }
+    let shell::ShellState::Menu { selection } = shell.state else {
+        // The menu surface is also what `Create` shows: keep the last row on
+        // screen instead of repainting it from a state that has no selection.
+        if !said[1] {
+            said[1] = true;
+            eprintln!("M18 VE: main-menu row not painted — shell state holds no selection");
+        }
+        return;
+    };
+    // Same single source of truth as the surface owner: the panel that is
+    // visible is whatever `visible_panel_index` says, never a setup-time index.
+    let ids: Vec<&str> = world.0.panels.iter().map(|panel| panel.id.as_str()).collect();
+    let Some(index) = crate::m18_phase::visible_panel_index(effective, &ids) else {
+        if !said[2] {
+            said[2] = true;
+            eprintln!("M18 VE: main-menu row not painted — visible_panel_index returned None");
+        }
+        return;
+    };
+    let Some(sprite) = ui.sprites.get(index).copied() else {
+        if !said[3] {
+            said[3] = true;
+            eprintln!("M18 VE: main-menu row not painted — panel {index} has no sprite handle");
+        }
+        return;
+    };
+    let row = if frozen { 0 } else { selection };
+    if row >= ui.menu_rows.len() {
+        if !said[4] {
+            said[4] = true;
+            eprintln!(
+                "M18 VE: selection {row} has no painted main-menu row ({} uploaded)",
+                ui.menu_rows.len()
+            );
+        }
+        return;
+    }
+    if ui.menu_row == Some(row) {
+        return;
+    }
+    let image = ui.menu_rows[row].clone();
+    let Ok(mut sprite) = sprites.get_mut(sprite) else {
+        return;
+    };
+    if sprite.image == image {
+        ui.menu_row = Some(row);
+        return;
+    }
+    sprite.image = image;
+    ui.menu_row = Some(row);
+    if frozen {
+        println!("M18 VE: main-menu selection → row {row} painted (FROZEN by DF_MENU_ROW_FROZEN)");
+    } else {
+        println!("M18 VE: main-menu selection → row {row} painted");
     }
 }
 
@@ -1463,30 +3036,43 @@ fn m18_phase_keys(
 /// default world view the pre-B1 build showed. The panel is selected by
 /// [`crate::m18_phase::visible_panel_index`] — the same pure function
 /// `MENU-001` reads over the composed panels — so the screen and the probe
-/// cannot drift. Only a surface change touches `Visibility`.
+/// cannot drift. The surface itself is applied by [`m18_apply_surface`]: this
+/// system decides *which* panel, that one moves visibility and position.
 fn m18_phase_ui(
     phase: Res<crate::m18_phase::AppPhase>,
+    shell: Res<shell::Shell>,
     world: Res<DemoWorld>,
     hud: Res<DemoHud>,
     mut ui: ResMut<DemoUi>,
     mut visibilities: Query<&mut Visibility>,
+    mut transforms: Query<&mut Transform>,
     mut applied: Local<Option<(usize, bool)>>,
 ) {
+    // `b` devuelve la sesión al menú y la creación abre el wizard: en los dos
+    // casos la superficie es la del menú retail, aunque `AppPhase` conserve el
+    // mundo compuesto (la pausa, en cambio, sigue mostrando el mundo congelado).
+    // La regla vive en [`screen_phase`] porque también decide qué cámaras están
+    // encendidas ([`m18_phase_screen`]): panel y fondo nunca discrepan.
+    let effective = screen_phase(*phase, shell.state);
     let ids: Vec<&str> = world
         .0
         .panels
         .iter()
         .map(|panel| panel.id.as_str())
         .collect();
-    let Some(index) = crate::m18_phase::visible_panel_index(*phase, &ids) else {
+    let Some(index) = crate::m18_phase::visible_panel_index(effective, &ids) else {
         return;
     };
-    let hud_visible = crate::m18_phase::hud_visible(*phase);
+    let hud_visible = crate::m18_phase::hud_visible(effective);
     if *applied == Some((index, hud_visible)) {
         return;
     }
     *applied = Some((index, hud_visible));
-    if index >= ui.sprites.len() {
+    // THE single surface owner (`m18_apply_surface`): visibility **and**
+    // position in one step. `1-6` and the shell's map go through the same
+    // function, so `Menu` can never end up with `main-menu` marked `Visible`
+    // while still parked at `PARKED_Y` (CR-625ff0ea, 2026-10-30).
+    if !m18_apply_surface(index, &mut ui, &mut visibilities, &mut transforms) {
         println!(
             "M18 VE: UI surface {} — panel \"{}\" has no sprite (its image could not be \
              uploaded)",
@@ -1494,16 +3080,6 @@ fn m18_phase_ui(
             ids[index],
         );
     }
-    for (at, entity) in ui.sprites.iter().enumerate() {
-        if let Ok(mut visibility) = visibilities.get_mut(*entity) {
-            *visibility = if at == index {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        }
-    }
-    ui.current = index;
     if let Some(entity) = hud.sprite {
         if let Ok(mut visibility) = visibilities.get_mut(entity) {
             *visibility = if hud_visible {
@@ -1519,6 +3095,244 @@ fn m18_phase_ui(
         ids[index],
         world.0.panels[index].opaque,
         if hud_visible { "visible" } else { "hidden" },
+    );
+}
+
+/// Fase **de pantalla**: `Menu` y `Create` son la pantalla del menú (mismo arte
+/// retail, mundo apagado); el resto es la fase real del mundo.
+///
+/// Es la única regla de la separación visual (**CR-625ff0ea**): `m18_phase_ui`
+/// la usa para elegir el panel y [`m18_phase_screen`] para encender o apagar las
+/// cámaras, así que el arte del menú y el fondo detrás de él nunca pueden
+/// contradecirse.
+fn screen_phase(
+    phase: crate::m18_phase::AppPhase,
+    state: ShellState,
+) -> crate::m18_phase::AppPhase {
+    match state {
+        ShellState::Menu { .. } | ShellState::Create { .. } => crate::m18_phase::AppPhase::Menu,
+        _ => phase,
+    }
+}
+
+/// Estado de una superficie medido en la ventana: `(Visible, y, custom_size)`.
+pub(crate) type SurfaceProbe = (bool, f32, Option<Vec2>);
+
+/// **CR-178183d7** — el gate de escalas de la pantalla: **una pantalla nunca
+/// presenta la escala de la otra**.
+///
+/// - `menu` enciende: cámaras del mundo apagadas (3D + 2D), cámara del menú
+///   encendida, y la superficie del menú `Visible`, a `y = 0` y presentada a
+///   `320×180 ×4 = 1280×720` (**sin bandas**).
+/// - `menu` apagado: lo contrario, y la superficie del menú **no** puede estar
+///   en `y = 0` visible (se pinta a `×2` sobre `×4`).
+///
+/// Devuelve la línea de evidencia o la lista de violaciones medidas; no mira el
+/// estado declarado, mira las cámaras y la geometría reales.
+fn scale_gate(
+    menu: bool,
+    cameras: (bool, bool, bool),
+    surface: SurfaceProbe,
+) -> Result<String, Vec<String>> {
+    let (world3d, world_ui, menu_screen) = cameras;
+    let (visible, y, custom_size) = surface;
+    let mut bad = Vec::new();
+    let menu_size = presented_size(320, 180, panel_present_scale(crate::m18_phase::MENU_PANEL_ID));
+    if menu {
+        if world3d || world_ui {
+            bad.push(format!("menu screen with a world camera on (3D={world3d} 2D={world_ui})"));
+        }
+        if !menu_screen {
+            bad.push("menu screen with the menu camera off".to_string());
+        }
+        if !visible {
+            bad.push("menu surface not Visible".to_string());
+        }
+        if y.to_bits() != 0.0_f32.to_bits() {
+            bad.push(format!("menu surface at y={y}, not on the camera plane"));
+        }
+        match custom_size {
+            Some(size) if size == menu_size => {
+                let bands = letterbox(Vec2::new(1280.0, 720.0), size);
+                if bands != Vec2::ZERO {
+                    bad.push(format!("menu presented with bands {}×{}", bands.x, bands.y));
+                }
+            }
+            Some(size) => bad.push(format!(
+                "menu surface presented {}×{} instead of {}×{}",
+                size.x, size.y, menu_size.x, menu_size.y
+            )),
+            None => bad.push("menu surface has no custom_size (canvas 1:1)".to_string()),
+        }
+    } else {
+        if !world3d || !world_ui {
+            bad.push(format!("world screen with a world camera off (3D={world3d} 2D={world_ui})"));
+        }
+        if menu_screen {
+            bad.push("world screen with the menu camera on".to_string());
+        }
+        if visible && y.to_bits() == 0.0_f32.to_bits() {
+            bad.push("menu surface visible on the world screen (×4 over ×2)".to_string());
+        }
+    }
+    if bad.is_empty() {
+        Ok(format!(
+            "{} · cameras 3D={} 2D={} menu={} · menu surface visible={} y={} size={}×{}",
+            if menu { "MENU" } else { "WORLD" },
+            u8::from(world3d),
+            u8::from(world_ui),
+            u8::from(menu_screen),
+            u8::from(visible),
+            y,
+            custom_size.map(|s| s.x).unwrap_or(0.0),
+            custom_size.map(|s| s.y).unwrap_or(0.0),
+        ))
+    } else {
+        Err(bad)
+    }
+}
+
+/// Cadencia de la evidencia de simulación (segundos reales).
+const SIM_EVIDENCE_PERIOD_S: f32 = 5.0;
+
+/// **CR-625ff0ea** — el menú es **su propia pantalla**: `Menu`/`Create` apagan
+/// las dos cámaras del mundo (3D + 2D) y encienden la pantalla del menú, que
+/// pinta negro opaco y solo extrae los paneles retail ([`MENU_LAYER`]).
+///
+/// `Playing`/`Paused` hacen lo contrario: el mundo se dibuja como antes (la
+/// pausa lo muestra congelado — eso lo decide la fase, no este sistema). Solo
+/// escribe cuando la pantalla cambia (`Local`), así que cuesta 0 por frame.
+fn m18_phase_screen(
+    phase: Res<crate::m18_phase::AppPhase>,
+    shell: Res<shell::Shell>,
+    mut world_cameras: Query<
+        &mut Camera,
+        (
+            With<WorldCamera>,
+            Without<WorldUiCamera>,
+            Without<MenuScreenCamera>,
+        ),
+    >,
+    mut world_ui: Query<
+        &mut Camera,
+        (
+            With<WorldUiCamera>,
+            Without<WorldCamera>,
+            Without<MenuScreenCamera>,
+        ),
+    >,
+    mut menu_screen: Query<
+        &mut Camera,
+        (
+            With<MenuScreenCamera>,
+            Without<WorldCamera>,
+            Without<WorldUiCamera>,
+        ),
+    >,
+    mut applied: Local<Option<bool>>,
+    ui: Option<Res<DemoUi>>,
+    world_panels: Option<Res<DemoWorld>>,
+    surfaces: Query<(&Transform, &Visibility, Option<&Sprite>)>,
+) {
+    let menu = !screen_phase(*phase, shell.state).allows_world();
+    if *applied == Some(menu) {
+        return;
+    }
+    *applied = Some(menu);
+    for mut camera in &mut world_cameras {
+        camera.is_active = !menu;
+    }
+    for mut camera in &mut world_ui {
+        camera.is_active = !menu;
+    }
+    for mut camera in &mut menu_screen {
+        camera.is_active = menu;
+    }
+    println!(
+        "M18 VE: screen {} · shell {} → {}",
+        if menu { "MENU" } else { "WORLD" },
+        shell.state.label(),
+        if menu {
+            "world cameras off (3D+2D) · menu screen on (opaque black, layer 1 = retail panels) · \
+             0 scene pixels"
+        } else {
+            "world cameras on (3D+2D) · menu screen off · scene + HUD"
+        },
+    );
+    // **CR-178183d7** — el gate mide lo que acaba de pasar: una pantalla no
+    // puede quedarse con la escala de la otra. Si el spawn no ha llegado, no hay
+    // superficie que medir (la primera pasada solo enciende cámaras).
+    let Some(ui) = ui.as_deref() else {
+        println!("M18 VE: scale gate — surfaces not spawned yet");
+        return;
+    };
+    let surface = world_panels
+        .as_deref()
+        .and_then(|world| {
+            world
+                .0
+                .panels
+                .iter()
+                .position(|panel| panel.id == crate::m18_phase::MENU_PANEL_ID)
+        })
+        .and_then(|index| ui.sprites.get(index))
+        .and_then(|entity| surfaces.get(*entity).ok())
+        .map(|(transform, visibility, sprite)| {
+            (
+                matches!(*visibility, Visibility::Visible),
+                transform.translation.y,
+                sprite.and_then(|sprite| sprite.custom_size),
+            )
+        })
+        .unwrap_or((false, PARKED_Y, None));
+    let cameras = (
+        world_cameras.iter().any(|camera| camera.is_active),
+        world_ui.iter().any(|camera| camera.is_active),
+        menu_screen.iter().any(|camera| camera.is_active),
+    );
+    match scale_gate(menu, cameras, surface) {
+        Ok(line) => println!("M18 VE: scale gate OK · {line}"),
+        Err(violations) => {
+            for violation in &violations {
+                println!("M18 VE: SCALE GATE VIOLATION {violation}");
+            }
+            debug_assert!(false, "screen scale gate: {violations:?}");
+        }
+    }
+}
+
+/// **CR-625ff0ea** — contadores de simulación por fase, medidos en la ventana.
+///
+/// Publica `M18 VE: sim ticks=<n> …` cuando la pantalla cambia y cada
+/// [`SIM_EVIDENCE_PERIOD_S`] s. En `Menu`/`Create` el contador es **0** (el
+/// bundle del mundo no corre) y en `Playing` crece; el reloj de juego lo
+/// confirma (los minutos no avanzan). Lee el mismo [`WorldSimTicks`] que
+/// incrementa el bundle gateado: no hay contador paralelo que pueda mentir.
+fn m18_sim_evidence(
+    phase: Res<crate::m18_phase::AppPhase>,
+    shell: Res<shell::Shell>,
+    ticks: Res<WorldSimTicks>,
+    clock: Option<Res<ProgressionClock>>,
+    time: Res<Time>,
+    mut last: Local<Option<(bool, f32)>>,
+) {
+    let menu = !screen_phase(*phase, shell.state).allows_world();
+    let now = time.elapsed_secs();
+    let due = match *last {
+        Some((was_menu, at)) => was_menu != menu || now - at >= SIM_EVIDENCE_PERIOD_S,
+        None => true,
+    };
+    if !due {
+        return;
+    }
+    *last = Some((menu, now));
+    println!(
+        "M18 VE: sim ticks={} phase={} shell={} world={} · clock {} min",
+        ticks.frames,
+        phase.label(),
+        shell.state.label(),
+        if menu { "stopped" } else { "running" },
+        clock.map_or(0, |clock| clock.clock.total_minutes()),
     );
 }
 
@@ -1562,6 +3376,7 @@ fn m18_yaw_keys(
 fn m18_origin_toggle(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
+    shell: Res<shell::Shell>,
     mut world: ResMut<DemoWorld>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -1570,6 +3385,11 @@ fn m18_origin_toggle(
     mut coastal: Local<Option<Option<crate::m18_demo::CoastalPixel>>>,
 ) {
     if !keys.just_pressed(KeyCode::KeyT) {
+        return;
+    }
+    // `T` es viaje rápido mientras el mapa está abierto ([`shell_keys`]): la
+    // rama del mapa tiene precedencia y este sistema no re-muestrea el terreno.
+    if shell.map_open {
         return;
     }
     if woods.is_none() {
@@ -1738,11 +3558,21 @@ fn m20_report_step(label: &str, step: &DriverStep) -> bool {
 
 /// M20 HUD upload handles: the sprite, the image assets and the primary
 /// window (shared by the R accelerator and [`m20_progression_tick`]).
+///
+/// **NEW GAME (CR-178183d7):** the sprite query is `Without<WorldCamera>` so
+/// the camera's `Transform` (written by the reset to return the player to the
+/// spawn) is provably disjoint from the HUD's: without the filter two `&mut
+/// Transform` accesses in one system are a `B0001` panic.
 #[derive(SystemParam)]
 struct M20HudUpload<'w, 's> {
     hud: Res<'w, DemoHud>,
     images: ResMut<'w, Assets<Image>>,
-    sprites: Query<'w, 's, (&'static mut Sprite, &'static mut Transform)>,
+    sprites: Query<
+        'w,
+        's,
+        (&'static mut Sprite, &'static mut Transform),
+        Without<WorldCamera>,
+    >,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
 }
 
@@ -2024,6 +3854,18 @@ fn m19_spawn_player(mut commands: Commands, world: Res<DemoWorld>) {
     );
 }
 
+/// M44 (`CR-bd972066-59e6-4768-9985-de75f69f6798`): the interior the demo
+/// crosses is a **real** retail dungeon grid. It is assembled here through the
+/// single owner of the geometry (`interior_retail::RetailSource` →
+/// `assemble`, i.e. `MAPDITEM` + the `.RDB` cells of `BLOCKS.BSA`), so the
+/// window and the headless probe read the same bytes — 0 second geometry path.
+fn m44_interior_grid() -> Option<bridge::dungeon_grid::DungeonGrid> {
+    let retail = crate::interior_retail::RetailSource::load().ok()?;
+    let (_, dungeons) = retail.dungeons().ok()?;
+    let dungeon = dungeons.first()?;
+    Some(retail.assemble(&dungeon.layout))
+}
+
 /// First-person movement: the M19 engine decides (retail grid inside the
 /// city, M13 sampler outside) through the demo adapter.
 fn m18_apply_player_action(
@@ -2031,13 +3873,38 @@ fn m18_apply_player_action(
     action: Res<m2_player::ActionState>,
     world: Res<DemoWorld>,
     combat: Res<DemoCombat>,
+    mut doors: ResMut<crate::m18_doors::DoorWorld>,
     mut m19: ResMut<M19Player>,
     time: Res<Time>,
     mut telemetry: Local<f32>,
+    mut m44_grid: Local<bool>,
 ) {
     let Ok((mut transform, mut player)) = players.single_mut() else {
         return;
     };
+    // M44 (`CR-bd972066`): first frame of the demo — the interior grid the
+    // player is about to cross is assembled from the retail `BLOCKS.BSA`
+    // cells **once**, consumed here (block/doors/extent) and published through
+    // the canal. A missing ARENA2 says so; it is never a silent zero.
+    if !*m44_grid {
+        *m44_grid = true;
+        match m44_interior_grid() {
+            Some(grid) => {
+                let (width_m, depth_m) = grid.extent_m();
+                crate::dun_canal::emit(&format!(
+                    "M18 VE: interior grid blocks={} doors={} extent={:.1}x{:.1} m \
+                     (retail BLOCKS.BSA)",
+                    grid.blocks.len(),
+                    grid.doors.len(),
+                    width_m,
+                    depth_m
+                ));
+            }
+            None => crate::dun_canal::emit(
+                "M18 VE: interior grid unavailable — ARENA2 not accessible (never a silent 0)",
+            ),
+        }
+    }
     if action.look_delta != Vec2::ZERO {
         player.yaw -= action.look_delta.x * m2_player::LOOK_SENSITIVITY;
         player.pitch = (player.pitch - action.look_delta.y * m2_player::LOOK_SENSITIVITY)
@@ -2083,9 +3950,23 @@ fn m18_apply_player_action(
         sneak: *sneak,
         levitating: movement.levitating,
     };
-    let adapter = world.0.locomotion_world();
+    // FG-01: a door transition landed this frame — the teleport wins over the
+    // step of the scene the player just left.
+    if let Some(eye) = doors.take_teleport() {
+        locomotion.position = eye;
+        locomotion.horizontal_velocity = [0.0, 0.0];
+        locomotion.vertical_velocity = 0.0;
+        locomotion.falling = false;
+        locomotion.fall_start_y = eye[1];
+        transform.translation = Vec3::from_array(eye);
+    }
+    // FG-01: the adapter is the world the player is in (exterior grid or the
+    // interior block's own grid); the engine steps the same way in both.
+    let adapter = doors.active_world(&world.0);
     let frame = locomotion.step(&input, body, &adapter, dice, time.delta_secs());
     transform.translation = Vec3::from_array(locomotion.position);
+    // FG-01: the door reach test reads the position the step just produced.
+    doors.transit.position = locomotion.position;
 
     *telemetry += time.delta_secs();
     if *telemetry >= 2.0 {
@@ -2151,11 +4032,16 @@ fn m19_update_title(
     law: Res<M28Law>,
     guards: Res<DemoGuardBillboards>,
     phase: Res<crate::m18_phase::AppPhase>,
+    shell: Res<shell::Shell>,
+    doors: Res<crate::m18_doors::DoorWorld>,
 ) {
     let mode = player.locomotion.mode;
+    // `SHELL <ETAPA>` es la etiqueta que mide `SHELL-001` (`label_of`) y la que
+    // conserva las subcadenas `MENU`/`PLAYING` que esperan los gates previos
+    // (`playthrough-p1-door.py` pulsa `Return` hasta ver `PLAYING`).
     let mut title = format!(
         "DAGGERFALL-LIKE — {} · M20 demo · {} · {} · breath {}/{} · POP {} · guards visible {}",
-        phase.label(),
+        shell.state.title(),
         mode.label(),
         world.0.m20_status_line(),
         player.locomotion.breath,
@@ -2163,6 +4049,7 @@ fn m19_update_title(
         world.0.npcs.len(),
         guards.sprites.len(),
     );
+    title.push_str(&format!(" · scene={}", doors.scene_label));
     if !phase.allows_world() {
         title.push_str(" · Enter enters the world");
     }
@@ -2274,11 +4161,13 @@ fn m18_captions(
     captions.visible = wanted;
 }
 
-/// Keys 1-6: toggle the overlaid M17 panel (1-4 the 1996 panels, 5/6 the
-/// B3-c map panels `map-local` / `map-world`, CS-18/CS-19).
+/// Keys 1-3 and 5-6: select the overlaid panel of the world (1-3 the 1996
+/// panels, 5/6 the B3-c map panels `map-local` / `map-world`, CS-18/CS-19).
+/// Key `4` has **no** world panel: index 3 is the menu screen since
+/// CR-178183d7 (`main-plates`, 320×180 ×4, `MENU_LAYER`).
 ///
 /// **m-7:** registered inside the `Playing` bundle — the menu owns its surface
-/// (M-1: `main-menu` full screen) and a stray `1-4` cannot replace it.
+/// (M-1: `main-menu` full screen) and a stray `1-3`/`5-6` cannot replace it.
 fn m18_switch_panel(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui: ResMut<DemoUi>,
@@ -2292,7 +4181,16 @@ fn m18_switch_panel(
     } else if keys.just_pressed(KeyCode::Digit3) {
         Some(2)
     } else if keys.just_pressed(KeyCode::Digit4) {
-        Some(3)
+        // **CR-178183d7** — el índice 3 ya no es un panel del mundo: es la
+        // pantalla del menú (`320×180 ×4`, capa `MENU_LAYER`). Dejarlo
+        // `Visible` desde aquí mezclaba una superficie `×4` con el mundo `×2`
+        // (y ahora, sin la capa `0`, dejaría la pantalla vacía), así que la
+        // tecla se declara sin panel en vez de componer una pantalla mezclada.
+        println!(
+            "M18 VE: key 4 has no world panel — index 3 is the menu surface \
+             (320×180 ×4, MENU_LAYER) and belongs to the Menu phase"
+        );
+        return;
     } else if keys.just_pressed(KeyCode::Digit5) {
         // **B3-b / CS-18** — `map-local` (5th panel of `session_panels`).
         Some(4)
@@ -2305,31 +4203,15 @@ fn m18_switch_panel(
     let Some(index) = requested else {
         return;
     };
-    if index >= ui.sprites.len() || index == ui.current {
-        return;
-    }
     let previous = ui.current;
-    for (at, entity) in ui.sprites.iter().enumerate() {
-        if let Ok(mut visibility) = visibilities.get_mut(*entity) {
-            *visibility = if at == index {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        }
-        // Panels are centred at the origin: parking is the hide the client
-        // surface actually repaints (see [`PARKED_Y`]).
-        if let Ok(mut transform) = transforms.get_mut(*entity) {
-            transform.translation.y = if at == index { 0.0 } else { PARKED_Y };
-        }
+    if m18_apply_surface(index, &mut ui, &mut visibilities, &mut transforms) && index != previous {
+        println!(
+            "M18 VE: panel {} visible (was {}) · {} sprites · keys 1-3/5-6",
+            index,
+            previous,
+            ui.sprites.len()
+        );
     }
-    ui.current = index;
-    println!(
-        "M18 VE: panel {} visible (was {}) · {} sprites · keys 1-6",
-        index,
-        previous,
-        ui.sprites.len()
-    );
 }
 
 /// Y that puts a 2D sprite outside the orthographic view — the *reliable* hide
@@ -2345,6 +4227,58 @@ const PARKED_Y: f32 = -20_000.0;
 
 /// Scale of the retail overlays on the 2D camera (same 2× as the panels).
 const OVERLAY_SCALE: f32 = 2.0;
+
+/// **CR-178183d7 — la escala pertenece a la PANTALLA, no al sprite.**
+///
+/// El mundo compone a `320×200` y se presenta a `640×400` (`×2`), como desde
+/// M17: HUD, inventario, quests y mapas no cambian. El menú moderno compone a
+/// `320×180` y se presenta **a sangre**: `320×180 ×4 = 1280×720`, que es la
+/// ventana del demo (ver el `WindowPlugin` de [`build_app`]), con
+/// `letterbox = 0` — ninguna banda. Una pantalla nunca mezcla las dos escalas.
+const WORLD_PRESENT_SCALE: f32 = 2.0;
+/// Escala de presentación de la pantalla del menú (`320×180 ×4 = 1280×720`).
+const MENU_PRESENT_SCALE: f32 = 4.0;
+
+/// Escala de presentación de un panel del escenario.
+///
+/// Solo el `main-menu` ([`crate::m18_phase::MENU_PANEL_ID`], compuesto por
+/// `MenuScreen::compose` a `320×180`) es la pantalla del menú; cualquier otro
+/// panel es el mundo (`320×200`) y sigue a `×2`.
+fn panel_present_scale(id: &str) -> f32 {
+    if id == crate::m18_phase::MENU_PANEL_ID {
+        MENU_PRESENT_SCALE
+    } else {
+        WORLD_PRESENT_SCALE
+    }
+}
+
+/// Capa de render de un panel: **la capa es de la pantalla**.
+///
+/// El menú vive solo en [`MENU_LAYER`] y el mundo solo en la capa `0`, así la
+/// cámara del menú (`RenderLayers::layer(MENU_LAYER)`) no puede componer un
+/// panel `×2` ni la del mundo (`order: 1`, capa `0`) uno `×4` — ni siquiera si
+/// una tecla deja el panel equivocado `Visible`.
+fn panel_layers(id: &str) -> RenderLayers {
+    if id == crate::m18_phase::MENU_PANEL_ID {
+        RenderLayers::layer(MENU_LAYER)
+    } else {
+        RenderLayers::layer(0)
+    }
+}
+
+/// Tamaño presentado de un lienzo `(w, h)` a la escala de su pantalla.
+fn presented_size(width: u16, height: u16, scale: f32) -> Vec2 {
+    Vec2::new(f32::from(width) * scale, f32::from(height) * scale)
+}
+
+/// Franjas que deja una superficie presentada en una ventana (`0` = a sangre).
+fn letterbox(window: Vec2, presented: Vec2) -> Vec2 {
+    Vec2::new(
+        (window.x - presented.x).max(0.0) * 0.5,
+        (window.y - presented.y).max(0.0) * 0.5,
+    )
+}
+
 /// Margin of an overlay to the window border (pixels).
 const OVERLAY_MARGIN_PX: f32 = 8.0;
 
@@ -2562,6 +4496,122 @@ fn m18_overlay_keys(
     }
 }
 
+/// Z of the quest prompt: above both retail overlays (`20`) — the prompt is a
+/// status line of the act and must never be buried by a toggled overlay.
+const QUEST_Z: f32 = 21.0;
+
+/// **M-QST (CR-3c7a91e6)** — paints the quest prompt from the state.
+///
+/// The offer used to exist only as a `MQ VE:` channel line: the player could
+/// not see it. This system composes the prompt with the **existing** overlay
+/// route ([`crate::mainquest_route::prompt_overlay`] → the journal `.FNT` and
+/// [`crate::m18_b3b::text_overlay`]) and keeps one sprite in the top-right
+/// corner: offer = title + `Y`/`N`, act = objective + keys, terminal = one
+/// line, `unstarted` = nothing painted.
+///
+/// It repaints **only** when the state changes, so the frame cost is one
+/// texture per transition and never a redraw per frame.
+fn m18_quest_prompt(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    world: Res<DemoWorld>,
+    shell: Res<shell::Shell>,
+    mut overlays: ResMut<DemoOverlays>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut sprites: Query<(&mut Sprite, &mut Transform, &mut Visibility)>,
+) {
+    let state = shell.mainquest.state();
+    let painted = overlays.quest_state == Some(state);
+    // Already on screen for this state, or the sprite could not be composed.
+    if (painted && overlays.quest_shown) || overlays.quest_failed {
+        return;
+    }
+    let window = windows.single().ok();
+    let screen_w = window.map_or(1280.0, |window| window.resolution.width());
+    let screen_h = window.map_or(720.0, |window| window.resolution.height());
+    match crate::mainquest_route::prompt_overlay(&world.0.m20_font, world.0.m20_ink, state) {
+        Some(texture) => {
+            let (center_x, center_y) = crate::mainquest_route::prompt_center(
+                screen_w,
+                screen_h,
+                (texture.width, texture.height),
+                crate::mainquest_route::PROMPT_SCALE,
+            );
+            let at = Vec3::new(center_x, center_y, QUEST_Z);
+            match overlays.quest {
+                Some(entity) => {
+                    // The content changes with the state (a new image), not
+                    // only the position: a painter that ignored the state
+                    // would leave the previous texture here.
+                    if let Ok((mut sprite, mut transform, mut visibility)) =
+                        sprites.get_mut(entity)
+                    {
+                        if let Ok(image) = bridge::image_from_rgba(
+                            &texture.rgba,
+                            u32::from(texture.width),
+                            u32::from(texture.height),
+                            &mut images,
+                        ) {
+                            sprite.image = image;
+                            sprite.custom_size =
+                                Some(Vec2::new(
+                                    f32::from(texture.width)
+                                        * crate::mainquest_route::PROMPT_SCALE,
+                                    f32::from(texture.height)
+                                        * crate::mainquest_route::PROMPT_SCALE,
+                                ));
+                        }
+                        transform.translation = at;
+                        *visibility = Visibility::Visible;
+                    }
+                    overlays.quest_state = Some(state);
+                    overlays.quest_at = at;
+                    overlays.quest_shown = true;
+                    println!(
+                        "M18 VE: quest prompt state={} on screen at ({center_x:.0}, {center_y:.0}) · {}×{} px · {} ink px · digest {:016x}",
+                        state.token(),
+                        texture.width,
+                        texture.height,
+                        crate::mainquest_route::ink_pixels(&texture),
+                        crate::mainquest_route::texture_digest(&texture)
+                    );
+                }
+                None => {
+                    // First paint: the sprite is spawned parked and hidden (the
+                    // B3-b convention) and shown on the next frame, so this
+                    // frame only records what it painted.
+                    overlays.quest =
+                        m18_overlay_sprite(&mut commands, &mut images, &texture, at);
+                    overlays.quest_at = at;
+                    if overlays.quest.is_none() {
+                        overlays.quest_failed = true;
+                        eprintln!(
+                            "M18 VE: quest prompt unavailable — the sprite could not be composed (0 invented text)"
+                        );
+                    }
+                }
+            }
+        }
+        None => {
+            // `unstarted`: nothing to paint. A world that never received the
+            // offer shows no prompt (0 ink pixels, not an empty box).
+            if let Some(entity) = overlays.quest {
+                if let Ok((_, mut transform, mut visibility)) = sprites.get_mut(entity) {
+                    *visibility = Visibility::Hidden;
+                    transform.translation =
+                        Vec3::new(overlays.quest_at.x, PARKED_Y, overlays.quest_at.z);
+                }
+            }
+            overlays.quest_state = Some(state);
+            overlays.quest_shown = false;
+            println!(
+                "M18 VE: quest prompt state={} · nothing painted (0 ink px)",
+                state.token()
+            );
+        }
+    }
+}
+
 /// Roll handed to [`crate::ui_weather::draw`] for a map pixel: deterministic
 /// (`[0,100)`), so the same pixel replays the same precipitation.
 fn weather_roll(pixel: [i32; 2]) -> f32 {
@@ -2632,18 +4682,10 @@ fn m18_spawn_weather(
         size,
         ..DemoWeather::default()
     };
-    let path = match crate::mode_a_arena2_path("CLIMATE.PAK") {
-        Ok(path) => path,
-        Err(err) => {
-            eprintln!("M18 VE: weather unavailable — {err} (no invented climate)");
-            commands.insert_resource(weather);
-            return;
-        }
-    };
-    let bytes = match std::fs::read(&path) {
+    let bytes = match daggerfall_app::mode_a::read_arena2("CLIMATE.PAK") {
         Ok(bytes) => bytes,
         Err(err) => {
-            eprintln!("M18 VE: weather unavailable — reading {path:?}: {err}");
+            eprintln!("M18 VE: weather unavailable — {err} (no invented climate)");
             commands.insert_resource(weather);
             return;
         }
@@ -3407,15 +5449,18 @@ fn m18_cs13_face_crowd(
 fn m28_guards_replace_npcs(
     law: Res<M28Law>,
     npcs: ResMut<DemoNpcs>,
+    mut state: ResMut<DemoGuardBillboards>,
     mut commands: Commands,
     mut visibilities: Query<&mut Visibility>,
-    mut replaced: Local<usize>,
 ) {
-    if law.guards.len() <= *replaced {
+    if law.guards.len() <= state.replaced {
         return;
     }
-    let pool: Vec<[f32; 3]> = law.guards[*replaced..].iter().map(|(_, at)| *at).collect();
-    *replaced = law.guards.len();
+    let pool: Vec<[f32; 3]> = law.guards[state.replaced..]
+        .iter()
+        .map(|(_, at)| *at)
+        .collect();
+    state.replaced = law.guards.len();
     for position in pool {
         let Some((entity, at)) = npcs.0.iter().find(|(_, npc)| {
             (npc.x - position[0]).hypot(npc.z - position[2]) < 0.6
@@ -3898,5 +5943,310 @@ mod cs14_tests {
         let eye = [0.0, 1.6, 0.0];
         let door = cs14_door_position(eye, 0.0, DOOR_REACH_M + 0.6);
         assert!(xz_distance(door, eye) > DOOR_REACH_M);
+    }
+}
+
+/// **CR-625ff0ea (2026-10-30)** — the surface invariant the window broke: a
+/// panel is on screen **only** when it is both `Visible` and unparked, and
+/// exactly one panel of the composition may be on screen at a time.
+///
+/// The reported defect (title `SHELL MENU`, world on screen, no menu) was the
+/// two facts decided apart: `m18_phase_ui` flipped the retail `main-menu`
+/// (index 3) to `Visible` while the sprite kept the spawn's `PARKED_Y`, i.e.
+/// 20 000 units off an orthographic camera whose view is ~720 px tall.
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    /// On screen = `Visible` **and** `y = 0.0` (the camera plane).
+    fn on_screen(at: usize, active: usize) -> bool {
+        matches!(surface_visibility(at, active), Visibility::Visible)
+            && surface_y(at, active).to_bits() == 0.0_f32.to_bits()
+    }
+
+    #[test]
+    fn exactly_one_panel_is_on_screen_and_the_rest_are_hidden_and_parked() {
+        for active in 0..6 {
+            let screen: Vec<usize> = (0..6).filter(|at| on_screen(*at, active)).collect();
+            assert_eq!(screen, vec![active], "active {active} ⇒ on screen {screen:?}");
+            for at in (0..6).filter(|at| *at != active) {
+                assert!(
+                    matches!(surface_visibility(at, active), Visibility::Hidden),
+                    "at {at} / active {active}: a parked panel stayed visible"
+                );
+                assert_eq!(
+                    surface_y(at, active).to_bits(),
+                    PARKED_Y.to_bits(),
+                    "at {at} / active {active}: the panel was not parked"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_retail_main_menu_is_unparked_only_when_it_owns_the_surface() {
+        // `visible_panel_index(Menu, …)` of the composed panels is 3 (`MENU-001`).
+        const MAIN_MENU: usize = 3;
+        assert!(on_screen(MAIN_MENU, MAIN_MENU), "Menu surface must be on camera");
+        // Negative control: the same index while `hud` (0) owns the surface.
+        assert!(!on_screen(MAIN_MENU, 0), "main-menu leaked over the world view");
+        assert!(
+            matches!(surface_visibility(MAIN_MENU, MAIN_MENU), Visibility::Visible)
+                && surface_y(MAIN_MENU, MAIN_MENU).to_bits() == 0.0_f32.to_bits(),
+            "the menu must be Visible **and** at y=0 in the same step"
+        );
+    }
+
+    #[test]
+    fn the_parked_y_leaves_every_orthographic_view() {
+        assert!(PARKED_Y < -1_000.0, "PARKED_Y must be off camera, got {PARKED_Y}");
+        assert!(PARKED_Y.to_bits() != 0.0_f32.to_bits());
+    }
+}
+
+/// **CR-625ff0ea** — the `1-6` route driven by the **production** system
+/// (`m18_switch_panel`), in a headless `World`: every key must leave its panel
+/// on camera (`Visible` **and** `y = 0`) and park the rest.
+///
+/// This is the route the window runs in `Playing` (`m18_origin_toggle`,
+/// `m18_switch_panel` under `phase_playing` + `shell_world_live`); the phase
+/// route is the same owner, so one test covers the pairing the defect broke.
+#[cfg(test)]
+mod surface_drive_tests {
+    use super::*;
+
+    fn drive(index: usize, key: KeyCode) -> (Vec<(bool, f32)>, usize) {
+        let mut world = World::new();
+        world.insert_resource(ButtonInput::<KeyCode>::default());
+        // The spawn's own rule: panel 0 on camera, the rest hidden + parked.
+        let mut sprites = Vec::new();
+        for at in 0..6 {
+            sprites.push(
+                world
+                    .spawn((
+                        Visibility::default(),
+                        Transform::from_xyz(0.0, surface_y(at, 0), 0.0),
+                    ))
+                    .id(),
+            );
+        }
+        for (at, entity) in sprites.iter().enumerate() {
+            world
+                .entity_mut(*entity)
+                .insert(surface_visibility(at, 0_usize));
+        }
+        world.insert_resource(DemoUi {
+            sprites,
+            current: 0,
+            menu_rows: Vec::new(),
+            menu_row: None,
+        });
+
+        let mut schedule = Schedule::default();
+        schedule.add_systems(m18_switch_panel);
+        world.resource_mut::<ButtonInput<KeyCode>>().press(key);
+        schedule.run(&mut world);
+
+        let ui = world.resource::<DemoUi>();
+        let current = ui.current;
+        let mut rows = Vec::new();
+        for (at, entity) in ui.sprites.iter().enumerate() {
+            let visible = matches!(
+                *world.get::<Visibility>(*entity).expect("sprite keeps its Visibility"),
+                Visibility::Visible
+            );
+            let y = world
+                .get::<Transform>(*entity)
+                .expect("sprite keeps its Transform")
+                .translation
+                .y;
+            let _ = at;
+            rows.push((visible, y));
+        }
+        (rows, current)
+    }
+
+    #[test]
+    fn world_keys_put_their_panel_on_camera_and_park_the_rest() {
+        // **CR-178183d7** — `4` ya no es un panel del mundo: el índice 3 es la
+        // pantalla del menú (`320×180 ×4`, `MENU_LAYER`), así que el mapa es
+        // 1→0, 2→1, 3→2, 5→4, 6→5 y `Digit4` se declara sin panel.
+        let keys = [
+            (0usize, KeyCode::Digit1),
+            (1, KeyCode::Digit2),
+            (2, KeyCode::Digit3),
+            (4, KeyCode::Digit5),
+            (5, KeyCode::Digit6),
+        ];
+        for (index, key) in keys {
+            let (rows, current) = drive(index, key);
+            assert_eq!(current, index, "{key:?} must record its index in DemoUi::current");
+            for (at, (visible, y)) in rows.iter().enumerate() {
+                if at == index {
+                    assert!(*visible, "{key:?}: panel {at} was not made visible");
+                    assert_eq!(
+                        y.to_bits(),
+                        0.0_f32.to_bits(),
+                        "{key:?}: panel {at} stayed parked at {y}"
+                    );
+                } else {
+                    assert!(!visible, "{key:?}: panel {at} stayed visible");
+                    assert_eq!(
+                        y.to_bits(),
+                        PARKED_Y.to_bits(),
+                        "{key:?}: panel {at} was not parked"
+                    );
+                }
+            }
+        }
+    }
+
+    /// `Digit4` **no** puede poner la pantalla del menú encima del mundo: la
+    /// superficie queda intacta (índice 0, sin mezclar `×4` con `×2`).
+    #[test]
+    fn key_4_never_puts_the_menu_surface_over_the_world() {
+        let (rows, current) = drive(0, KeyCode::Digit4);
+        assert_eq!(current, 0, "the menu surface must not own the world view");
+        assert!(rows[0].0, "the world panel stayed on camera");
+        for (at, (visible, y)) in rows.iter().enumerate().skip(1) {
+            assert!(!visible, "panel {at} became visible on a `Digit4` press");
+            assert_eq!(y.to_bits(), PARKED_Y.to_bits(), "panel {at} left its park");
+        }
+    }
+}
+
+/// **CR-178183d7** — la presentación por pantalla: el menú a `×4` (1280×720,
+/// `letterbox = 0`), el mundo a `×2` (640×400), y el panel del menú en su propia
+/// capa para que ninguna cámara componga la escala de la otra pantalla.
+#[cfg(test)]
+mod present_scale_tests {
+    use super::*;
+
+    #[test]
+    fn the_menu_is_presented_at_x4_without_bands() {
+        let size = presented_size(320, 180, panel_present_scale("main-menu"));
+        assert_eq!((size.x, size.y), (1280.0, 720.0));
+        let bands = letterbox(Vec2::new(1280.0, 720.0), size);
+        assert_eq!((bands.x, bands.y), (0.0, 0.0), "a full-bleed menu has 0 bands");
+    }
+
+    #[test]
+    fn the_world_keeps_x2_and_its_bands() {
+        for id in ["hud", "inventory", "quests", "map-local", "map-world"] {
+            let size = presented_size(320, 200, panel_present_scale(id));
+            assert_eq!((size.x, size.y), (640.0, 400.0), "{id} must stay at ×2");
+            let bands = letterbox(Vec2::new(1280.0, 720.0), size);
+            assert_eq!((bands.x, bands.y), (320.0, 160.0), "{id}: world bands changed");
+        }
+    }
+
+    #[test]
+    fn the_menu_and_the_world_never_share_a_render_layer() {
+        // La cámara del menú extrae `MENU_LAYER`; la del mundo, la capa 0.
+        assert_eq!(panel_layers("main-menu"), RenderLayers::layer(MENU_LAYER));
+        for id in ["hud", "inventory", "quests", "map-local", "map-world"] {
+            assert_eq!(panel_layers(id), RenderLayers::layer(0), "{id} left layer 0");
+            assert_ne!(
+                panel_layers(id),
+                panel_layers("main-menu"),
+                "{id} shares the menu layer (scales would mix)"
+            );
+        }
+    }
+
+    /// El gate enciende/conduce la pantalla del menú tal y como se presenta.
+    #[test]
+    fn the_scale_gate_passes_a_full_bleed_menu_screen() {
+        let surface = (true, 0.0, Some(Vec2::new(1280.0, 720.0)));
+        let line = scale_gate(true, (false, false, true), surface).expect("menu screen is legal");
+        assert!(line.contains("size=1280×720") || line.contains("size=1280"), "{line}");
+    }
+
+    /// Falsificador: la misma pantalla presentada a `×2` (el defecto del ticket).
+    #[test]
+    fn the_scale_gate_rejects_x2_on_the_menu_screen() {
+        let surface = (true, 0.0, Some(Vec2::new(640.0, 400.0)));
+        let bad = scale_gate(true, (false, false, true), surface).expect_err("×2 on the menu is illegal");
+        assert!(
+            bad.iter().any(|v| v.contains("instead of 1280×720")),
+            "the gate did not name the size: {bad:?}"
+        );
+    }
+
+    /// Falsificador: mundo apagado pero cámara del mundo encendida.
+    #[test]
+    fn the_scale_gate_rejects_a_world_camera_on_the_menu_screen() {
+        let surface = (true, 0.0, Some(Vec2::new(1280.0, 720.0)));
+        let bad = scale_gate(true, (true, false, true), surface).expect_err("world 3D camera leaked");
+        assert!(bad.iter().any(|v| v.contains("world camera on")), "{bad:?}");
+    }
+
+    /// La pantalla del mundo exige lo contrario y comprueba que el menú no esté
+    /// encima: `Visible` en `y = 0` sobre el mundo es la mezcla prohibida.
+    #[test]
+    fn the_scale_gate_rejects_the_menu_surface_over_the_world() {
+        let legal = (false, PARKED_Y, Some(Vec2::new(1280.0, 720.0)));
+        assert!(scale_gate(false, (true, true, false), legal).is_ok());
+        let leaked = (true, 0.0, Some(Vec2::new(1280.0, 720.0)));
+        let bad = scale_gate(false, (true, true, false), leaked).expect_err("menu leaked over world");
+        assert!(bad.iter().any(|v| v.contains("×4 over ×2")), "{bad:?}");
+    }
+}
+
+/// **CR-625ff0ea** — la regla de la pantalla: `Menu` y `Create` son la pantalla
+/// del menú (mundo apagado); `Playing`/`Paused` son la pantalla del mundo.
+#[cfg(test)]
+mod menu_screen_tests {
+    use super::*;
+    use crate::m18_phase::AppPhase;
+
+    /// El menú y el wizard de creación nunca muestran el mundo: la vuelta con
+    /// `b` y la creación resuelven a `Menu` aunque `AppPhase` conserve el mundo
+    /// compuesto ⇒ cámaras del mundo apagadas, pantalla del menú encendida.
+    ///
+    /// `Boot`/`Loading` **conservan la fase** (no la fuerzan): solo existen antes
+    /// del `Enter`, cuando la fase ya es `Menu` — el mismo reparto que tenía la
+    /// selección de panel.
+    #[test]
+    fn menu_and_create_are_the_menu_screen() {
+        for state in [
+            ShellState::Menu { selection: 0 },
+            ShellState::Create { step: 1, face: 0 },
+        ] {
+            let screen = screen_phase(AppPhase::Playing, state);
+            assert_eq!(screen, AppPhase::Menu, "{state:?} must show the menu screen");
+            assert!(
+                !screen.allows_world(),
+                "{state:?}: the world must not be on screen"
+            );
+        }
+        for state in [ShellState::Boot, ShellState::Loading { step: 2 }] {
+            let screen = screen_phase(AppPhase::Menu, state);
+            assert_eq!(screen, AppPhase::Menu);
+            assert!(!screen.allows_world(), "{state:?}: startup shows the menu");
+        }
+    }
+
+    /// Dentro del juego (y en la pausa, que muestra el mundo congelado) la
+    /// pantalla es la del mundo.
+    #[test]
+    fn playing_and_paused_are_the_world_screen() {
+        for state in [ShellState::Playing, ShellState::Paused] {
+            let screen = screen_phase(AppPhase::Playing, state);
+            assert_eq!(screen, AppPhase::Playing, "{state:?} must show the world");
+            assert!(screen.allows_world(), "{state:?}: the world must be on screen");
+        }
+    }
+
+    /// Control negativo: el shell no puede **abrir** el mundo por sí solo. Con
+    /// la fase en `Menu` (nadie pulsó `Enter`) el shell diciendo `Playing` deja
+    /// la pantalla en el menú — la fase sigue siendo la puerta.
+    #[test]
+    fn the_shell_cannot_enter_the_world_alone() {
+        assert_eq!(
+            screen_phase(AppPhase::Menu, ShellState::Playing),
+            AppPhase::Menu
+        );
+        assert!(!screen_phase(AppPhase::Menu, ShellState::Playing).allows_world());
     }
 }

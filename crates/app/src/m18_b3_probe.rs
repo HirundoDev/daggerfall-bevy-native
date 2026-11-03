@@ -481,6 +481,7 @@ pub fn run_panels_001() -> i32 {
                     source: None,
                     text: None,
                     ink: 0,
+                    tracking: 0,
                 }],
             };
             matches!(

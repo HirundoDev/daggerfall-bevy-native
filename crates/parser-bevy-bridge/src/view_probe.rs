@@ -192,10 +192,10 @@ pub fn run_view_probe(spec: &MeshSpec) -> ViewProbeReport {
             checks,
         };
     };
-    let eye_inside = (0..3).all(|axis| spawn.eye[axis] >= bmin[axis] && spawn.eye[axis] <= bmax[axis]);
+    let eye_inside =
+        (0..3).all(|axis| spawn.eye[axis] >= bmin[axis] && spawn.eye[axis] <= bmax[axis]);
     let eye_free = grid.is_free(spawn.eye, PLAYER_RADIUS_M);
-    let ground_dist =
-        first_geometry_hit(spec, spawn.eye, [0.0, -1.0, 0.0], EYE_HEIGHT_M + 0.01);
+    let ground_dist = first_geometry_hit(spec, spawn.eye, [0.0, -1.0, 0.0], EYE_HEIGHT_M + 0.01);
     let grounded = ground_dist.is_some_and(|d| d > 0.0 && d <= EYE_HEIGHT_M + 1e-3);
     checks.push(ProbeCheck {
         id: "spawn_inside_block",
@@ -216,12 +216,7 @@ pub fn run_view_probe(spec: &MeshSpec) -> ViewProbeReport {
     let steps: Vec<String> = march
         .dirs
         .iter()
-        .map(|d| {
-            format!(
-                "({:+.2},{:+.2})→{}p",
-                d.dir[0], d.dir[1], d.steps
-            )
-        })
+        .map(|d| format!("({:+.2},{:+.2})→{}p", d.dir[0], d.dir[1], d.steps))
         .collect();
     checks.push(ProbeCheck {
         id: "no_traversal_walk",
@@ -445,11 +440,7 @@ pub fn swept_step_oracle(
     };
     for i in 0..=per_step {
         let t = i as f32 / per_step as f32;
-        let sample = [
-            from[0] + d[0] * t,
-            from[1] + d[1] * t,
-            from[2] + d[2] * t,
-        ];
+        let sample = [from[0] + d[0] * t, from[1] + d[1] * t, from[2] + d[2] * t];
         verdict.samples += 1;
         if geometry_blocks_point(spec, index, sample, radius) {
             verdict.blocked_samples += 1;
@@ -558,12 +549,54 @@ mod tests {
     /// Synthetic room (same geometry as the grid tests).
     fn room_spec() -> MeshSpec {
         let mut spec = MeshSpec::new(Vec::new(), Vec::new(), Vec::new());
-        push_quad(&mut spec, [0.0, 0.0, 0.0], [0.0, 0.0, 8.0], [8.0, 0.0, 8.0], [8.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-        push_quad(&mut spec, [0.0, 3.0, 0.0], [8.0, 3.0, 0.0], [8.0, 3.0, 8.0], [0.0, 3.0, 8.0], [0.0, -1.0, 0.0]);
-        push_quad(&mut spec, [0.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 3.0, 8.0], [0.0, 0.0, 8.0], [1.0, 0.0, 0.0]);
-        push_quad(&mut spec, [8.0, 0.0, 0.0], [8.0, 0.0, 8.0], [8.0, 3.0, 8.0], [8.0, 3.0, 0.0], [-1.0, 0.0, 0.0]);
-        push_quad(&mut spec, [0.0, 0.0, 0.0], [8.0, 0.0, 0.0], [8.0, 3.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 1.0]);
-        push_quad(&mut spec, [0.0, 0.0, 8.0], [0.0, 3.0, 8.0], [8.0, 3.0, 8.0], [8.0, 0.0, 8.0], [0.0, 0.0, -1.0]);
+        push_quad(
+            &mut spec,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 8.0],
+            [8.0, 0.0, 8.0],
+            [8.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        );
+        push_quad(
+            &mut spec,
+            [0.0, 3.0, 0.0],
+            [8.0, 3.0, 0.0],
+            [8.0, 3.0, 8.0],
+            [0.0, 3.0, 8.0],
+            [0.0, -1.0, 0.0],
+        );
+        push_quad(
+            &mut spec,
+            [0.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0],
+            [0.0, 3.0, 8.0],
+            [0.0, 0.0, 8.0],
+            [1.0, 0.0, 0.0],
+        );
+        push_quad(
+            &mut spec,
+            [8.0, 0.0, 0.0],
+            [8.0, 0.0, 8.0],
+            [8.0, 3.0, 8.0],
+            [8.0, 3.0, 0.0],
+            [-1.0, 0.0, 0.0],
+        );
+        push_quad(
+            &mut spec,
+            [0.0, 0.0, 0.0],
+            [8.0, 0.0, 0.0],
+            [8.0, 3.0, 0.0],
+            [0.0, 3.0, 0.0],
+            [0.0, 0.0, 1.0],
+        );
+        push_quad(
+            &mut spec,
+            [0.0, 0.0, 8.0],
+            [0.0, 3.0, 8.0],
+            [8.0, 3.0, 8.0],
+            [8.0, 0.0, 8.0],
+            [0.0, 0.0, -1.0],
+        );
         spec
     }
 
@@ -573,12 +606,54 @@ mod tests {
         let (x0, x1) = (3.0, 5.0);
         let (y0, y1) = (1.3, 1.9);
         let (z0, z1) = (5.95, 6.05);
-        push_quad(spec, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0.0, 0.0, 1.0]);
-        push_quad(spec, [x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0.0, 0.0, -1.0]);
-        push_quad(spec, [x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1.0, 0.0, 0.0]);
-        push_quad(spec, [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1.0, 0.0, 0.0]);
-        push_quad(spec, [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0.0, 1.0, 0.0]);
-        push_quad(spec, [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0.0, -1.0, 0.0]);
+        push_quad(
+            spec,
+            [x0, y0, z1],
+            [x1, y0, z1],
+            [x1, y1, z1],
+            [x0, y1, z1],
+            [0.0, 0.0, 1.0],
+        );
+        push_quad(
+            spec,
+            [x1, y0, z0],
+            [x0, y0, z0],
+            [x0, y1, z0],
+            [x1, y1, z0],
+            [0.0, 0.0, -1.0],
+        );
+        push_quad(
+            spec,
+            [x1, y0, z1],
+            [x1, y0, z0],
+            [x1, y1, z0],
+            [x1, y1, z1],
+            [1.0, 0.0, 0.0],
+        );
+        push_quad(
+            spec,
+            [x0, y0, z0],
+            [x0, y0, z1],
+            [x0, y1, z1],
+            [x0, y1, z0],
+            [-1.0, 0.0, 0.0],
+        );
+        push_quad(
+            spec,
+            [x0, y1, z1],
+            [x1, y1, z1],
+            [x1, y1, z0],
+            [x0, y1, z0],
+            [0.0, 1.0, 0.0],
+        );
+        push_quad(
+            spec,
+            [x0, y0, z0],
+            [x1, y0, z0],
+            [x1, y0, z1],
+            [x0, y0, z1],
+            [0.0, -1.0, 0.0],
+        );
     }
 
     #[test]
@@ -610,7 +685,10 @@ mod tests {
             march.oracle_blocked_samples, 0,
             "a grid-free point keeps the sphere clear of the triangles: {march:?}"
         );
-        assert!(march.samples > 0, "the oracle must actually sample: {march:?}");
+        assert!(
+            march.samples > 0,
+            "the oracle must actually sample: {march:?}"
+        );
         assert!(march.pass(), "march verdict: {march:?}");
 
         let report = run_view_probe(&spec);
@@ -708,10 +786,8 @@ mod tests {
                     // Brute force: distance from p to every triangle AABB.
                     let mut brute = false;
                     for tri in spec.indices.chunks_exact(3) {
-                        let tri: Vec<[f32; 3]> = tri
-                            .iter()
-                            .map(|i| spec.positions[*i as usize])
-                            .collect();
+                        let tri: Vec<[f32; 3]> =
+                            tri.iter().map(|i| spec.positions[*i as usize]).collect();
                         let mut dist2 = 0.0f32;
                         for axis in 0..3 {
                             let lo = tri[0][axis].min(tri[1][axis]).min(tri[2][axis]);
@@ -744,7 +820,10 @@ mod tests {
             z += 0.5;
         }
         assert!(checked > 1000, "the sweep must be dense: {checked} points");
-        assert!(near > 0, "the sweep must reach the geometry: {near} near points");
+        assert!(
+            near > 0,
+            "the sweep must reach the geometry: {near} near points"
+        );
     }
 
     #[test]
@@ -759,7 +838,10 @@ mod tests {
         let report = run_view_probe(&empty);
         assert!(!report.pass, "an empty spec cannot PASS");
         assert!(
-            report.checks.iter().any(|c| c.id == "grid_from_layout" && !c.ok),
+            report
+                .checks
+                .iter()
+                .any(|c| c.id == "grid_from_layout" && !c.ok),
             "the grid check must fail: {:?}",
             report.checks
         );
@@ -769,7 +851,10 @@ mod tests {
     fn look_dirs_are_unit_vectors() {
         for dir in LOOK_DIRS {
             let len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt();
-            assert!((len - 1.0).abs() < 1e-6, "non-unit direction {dir:?}: {len}");
+            assert!(
+                (len - 1.0).abs() < 1e-6,
+                "non-unit direction {dir:?}: {len}"
+            );
         }
         // Exact cardinals (regression: do not confuse (0,±1) with (0,±1/√2)).
         assert_eq!(LOOK_DIRS[0], [1.0, 0.0]);

@@ -2060,6 +2060,8 @@ name = "daggerfall-inventory"
 version = "0.1.0"
 dependencies = [
  "daggerfall-behavior",
+ "daggerfall-parser-rs",
+ "sha2",
 ]
 
 [[package]]

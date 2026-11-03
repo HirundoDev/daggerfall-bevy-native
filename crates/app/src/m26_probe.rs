@@ -466,6 +466,7 @@ pub fn run_dialogue_001() -> i32 {
         has_entry_in_where_is: true,
         same_location: true,
         is_dialog_partner: false,
+        region: None,
     }];
     // DFU adds the fixed table of 34 organizations (`TalkManager.cs:378`); this
     // target also adds the NPC's own faction as a topic — declared M26
@@ -484,6 +485,7 @@ pub fn run_dialogue_001() -> i32 {
                 buildings: &buildings,
                 quest_topics: &quest_topics,
                 info_factions: info,
+                current_region: None,
             })
         })
         .collect();
@@ -495,6 +497,7 @@ pub fn run_dialogue_001() -> i32 {
                 buildings: &buildings,
                 quest_topics: &quest_topics,
                 info_factions: info,
+                current_region: None,
             })
             .digest()
         })
@@ -975,6 +978,7 @@ pub fn run_demo_001() -> i32 {
             buildings: &buildings,
             quest_topics: &quest_topics,
             info_factions: &info,
+            current_region: None,
         });
         let greeting = simple_greeting(30, false);
         let greeting_id = match greeting {

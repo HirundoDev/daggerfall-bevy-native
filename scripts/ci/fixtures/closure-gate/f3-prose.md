@@ -5,4 +5,4 @@ statements. It is not documentation and it is not exported.
 
 | Milestone | Epic | Scope | State |
 |:---|:---|:---|:---|
-| **M40** | UI-4 | complete UI gate | **DONE** |
+| **M41** | SYS-1 | depth in combat, magic, items, stats and resistances | **DONE** |

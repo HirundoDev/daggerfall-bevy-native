@@ -96,6 +96,7 @@ pub mod dungeon_grid;
 pub mod interior_probe;
 pub mod interior_retail;
 pub mod interior_spec;
+pub mod menu_spec;
 pub mod mesh_spec;
 pub mod nav_build;
 pub mod npc_spec;
@@ -103,13 +104,13 @@ pub mod stream_policy;
 pub mod terrain_nature;
 pub mod terrain_spec;
 pub mod ui_compat;
+pub mod ui_playable_g1;
+pub mod ui_playable_g2;
+pub mod ui_playable_g3;
 pub mod ui_spec;
 pub mod ui_windows_g1;
 pub mod ui_windows_g2;
 pub mod ui_windows_g3;
-pub mod ui_playable_g1;
-pub mod ui_playable_g2;
-pub mod ui_playable_g3;
 pub mod view_probe;
 
 pub use bevy_assets::{
@@ -117,29 +118,29 @@ pub use bevy_assets::{
     split_by_texture, MaterialSpec, TextureAssetError, TextureGroup,
 };
 pub use bsa_source::{
-    entry_data, mesh_spec_at, parse_bsa, solid_convertible_blocks, BsaArchive, BsaError, Entry,
-    MeshSpecAtError,
+    entry_data, mesh_spec_at, model_at, parse_bsa, solid_convertible_blocks, BsaArchive, BsaError,
+    Entry, MeshSpecAtError,
 };
 pub use city_probe::{run_city_probe, synthetic_city, CityProbeReport};
 pub use city_retail::{
-    build_retail_cell, build_retail_city, cell_canonical_bytes, BlockMeshRange, RetailBuilding,
-    RetailCity, RETAIL_BLOCK_M, ROTATION_DIVISOR,
+    build_retail_cell, build_retail_city, cell_canonical_bytes, BlockMeshRange, ResolvedModel,
+    RetailBuilding, RetailCity, RETAIL_BLOCK_M, ROTATION_DIVISOR,
 };
 pub use city_spec::{
     build_city_mesh, landmark_is_solid, street_spawn, CityLayout, CityMesh, CITY_BLOCK_M,
     CITY_STREET_MAX_M, CITY_STREET_MIN_M,
 };
 pub use collision_grid::{
-    first_geometry_hit, CellStatus, CoherenceReport, CollisionGrid, RayHit, SpawnPoint, StepOutcome,
-    DEFAULT_CELL_M,
+    first_geometry_hit, CellStatus, CoherenceReport, CollisionGrid, RayHit, SpawnPoint,
+    StepOutcome, DEFAULT_CELL_M,
 };
 pub use commerce_spec::{
     interact_target, merchant_world, shop_merchant, InteractHit, MerchantProp, INTERACT_RANGE_M,
 };
-pub use convert::{mesh_record_to_spec, ConvertError};
+pub use convert::{mesh_record_to_spec, model_doors_from_record, ConvertError, DoorSpec};
 pub use dungeon_grid::{
-    assemble_dungeon, block_origin_m, dedupe_doors, is_action_door, object_position_m,
-    DungeonDoor, DungeonGrid, PlacedBlock, ACTION_DOOR_DESCRIPTIONS, DOOR_OVERLAP_TOLERANCE_M,
+    assemble_dungeon, block_origin_m, dedupe_doors, is_action_door, object_position_m, DungeonDoor,
+    DungeonGrid, PlacedBlock, ACTION_DOOR_DESCRIPTIONS, DOOR_OVERLAP_TOLERANCE_M,
     EDITOR_FLATS_ARCHIVE, ENTER_MARKER_RECORD, RDB_SIDE_UNITS, RED_BRICK_DOOR_MODEL_ID,
     START_MARKER_RECORD,
 };
@@ -153,20 +154,20 @@ pub use interior_retail::{
     STREET_MARGIN_M,
 };
 pub use interior_spec::{
-    build_shop_mesh, world_mesh, ShopMesh, DOOR_HEIGHT_M, DOOR_Z_MAX, DOOR_Z_MIN,
-    FIXTURE_MIN_H_M, SHOP_HEIGHT_M, SHOP_X_MAX, SHOP_Z_MAX, SHOP_Z_MIN,
+    build_shop_mesh, world_mesh, ShopMesh, DOOR_HEIGHT_M, DOOR_Z_MAX, DOOR_Z_MIN, FIXTURE_MIN_H_M,
+    SHOP_HEIGHT_M, SHOP_X_MAX, SHOP_Z_MAX, SHOP_Z_MIN,
 };
 pub use mesh_spec::MeshSpec;
-pub use stream_policy::{
-    cell_of_point, desired_cells, plan, plan_digest, priority, span_of, CellKey, CellSpan,
-    StreamConfig, StreamPlan, STREAM_HYSTERESIS_CELLS,
-};
 pub use npc_spec::{
     create_npc_at, place_npc, region, spawn_city_guards, subclimate_race, Caption, CaptionSource,
     FlatRef, GuardSpec, NpcError, NpcSpec, NpcWorld, Occupation, Place, Placement, Population,
     PopulationRequest, QuestPerson, QuestRegistry, Race, RegionInfo, SiteLink, CITY_POPULATION,
     FACE_COUNT, FLAT_DIRECTIONS, GUARDS_PER_SPAWN, GUARD_CRIME_THRESHOLD, OCCUPATIONS,
     PERSON_FLAT_ARCHIVE, PLACE_NPC_DEFAULT_MARKER, REGIONS,
+};
+pub use stream_policy::{
+    cell_of_point, desired_cells, plan, plan_digest, priority, span_of, CellKey, CellSpan,
+    StreamConfig, StreamPlan, STREAM_HYSTERESIS_CELLS,
 };
 pub use terrain_spec::{
     TerrainError, TerrainPatch, TerrainVertex, WalkReport, EYE_HEIGHT_TOLERANCE_CELLS, PATCH_DIM,
@@ -178,8 +179,9 @@ pub use ui_spec::{
     family_histogram, fit_text, palette_compliance, palette_hash, present_delta,
     present_interpolated_pixels, present_nearest, Framebuffer, FramebufferPalette, HudPanelData,
     InventoryPanelData, PresentFrame, PresentMode, QuestPanelData, UiAnchor, UiAsset, UiAssets,
-    UiNode, UiNodeKind, UiPanel, UiPanelId, UiRect, UiSpecError, BUTTON_CELL, CANVAS_HEIGHT,
-    CANVAS_WIDTH, DEFAULT_FONT, DEFAULT_INK, FONT_FILES, LETTERBOX, MAP_LOCAL_ASSET,
-    MAP_WORLD_ASSET, MENU_CLIP_HEIGHT, PRESENT_HEIGHT, PRESENT_SCALE, PRESENT_WIDTH,
+    UiNode, UiNodeKind, UiPanel, UiPanelId, UiRect, UiSpecError, CANVAS_HEIGHT, CANVAS_WIDTH,
+    DEFAULT_FONT, DEFAULT_INK, FONT_FILES, LETTERBOX, MAP_LOCAL_ASSET, MAP_WORLD_ASSET,
+    MENU_CLIP_HEIGHT, MENU_GUTTER, MENU_SELECTION_INK, MENU_SELECTION_TEXT, PRESENT_HEIGHT,
+    PRESENT_SCALE, PRESENT_WIDTH,
 };
 pub use view_probe::{run_view_probe, ProbeCheck, ViewProbeReport, EYE_HEIGHT_M, PLAYER_RADIUS_M};

@@ -1,6 +1,8 @@
 # How to play and how to probe
 
-This guide is for the **`v0.3.0-alpha`** build: how to start it, what the keys actually do, how to
+This guide is for the **`v0.3.0-alpha`** build, and it also covers the untagged tree that follows it
+(save fidelity generation 4: `CONTINUE` restores the saved world; measured, unsigned): how to start
+it, what the keys actually do, how to
 read a behaviour probe, and what is knowingly broken. Every binding below is read from the code that
 consumes it (file names are given), not from memory; nothing here is a promise of parity with the
 original game.
@@ -79,10 +81,16 @@ consume the actions live in `crates/app/src/m18_window.rs`.
 
 | Key / button | Effect | Where it is consumed |
 |---|---|---|
-| `Enter` | leave the start menu, one way (`Menu` to `Playing`) | `m18_phase_keys` (m18_window.rs) |
+| `Enter` | activate the selected menu row — `new-game`, `continue` (resumes the saved session), `load`, `options`, `quit`; a session row takes the window from `Menu` to `Playing` | `m18_phase_keys` (m18_window.rs), `shell::MENU_ITEMS` |
 | `W` `A` `S` `D` | walk / strafe (locomotion engine decides the step, not the renderer) | `m2_player.rs`, `m18_apply_player_action` |
 | Mouse move | look (raw motion; pitch clamped to +/-1.55 rad) | `m2_player.rs` (`LOOK_SENSITIVITY = 0.0025` rad/px) |
-| `Esc` | release the cursor to the desktop. It is **not** a pause and opens no menu | `m2_escape_cursor` |
+| `Esc` | release the cursor to the desktop. In the **published `v0.3.0-alpha`** it is **not** a pause and opens no menu | `m2_escape_cursor` |
+| `Esc` † | **pause / resume**: the world freezes (`SHELL pause — world frozen`) and resumes on the next press. With a save, load, options or map panel open it closes that panel first | `shell_keys` (m18_window.rs), `shell::pause_line` |
+| `S` (paused) † | open the save browser over the occupied slots; `Enter` writes the session slot | `shell_open_save` |
+| `B` (paused) † | back to the start menu, selection reset to `new-game` | `shell_back_to_menu` |
+| `Q` (paused) † | exit the engine | `ShellState::Exit` |
+| `O` (paused) † | options panel (the same one the menu opens) | `shell_open_options` |
+| `M` (playing) † | open / close the local map panel; with it open, `T` travels | `shell_keys`, `m18_local_map` |
 | `,` / `.` | rotate the view 5 degrees left / right (keyboard yaw) | `m18_yaw_keys` |
 | `Space` | jump | `m18_apply_player_action` (M19 engine) |
 | `Shift` (left or right) | run | same |
@@ -97,6 +105,10 @@ consume the actions live in `crates/app/src/m18_window.rs`.
 | `2` | inventory panel (retail `IMG`/`CIF`/`FNT`, gold and item counts) | same |
 | `3` | quests panel | same |
 | `4` | main-menu panel (the same title screen, over the world) | same |
+
+† **Current tree only.** These bindings arrive with the pause/save work described in
+[Status](docs/acknowledgments/status.md#save-fidelity-generation-4--measured-unsigned-2026-11-02) and are
+**not** in the published `v0.3.0-alpha` artifact, whose `Esc` only releases the cursor.
 
 The first four panels follow the composition order returned by `ui_spec::build_all_panels`
 (`crates/parser-bevy-bridge/src/ui_spec.rs`): hud, inventory, quests, main-menu. Two further map
@@ -272,7 +284,13 @@ act, and the tag is a separate later act too. So no `M18` tag exists.
 The M33 total savegame is **implemented at technical level** in this alpha (closure 2026-10-26):
 savegame v2, the v1→v2 migration and the classic `SAVEGAME` read/write, measured by `SAVE-ALL-001`
 (24/24 byte-identical round trips, five corruption mutations rejected), `SAVE-MIGRATION-001`,
-`SAVEGAME-READ-001`, `SAVEGAME-WRITE-001` and `M33-DEMO-001`. It is not surfaced in the running window.
+`SAVEGAME-READ-001`, `SAVEGAME-WRITE-001` and `M33-DEMO-001`. In the **current tree** the running window
+writes its own session slot (`DFL-SESSION 3`, generation `fidelity=4`, under `DF_SAVE_DIR`): `Esc`
+pauses, `S` opens the save browser, `Enter` writes a slot, and `continue` in the start menu restores the
+saved position, orientation and world minutes — measured `delta pos_mm=[0, 0, 0]` · `delta mundo=0 min`,
+reproducible with `scripts/new-game-semantics.py`, and **unsigned** (the register rows stay
+`candidato`). The published `v0.3.0-alpha` artifact does not surface save/load yet; the M33 total
+savegame remains a probe surface there.
 M34 closed at technical level on 2026-10-26 — **`PARTIAL-TECHNICAL-CLOSURE`** — with one named row
 still open, **`AUDIO-RT-001-DEVICE`**: `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`, the
 binary built without the `audio` feature), so its two-process measure covers only the degraded branch

@@ -41,6 +41,13 @@ EMAIL_ALLOW = ("reference/dfu-spec/", "NOTICE",
                # Synthetic fixture identity for the gate's own git invocation
                # (`-c user.email=...`, reserved TLD, not a person).
                "crates/promotion-gate/src/baseline.rs")
+# Declared exemptions of the same class (synthetic fixtures, reserved TLD, not people):
+# the guard self-tests assert on their own fake identities.
+EMAIL_FIXTURE_ALLOW = ("scripts/guard/verify-manifest.sh",
+                       "scripts/guard/verify-guard.sh",
+                       "scripts/guard/lane-integrity.py")
+# Not a user path: a unit test feeds `/home/u` as a placeholder HOME to `config_path`.
+PII_ALLOW = ("crates/inventory/src/config_file.rs",)
 INTERNAL_NAME = b"daggerfall-" + b"like-engine"
 PUBLIC_NAME = b"daggerfall-bevy-native"
 OWNER_MARKERS = [b"allan" + b"valdezdev", b"mail" + "to:".encode()]
@@ -131,7 +138,7 @@ def broken_links(root, rels):
 
 def pass_a(root):
     rels = files_of(root)
-    owner, upstream, other = [], [], []
+    owner, upstream, other, fixture = [], [], [], []
     pii, retail, secrets, internal = [], [], [], []
     big = []
     for rel in rels:
@@ -145,8 +152,10 @@ def pass_a(root):
             owner.append(rel)
         for m in EMAIL_RX.finditer(data):
             rec = {"file": rel, "email": m.group(0).decode("utf-8", "replace")}
-            (upstream if rel.startswith(EMAIL_ALLOW) or rel in EMAIL_ALLOW else other).append(rec)
-        if PII_RX.search(data):
+            (upstream if rel.startswith(EMAIL_ALLOW) or rel in EMAIL_ALLOW
+             else fixture if rel in EMAIL_FIXTURE_ALLOW
+             else other).append(rec)
+        if rel not in PII_ALLOW and PII_RX.search(data):
             pii.append(rel)
         if not rel.startswith(RETAIL_ALLOW) and not rel.startswith(RETAIL_SCAN_SKIP) \
                 and any(mk in data for mk in RETAIL_MARKERS):
@@ -170,6 +179,7 @@ def pass_a(root):
         "bytes": sum((root / r).stat().st_size for r in rels),
         "emails_owner": sorted(set(owner)),
         "emails_upstream_allowlisted": len(upstream),
+        "emails_fixture_allowlisted": len(fixture),
         "emails_other": other,
         "broken_links": bad,
         "pii_paths": sorted(set(pii)),
@@ -218,9 +228,11 @@ def pass_b(root):
             continue
         blobs += 1
         data = sh(["git", "-C", str(root), "cat-file", "blob", sha]).stdout
-        if any(m in data for m in OWNER_MARKERS) or INTERNAL_NAME in data or PII_RX.search(data):
+        if any(m in data for m in OWNER_MARKERS) or INTERNAL_NAME in data \
+                or (path not in PII_ALLOW and PII_RX.search(data)):
             bad_blobs.append(path)
-        if not path.startswith(EMAIL_ALLOW) and path not in EMAIL_ALLOW and EMAIL_RX.search(data):
+        if not path.startswith(EMAIL_ALLOW) and path not in EMAIL_ALLOW \
+                and path not in EMAIL_FIXTURE_ALLOW and EMAIL_RX.search(data):
             bad_blobs.append(path + " (email outside allowlist)")
         if not path.startswith(RETAIL_ALLOW) and not path.startswith(RETAIL_SCAN_SKIP) \
                 and any(mk in data for mk in RETAIL_MARKERS):

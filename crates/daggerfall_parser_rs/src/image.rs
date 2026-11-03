@@ -212,6 +212,13 @@ pub enum ImageError {
         /// Observed length.
         len: usize,
     },
+    /// Frame index outside a `.CIF` container.
+    CifFrameOutOfRange {
+        /// Requested frame.
+        index: usize,
+        /// Frames the container carries.
+        frames: usize,
+    },
 }
 
 impl std::fmt::Display for ImageError {
@@ -261,6 +268,10 @@ impl std::fmt::Display for ImageError {
             Self::UnrecognizedImg { len } => write!(
                 f,
                 "IMG of {len} B: neither a valid 12 B header nor a known RCI dimension"
+            ),
+            Self::CifFrameOutOfRange { index, frames } => write!(
+                f,
+                "CIF frame {index} outside a container of {frames} frame(s)"
             ),
         }
     }
@@ -916,6 +927,59 @@ pub fn decode_cif(bytes: &[u8]) -> Result<CifFile, ImageError> {
     Err(ImageError::UnresolvedCif { len: bytes.len() })
 }
 
+/// One frame of a `.CIF` as a [`DecodedImage`].
+///
+/// The `CifContent::Rci` variant only *counts* frames (`FACES.CIF`: 61 × 64×64
+/// raw, no header, no palette), so nothing in the crate could hand out the
+/// pixels of one of them. This is the accessor: the same 4096 B block the file
+/// carries, addressed by index, classified [`ImageKind::CifRci`].
+///
+/// # Errors
+///
+/// [`ImageError::CifFrameOutOfRange`] when `index` does not exist;
+/// [`ImageError::UnresolvedCif`] for an animation container (no flat frame
+/// addressing).
+pub fn decode_cif_frame(bytes: &[u8], index: usize) -> Result<DecodedImage, ImageError> {
+    match decode_cif(bytes)?.content {
+        CifContent::Frames(mut frames) => {
+            let total = frames.len();
+            if index >= total {
+                return Err(ImageError::CifFrameOutOfRange { index, frames: total });
+            }
+            Ok(frames.swap_remove(index))
+        }
+        CifContent::Rci {
+            width,
+            height,
+            frames,
+        } => {
+            if index >= frames {
+                return Err(ImageError::CifFrameOutOfRange { index, frames });
+            }
+            let len = width as usize * height as usize;
+            let start = index * len;
+            let Some(pixels) = bytes.get(start..start + len) else {
+                return Err(ImageError::TooShort {
+                    len: bytes.len(),
+                    need: start + len,
+                    what: "CIF RCI frame",
+                });
+            };
+            Ok(DecodedImage {
+                x_offset: 0,
+                y_offset: 0,
+                width,
+                height,
+                compression: 0,
+                pixels: pixels.to_vec(),
+                embedded_palette: None,
+                kind: ImageKind::CifRci,
+            })
+        }
+        CifContent::Animations { .. } => Err(ImageError::UnresolvedCif { len: bytes.len() }),
+    }
+}
+
 /// Glyph of a `.FNT`: width + 1 bpp 16×16 bitmap.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Glyph {
@@ -999,16 +1063,28 @@ impl FntFile {
 
     /// Width of a string (advance per glyph = `width + 1`, space = 4).
     pub fn text_width(&self, text: &str) -> u16 {
+        self.text_width_tracked(text, 0)
+    }
+
+    /// Width of a string with `tracking` extra pixels after every advance.
+    ///
+    /// `tracking == 0` is byte-identical to the retail metric. With
+    /// `tracking == 1` every advance grows by one and the trailing gap is the
+    /// same one `text_width` already drops (`Σadv + t·n − 1`), which is what the
+    /// design tokens call `tracking +1` on the 5×7 label runs.
+    pub fn text_width_tracked(&self, text: &str, tracking: u16) -> u16 {
         let mut width = 0u16;
         let mut glyphs = 0usize;
         for ch in text.chars() {
-            if ch == ' ' {
-                width = width.saturating_add(FNT_SPACE_ADVANCE);
-                glyphs += 1;
+            let advance = if ch == ' ' {
+                FNT_SPACE_ADVANCE
             } else if let Some(glyph) = self.glyph_for_char(ch) {
-                width = width.saturating_add(glyph.width + 1);
-                glyphs += 1;
-            }
+                glyph.width + 1
+            } else {
+                continue;
+            };
+            width = width.saturating_add(advance).saturating_add(tracking);
+            glyphs += 1;
         }
         if glyphs > 0 {
             width.saturating_sub(1)
@@ -1019,13 +1095,20 @@ impl FntFile {
 
     /// Renders a string to a 1 bpp mask (no antialiasing).
     pub fn render_text(&self, text: &str) -> TextMask {
-        let width = self.text_width(text);
+        self.render_text_tracked(text, 0)
+    }
+
+    /// Renders a string with `tracking` extra pixels after every advance.
+    pub fn render_text_tracked(&self, text: &str, tracking: u16) -> TextMask {
+        let width = self.text_width_tracked(text, tracking);
         let height = self.fixed_height;
         let mut bits = vec![0u8; width as usize * height as usize];
         let mut pen_x = 0u16;
         for ch in text.chars() {
             if ch == ' ' {
-                pen_x = pen_x.saturating_add(FNT_SPACE_ADVANCE);
+                pen_x = pen_x
+                    .saturating_add(FNT_SPACE_ADVANCE)
+                    .saturating_add(tracking);
                 continue;
             }
             let Some(glyph) = self.glyph_for_char(ch) else {
@@ -1043,7 +1126,9 @@ impl FntFile {
                     bits[y as usize * width as usize + px as usize] = 1;
                 }
             }
-            pen_x = pen_x.saturating_add(glyph.width + 1);
+            pen_x = pen_x
+                .saturating_add(glyph.width + 1)
+                .saturating_add(tracking);
         }
         TextMask {
             width,

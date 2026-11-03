@@ -112,15 +112,11 @@ pub fn run_input() -> i32 {
     }
 }
 
-/// `$DF_ARENA2`, then `$DF_APP_ROOT/ARENA2`, then
-/// `$HOME/Games/Daggerfall/app/ARENA2` - the same three ways and the same order
-/// as `ui_playable_g2::arena2_dir`, which the protocol names as the presence
-/// test of the tree. `$DF_ARENA2` is taken as given (a bad value is an IO
-/// failure of the bank, not a silent `SKIP`).
+/// The data directory of the session — the process resolver (§4.1 precedence:
+/// `--data-root` > config > `DF_APP_ROOT` > `$HOME/Games/Daggerfall/app` >
+/// auto-detection). There is no probe-private way to pick the folder: a bad
+/// value is an IO failure of the bank, not a silent `SKIP`.
 pub(crate) fn arena2_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("DF_ARENA2") {
-        return Some(PathBuf::from(dir));
-    }
     crate::mode_a_arena2_dir().ok().filter(|dir| dir.is_dir())
 }
 

@@ -90,6 +90,17 @@ fn run(family: Family) -> i32 {
             for line in &lines {
                 println!("{line}");
             }
+            // P4 (`CR-a602cafc`): la rama de creación cierra su medición
+            // ejercitando la ruta de sesión SIN ventana. El pase publica las
+            // líneas `SHELL VE:` que la ventana produce con las mismas teclas
+            // (`create done … state=Playing`, `phase=PLAYING`, `menu state=Menu`)
+            // sobre un directorio temporal propio. Sin escena compuesta: el
+            // pase NO publica `world` ni `hud` (0 hechos inventados).
+            if family == Family::Create {
+                if let Err(reason) = crate::shell_route::headless_session_pass() {
+                    println!("M18 VE: SHELL session pass — {reason}");
+                }
+            }
             println!("VERDICT: PASS");
             0
         }
@@ -832,6 +843,22 @@ fn intent_script(
 }
 
 // ── the gate ────────────────────────────────────────────────────────────────
+
+// ── M40/UI-4 composition: a family stage as reusable lines ────────────────
+
+/// Lines of the **create** family, with no `--out` frame bank.
+///
+/// `PROBE-UI-FULL-001` (M40/UI-4) composes the three family stages instead of
+/// re-deriving their measurements: a surface this family gate refuses can
+/// never be certified by the composite gate.
+pub(crate) fn stage_create_lines(dir: &Path) -> Result<Vec<String>, (String, Vec<String>)> {
+    stage(Family::Create, dir, None).map_err(|(rule, lines)| (rule.to_owned(), lines))
+}
+
+/// Lines of the **config** family, with no `--out` frame bank.
+pub(crate) fn stage_config_lines(dir: &Path) -> Result<Vec<String>, (String, Vec<String>)> {
+    stage(Family::Config, dir, None).map_err(|(rule, lines)| (rule.to_owned(), lines))
+}
 
 fn stage(
     family: Family,

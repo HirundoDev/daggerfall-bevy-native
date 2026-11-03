@@ -352,10 +352,7 @@ pub fn run_interior_probe(
             fixtures.len(),
             fixtures
                 .iter()
-                .map(|(label, p)| format!(
-                    "{label}({},{},{})",
-                    p[0], p[1], p[2]
-                ))
+                .map(|(label, p)| format!("{label}({},{},{})", p[0], p[1], p[2]))
                 .collect::<Vec<_>>()
                 .join(" · ")
         ),
@@ -375,7 +372,10 @@ pub fn synthetic_world(blocks: usize) -> (CityLayout, CityMesh, ShopMesh) {
 }
 
 /// World from already parsed ARCH3D landmarks (Mode A, caller custody).
-pub fn world_from_landmarks(blocks: usize, landmarks: &[MeshSpec]) -> (CityLayout, CityMesh, ShopMesh) {
+pub fn world_from_landmarks(
+    blocks: usize,
+    landmarks: &[MeshSpec],
+) -> (CityLayout, CityMesh, ShopMesh) {
     let layout = CityLayout::new(blocks);
     let city = build_city_mesh(&layout, landmarks);
     let shop = build_shop_mesh();

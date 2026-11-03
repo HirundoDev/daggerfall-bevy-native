@@ -134,7 +134,11 @@ impl TerrainPatch {
                     band: sample.band,
                     normalized: sample.normalized,
                 });
-                positions.push([ix as f32 * SAMPLE_SPACING_M, height_m, iz as f32 * SAMPLE_SPACING_M]);
+                positions.push([
+                    ix as f32 * SAMPLE_SPACING_M,
+                    height_m,
+                    iz as f32 * SAMPLE_SPACING_M,
+                ]);
             }
         }
         let (indices, normals) = triangulate(&positions, dim);
@@ -428,7 +432,9 @@ fn triangle_normal(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daggerfall_parser_rs::woods::{HEADER_LEN, HEIGHTMAP_LEN, MAP_HEIGHT, MAP_WIDTH, OFFSET_TABLE_LEN, OFFICIAL_SIZE};
+    use daggerfall_parser_rs::woods::{
+        HEADER_LEN, HEIGHTMAP_LEN, MAP_HEIGHT, MAP_WIDTH, OFFICIAL_SIZE, OFFSET_TABLE_LEN,
+    };
 
     /// Flat `WOODS.WLD` fixture with the exact layout (26 001 168 B).
     fn synthetic_woods(height: u8) -> Vec<u8> {

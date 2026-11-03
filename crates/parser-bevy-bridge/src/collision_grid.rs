@@ -317,12 +317,7 @@ impl CollisionGrid {
     /// by a vertical ray against triangles (0 voxel offsets) with
     /// preference for the **roofed interior** (if there is a ceiling above the eye,
     /// that candidate wins) and a free eye with `radius`.
-    pub fn find_spawn(
-        &self,
-        spec: &MeshSpec,
-        eye_height: f32,
-        radius: f32,
-    ) -> Option<SpawnPoint> {
+    pub fn find_spawn(&self, spec: &MeshSpec, eye_height: f32, radius: f32) -> Option<SpawnPoint> {
         if self.dims[0] == 0 || self.dims[1] == 0 || self.dims[2] == 0 {
             return None;
         }
@@ -499,8 +494,7 @@ impl CollisionGrid {
             let mut i1 = [0i32; 3];
             for axis in 0..3 {
                 i0[axis] =
-                    ((((tri_box[0][axis] - self.min[axis]) / self.cell).floor() as i32) - 1)
-                        .max(0);
+                    ((((tri_box[0][axis] - self.min[axis]) / self.cell).floor() as i32) - 1).max(0);
                 i1[axis] = (((tri_box[1][axis] - self.min[axis]) / self.cell).floor() as i32)
                     .min(self.dims[axis] - 1);
             }
@@ -617,12 +611,7 @@ pub fn first_geometry_hit(
 
 /// All ray-hit distances `t ≥ 0` against the geometry
 /// (unsorted). Use: spawn — every surface of the column.
-pub fn geometry_hits(
-    spec: &MeshSpec,
-    origin: [f32; 3],
-    dir: [f32; 3],
-    max_dist: f32,
-) -> Vec<f32> {
+pub fn geometry_hits(spec: &MeshSpec, origin: [f32; 3], dir: [f32; 3], max_dist: f32) -> Vec<f32> {
     let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
     if len <= f32::EPSILON {
         return Vec::new();
@@ -789,12 +778,42 @@ mod tests {
             positions.extend([a, b, c, d]);
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
         };
-        quad([0.0, 0.0, 0.0], [0.0, 0.0, 8.0], [8.0, 0.0, 8.0], [8.0, 0.0, 0.0]);
-        quad([0.0, 3.0, 0.0], [8.0, 3.0, 0.0], [8.0, 3.0, 8.0], [0.0, 3.0, 8.0]);
-        quad([0.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 3.0, 8.0], [0.0, 0.0, 8.0]);
-        quad([8.0, 0.0, 0.0], [8.0, 0.0, 8.0], [8.0, 3.0, 8.0], [8.0, 3.0, 0.0]);
-        quad([0.0, 0.0, 0.0], [8.0, 0.0, 0.0], [8.0, 3.0, 0.0], [0.0, 3.0, 0.0]);
-        quad([0.0, 0.0, 8.0], [0.0, 3.0, 8.0], [8.0, 3.0, 8.0], [8.0, 0.0, 8.0]);
+        quad(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 8.0],
+            [8.0, 0.0, 8.0],
+            [8.0, 0.0, 0.0],
+        );
+        quad(
+            [0.0, 3.0, 0.0],
+            [8.0, 3.0, 0.0],
+            [8.0, 3.0, 8.0],
+            [0.0, 3.0, 8.0],
+        );
+        quad(
+            [0.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0],
+            [0.0, 3.0, 8.0],
+            [0.0, 0.0, 8.0],
+        );
+        quad(
+            [8.0, 0.0, 0.0],
+            [8.0, 0.0, 8.0],
+            [8.0, 3.0, 8.0],
+            [8.0, 3.0, 0.0],
+        );
+        quad(
+            [0.0, 0.0, 0.0],
+            [8.0, 0.0, 0.0],
+            [8.0, 3.0, 0.0],
+            [0.0, 3.0, 0.0],
+        );
+        quad(
+            [0.0, 0.0, 8.0],
+            [0.0, 3.0, 8.0],
+            [8.0, 3.0, 8.0],
+            [8.0, 0.0, 8.0],
+        );
         let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
         MeshSpec {
             positions,
@@ -837,7 +856,11 @@ mod tests {
         }
         assert!(grid.is_free(spawn.eye, 0.3), "eye must be free");
         // Exact floor: vertical ray against geometry gives y=0.
-        assert!((spawn.floor_y - 0.0).abs() < 1e-4, "floor_y={}", spawn.floor_y);
+        assert!(
+            (spawn.floor_y - 0.0).abs() < 1e-4,
+            "floor_y={}",
+            spawn.floor_y
+        );
         assert!((spawn.eye[1] - 1.6).abs() < 1e-4, "eye={:?}", spawn.eye);
         // Grounded re-verified with geometry: floor at eye_height below the eye.
         let down = first_geometry_hit(&spec, spawn.eye, [0.0, -1.0, 0.0], 10.0)
@@ -882,11 +905,36 @@ mod tests {
             positions.extend([a, b, c, d]);
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
         };
-        quad([0.0, 0.0, 0.0], [0.0, 0.0, 8.0], [8.0, 0.0, 8.0], [8.0, 0.0, 0.0]); // floor
-        quad([0.0, 3.0, 0.0], [8.0, 3.0, 0.0], [8.0, 3.0, 8.0], [0.0, 3.0, 8.0]); // ceiling
-        quad([0.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 3.0, 8.0], [0.0, 0.0, 8.0]); // wall x=0
-        quad([0.0, 0.0, 0.0], [8.0, 0.0, 0.0], [8.0, 3.0, 0.0], [0.0, 3.0, 0.0]); // wall z=0
-        quad([0.0, 0.0, 8.0], [0.0, 3.0, 8.0], [8.0, 3.0, 8.0], [8.0, 0.0, 8.0]); // wall z=8
+        quad(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 8.0],
+            [8.0, 0.0, 8.0],
+            [8.0, 0.0, 0.0],
+        ); // floor
+        quad(
+            [0.0, 3.0, 0.0],
+            [8.0, 3.0, 0.0],
+            [8.0, 3.0, 8.0],
+            [0.0, 3.0, 8.0],
+        ); // ceiling
+        quad(
+            [0.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0],
+            [0.0, 3.0, 8.0],
+            [0.0, 0.0, 8.0],
+        ); // wall x=0
+        quad(
+            [0.0, 0.0, 0.0],
+            [8.0, 0.0, 0.0],
+            [8.0, 3.0, 0.0],
+            [0.0, 3.0, 0.0],
+        ); // wall z=0
+        quad(
+            [0.0, 0.0, 8.0],
+            [0.0, 3.0, 8.0],
+            [8.0, 3.0, 8.0],
+            [8.0, 0.0, 8.0],
+        ); // wall z=8
         let spec = MeshSpec {
             normals: vec![[0.0, 1.0, 0.0]; positions.len()],
             positions,
@@ -940,8 +988,8 @@ mod tests {
         assert!(hit.dist > 0.0 && hit.dist < 100.0);
         assert_eq!(hit.cell[0], 8, "wall layer x=8 = index 8");
         // Exact-geometry ray: real distance to the wall ≈ 8 - eye.x.
-        let geo = first_geometry_hit(&spec, spawn.eye, [1.0, 0.0, 0.0], 100.0)
-            .expect("geometry +X");
+        let geo =
+            first_geometry_hit(&spec, spawn.eye, [1.0, 0.0, 0.0], 100.0).expect("geometry +X");
         assert!((geo - (8.0 - spawn.eye[0])).abs() < 1e-3, "geo={geo}");
         assert!(grid.raycast(spawn.eye, [0.0, 1.0, 0.0], 100.0).is_some());
     }

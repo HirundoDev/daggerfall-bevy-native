@@ -30,6 +30,23 @@ pub const MAGIC_ENCHANT_SLOTS: usize = 10;
 /// (`MagicItemsFile.cs:83-105`).
 pub const MAGIC_RECORD_SIZE: usize = 62;
 
+/// `MagicItemTypes.RegularMagicItem = 0` (`ItemsFile.cs:101-106`): the only
+/// class the item maker offers (`ItemBuilder.cs:538`).
+pub const REGULAR_MAGIC_ITEM: u8 = 0;
+
+/// `MagicItemTypes.ArtifactClass1 = 1` (`ItemsFile.cs:101-106`).
+pub const ARTIFACT_CLASS_1: u8 = 1;
+
+/// `MagicItemTypes.ArtifactClass2 = 2` (`ItemsFile.cs:101-106`).
+pub const ARTIFACT_CLASS_2: u8 = 2;
+
+/// `EnchantmentTypes.None = -1` (`ItemsFile.cs:111-114`): an unused slot.
+pub const ENCHANT_NONE: i8 = -1;
+
+/// `EnchantmentTypes.SpecialArtifactEffect = 26` (`ItemsFile.cs:140`): the
+/// type retail's artifact records carry.
+pub const SPECIAL_ARTIFACT_EFFECT: i8 = 26;
+
 /// One `(type, param)` enchantment pair (`DaggerfallEnchantment`,
 /// `ItemsFile.cs:94-99`): `type` is an `EnchantmentTypes` value, `param` a
 /// spell id / artifact id / group id depending on the type.
@@ -145,6 +162,84 @@ pub fn parse_magic_def(data: &[u8]) -> Result<Vec<MagicItemTemplate>, MagicDefEr
     Ok(records)
 }
 
+impl MagicItemTemplate {
+    /// Class name of the record (`ItemsFile.cs:101-106`). Retail defines
+    /// exactly three values; any other byte is reported as `Unknown`
+    /// (never guessed).
+    pub fn class_name(&self) -> &'static str {
+        match self.kind {
+            REGULAR_MAGIC_ITEM => "RegularMagicItem",
+            ARTIFACT_CLASS_1 => "ArtifactClass1",
+            ARTIFACT_CLASS_2 => "ArtifactClass2",
+            _ => "Unknown",
+        }
+    }
+
+    /// `type != 0` — a fixed-enchantment artifact, never offered by the item
+    /// maker (`ItemBuilder.cs:538`).
+    pub const fn is_artifact(&self) -> bool {
+        self.kind != REGULAR_MAGIC_ITEM
+    }
+
+    /// Enchantment points of a magic-item record: **always** `0`.
+    ///
+    /// The 62-byte layout has no points field, and `SetArtifact` fixes
+    /// `enchantmentPoints = 0` while copying the record's fixed `legacyMagic`
+    /// (`DaggerfallUnityItem.cs:622-634`). The budget belongs to the *item*
+    /// template (`ItemTemplate::enchantment_points`), never to a `MAGIC.DEF`
+    /// record; this accessor makes the zero explicit where callers read it.
+    pub const fn enchantment_points(&self) -> i32 {
+        0
+    }
+
+    /// The record's real enchantments: slots whose `type` is not
+    /// [`ENCHANT_NONE`], in file order.
+    pub fn active_enchantments(&self) -> impl Iterator<Item = LegacyEnchantment> + '_ {
+        self.enchantments
+            .into_iter()
+            .filter(|&(kind, _)| kind != ENCHANT_NONE)
+    }
+}
+
+/// Name of an `EnchantmentTypes` value **as far as this crate can cite it**:
+/// the eight values of [`crate::enchanting::ench_types`] plus the measured
+/// `26 = SpecialArtifactEffect` (`ItemsFile.cs:140`).
+///
+/// Every other value returns `None`: the organ names nothing it cannot cite,
+/// so callers print the raw byte instead of inventing a label.
+pub fn enchantment_type_name(value: i8) -> Option<&'static str> {
+    use crate::enchanting::ench_types as types;
+    let value = i32::from(value);
+    if value == types::EXTRA_SPELL_PTS {
+        return Some("ExtraSpellPts");
+    }
+    if value == types::REPAIRS_OBJECTS {
+        return Some("RepairsObjects");
+    }
+    if value == types::ABSORBS_SPELLS {
+        return Some("AbsorbsSpells");
+    }
+    if value == types::ENHANCES_SKILL {
+        return Some("EnhancesSkill");
+    }
+    if value == types::FEATHER_WEIGHT {
+        return Some("FeatherWeight");
+    }
+    if value == types::STRENGTHENS_ARMOR {
+        return Some("StrengthensArmor");
+    }
+    if value == types::EXTRA_WEIGHT {
+        return Some("ExtraWeight");
+    }
+    if value == types::WEAKENS_ARMOR {
+        return Some("WeakensArmor");
+    }
+    if value == i32::from(SPECIAL_ARTIFACT_EFFECT) {
+        return Some("SpecialArtifactEffect");
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,6 +299,35 @@ mod tests {
         assert_eq!(records[0].name, "TestA");
         assert_eq!(records[0].enchantments[0], (11, 0));
         assert_eq!(records[1].kind, 1);
+    }
+
+    /// The class/points/type accessors: only the three cited class bytes are
+    /// named, a record never carries a budget, and only cited
+    /// `EnchantmentTypes` get a label.
+    #[test]
+    fn accessors_are_cited_only() {
+        // Retail pads unused slots with `-1` (measured: 506 of 590 slots in the
+        // 59-record file), so only `-1` means "unused".
+        let mut pairs = vec![(26i8, 0i8), (8, 1)];
+        pairs.extend(vec![(ENCHANT_NONE, 0i8); MAGIC_ENCHANT_SLOTS - pairs.len()]);
+        let a = synth_record("TestA", 0, 2, 0, &pairs, 1500, 50000, 0);
+        let blob = synth_blob(&[a]);
+        let records = parse_magic_def(&blob).expect("synthetic blob parses");
+        let record = &records[0];
+        assert_eq!(record.class_name(), "RegularMagicItem");
+        assert!(!record.is_artifact());
+        assert_eq!(record.enchantment_points(), 0);
+        assert_eq!(record.active_enchantments().count(), 2);
+        // A zero-filled record keeps all 10 slots: type 0 is a real (uncited)
+        // type, never the "unused" marker.
+        let zero_padded = synth_record("Pad", 0, 2, 0, &[], 0, 0, 0);
+        let padded = parse_magic_def(&synth_blob(&[zero_padded])).expect("synthetic blob parses");
+        assert_eq!(padded[0].active_enchantments().count(), MAGIC_ENCHANT_SLOTS);
+        assert_eq!(enchantment_type_name(26), Some("SpecialArtifactEffect"));
+        assert_eq!(enchantment_type_name(8), Some("RepairsObjects"));
+        // Unnamed by the organ: the caller prints the raw byte.
+        assert_eq!(enchantment_type_name(0), None);
+        assert_eq!(enchantment_type_name(-1), None);
     }
 
     /// A short blob is a clean error, never a partial record.

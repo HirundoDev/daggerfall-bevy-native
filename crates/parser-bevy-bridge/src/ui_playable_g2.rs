@@ -258,7 +258,7 @@ mod tests {
     use daggerfall_parser_rs::image::decode_img_file;
 
     use super::{
-        specs, WindowGroup, G3_LEN, G4_LEN, WINDOW_ROWS, DECLARED_CANVAS, DECLARED_ICON_ATLAS,
+        specs, WindowGroup, DECLARED_CANVAS, DECLARED_ICON_ATLAS, G3_LEN, G4_LEN, WINDOW_ROWS,
     };
     use crate::ui_spec::{asset_is_generic, window_specs, UiAnchor, UiRect};
 
@@ -319,7 +319,11 @@ mod tests {
     fn no_generic_widget_against_asset_retail() {
         for spec in specs() {
             let asset = spec.asset_retail.expect("concrete window");
-            assert!(!asset_is_generic(asset), "{}: asset_retail={asset}", spec.id);
+            assert!(
+                !asset_is_generic(asset),
+                "{}: asset_retail={asset}",
+                spec.id
+            );
         }
     }
 
@@ -352,8 +356,7 @@ mod tests {
                 }
                 UiAnchor::Declared(name) => {
                     declared += 1;
-                    let named = (spec.rect == DECLARED_CANVAS
-                        && name == "DECLARED_CANVAS_320X200")
+                    let named = (spec.rect == DECLARED_CANVAS && name == "DECLARED_CANVAS_320X200")
                         || (spec.rect == DECLARED_ICON_ATLAS
                             && name == "DECLARED_ICON_ATLAS_320X64");
                     assert!(
@@ -364,7 +367,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!((header, declared), (4, 7), "TSV anchor column: 4 Header + 7 Declared");
+        assert_eq!(
+            (header, declared),
+            (4, 7),
+            "TSV anchor column: 4 Header + 7 Declared"
+        );
     }
 
     /// The four `ImgFile` rects, golden from the TSV (header `w/h` + offsets).
@@ -372,7 +379,10 @@ mod tests {
     fn header_rows_match_the_tsv_rects() {
         let golden: [(&str, UiRect); 4] = [
             ("DaggerfallSpellBookWindow", UiRect::new(23, 18, 259, 164)),
-            ("DaggerfallUseMagicItemWindow", UiRect::new(60, 36, 200, 128)),
+            (
+                "DaggerfallUseMagicItemWindow",
+                UiRect::new(60, 36, 200, 128),
+            ),
             ("DaggerfallTravelPopUp", UiRect::new(49, 29, 223, 96)),
             ("DaggerfallTransportWindow", UiRect::new(95, 47, 130, 60)),
         ];
@@ -392,7 +402,11 @@ mod tests {
     fn lane_declares_no_spop_rci() {
         for spec in specs() {
             let asset = spec.asset_retail.expect("concrete window");
-            assert_ne!(asset, "SPOP.RCI", "{}: SPOP.RCI needs decode_rci per record", spec.id);
+            assert_ne!(
+                asset, "SPOP.RCI",
+                "{}: SPOP.RCI needs decode_rci per record",
+                spec.id
+            );
             assert!(
                 !asset.ends_with(".RCI"),
                 "{}: {asset} is a multi-record container; the raw frames of this lane sit \
@@ -409,7 +423,11 @@ mod tests {
         let all: Vec<&str> = window_specs().map(|spec| spec.id).collect();
         for spec in specs() {
             let hits = all.iter().filter(|id| **id == spec.id).count();
-            assert_eq!(hits, 1, "{} appears {hits}× through window_specs()", spec.id);
+            assert_eq!(
+                hits, 1,
+                "{} appears {hits}× through window_specs()",
+                spec.id
+            );
         }
     }
 

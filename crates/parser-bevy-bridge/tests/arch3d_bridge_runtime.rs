@@ -43,7 +43,11 @@ fn load_arch3d() -> Option<Vec<u8>> {
 fn converts_every_arch3d_record_of_retail() {
     let Some(data) = load_arch3d() else { return };
     let archive = bridge::parse_bsa(&data).expect("ARCH3D.BSA must parse");
-    assert_eq!(archive.entries.len(), 10251, "golden dfbsa.txt: 0x280B records");
+    assert_eq!(
+        archive.entries.len(),
+        10251,
+        "golden dfbsa.txt: 0x280B records"
+    );
 
     let mut converted = 0usize;
     let mut failures: Vec<(usize, String)> = Vec::new();
@@ -55,18 +59,27 @@ fn converts_every_arch3d_record_of_retail() {
                 assert_eq!(spec.positions.len() % 3, 0, "triangle soup: idx {index}");
                 assert_eq!(spec.indices.len() / 3, spec.triangle_count(), "idx {index}");
                 for (v, p) in spec.positions.iter().enumerate() {
-                    assert!(p.iter().all(|c| c.is_finite()), "non-finite position idx {index} v{v}");
+                    assert!(
+                        p.iter().all(|c| c.is_finite()),
+                        "non-finite position idx {index} v{v}"
+                    );
                 }
                 for n in &spec.normals {
                     let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-                    assert!((len - 1.0).abs() < 1e-3, "non-unit normal idx {index}: {len}");
+                    assert!(
+                        (len - 1.0).abs() < 1e-3,
+                        "non-unit normal idx {index}: {len}"
+                    );
                 }
                 converted += 1;
             }
             Err(err) => failures.push((index, err.to_string())),
         }
     }
-    eprintln!("bridge runtime: converted={converted}/10251 failures={}", failures.len());
+    eprintln!(
+        "bridge runtime: converted={converted}/10251 failures={}",
+        failures.len()
+    );
     // Strong falsification: the converter must absorb the whole retail with
     // the dfbsa.txt layout (S1). If a failure shows up, it is a parity
     // finding — document it here with its id, never silence it.

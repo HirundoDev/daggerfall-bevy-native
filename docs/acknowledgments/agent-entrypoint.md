@@ -25,15 +25,18 @@ corrected rather than reconciled by prose.
 | **M18** | **DONE** at technical level · `PARTIAL-TAG-PENDING` | gate rows and the acceptance signature exist; the release tag does not. The 21 acceptance rows are **signed by delegation on 2026-10-26** — **8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL** (`NOT-COMPARABLE` is a declared class, not a downgraded pass). The pending row is `T-RELEASE-TAG`, the tag is **none**, and the comparison against the *original* game is still the owner's own act. Not the same as "looks like 1996" |
 | **M19–M33** | **DONE** | 15 milestones, each with probes and a QA verdict. "DONE" here means technical closure at the declared bar, not a signed release |
 | **M30–M33** | **DONE** (technical) | economy and banking (M30, closed 2026-10-23), travel with weather and calendar (M31, 2026-10-23), conditions/death/rest (M32, 2026-10-23) and total persistence (M33, 2026-10-26), each with its organ in `crates/` and its probes. Their consumer today is the probe, not the demo window. No tags |
-| **M34** | **DONE** at technical level · `PARTIAL-TECHNICAL-CLOSURE` | end-to-end integration and presentation: closed 2026-10-26 — `ALL-001` **40/40**, QA **0.94** (0 critical / 0 major), owner rows 12/12. One named row stays open: **`AUDIO-RT-001-DEVICE`** — `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`, binary built without the `audio` feature), so the device branch of the audio is the owner's decision. `UI-FULL-001` counts the **34** non-playable surfaces as `N/A-engine` entries of its own census and measures only the **51** playable windows (**51/51**): its `PASS` neither depends on those 34 nor certifies them, nor the device branch. No tag |
+| **M34** | **DONE** at technical level · `PARTIAL-TECHNICAL-CLOSURE` | end-to-end integration and presentation: closed 2026-10-26 — `ALL-001` **40/40**, QA **0.94** (0 critical / 0 major), owner rows 12/12. One named row stays open: **`AUDIO-RT-001-DEVICE`** — `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`, binary built without the `audio` feature), so the device branch of the audio is the owner's decision. `UI-FULL-001`, also the M40 gate, certifies **85/85** census surfaces with per-surface evidence since `CR-bc68d7ce` (2026-10-27): the 7 `Infra` entries as layer contract of `ui_compat`, and 3 read-only `Playable` windows recorded `not-applicable` on axis A5, so no surface is left uncertified; the device branch is still not promoted here. No tag |
 | **M35** | **PARTIAL** | biomes, 2D vegetation, sky — delivered 2026-10-26 for the `0.1.0` surface: `BIOME-001` 25 passed / 0 failed / **1 declared NA** (`GAP-TAX-11`: the corpus carries no tile-class data) and `SPRITE-001` 11/11. The declared gap is **deferred to M44**. **Optional annex**, not a gate for Plan A |
 | **M36–M38** | **DONE** (technical) | UI-0 audit, the seven-axis UI layer and the 27 creation/configuration surfaces: closed 2026-10-27 — `UI-AUDIT-001` A+B+C `VERDICT: PASS` in two separate processes with identical stdout (**85 = 78 surfaces (27 + 51) + 7 infrastructure rows**, measured **4 implemented / 47 partial / 34 absent**, rule **35 PATCH · 50 REWRITE**), `UI-BASE-001` **9/9** + `UI-INPUT-001` **10/10** over **3 pilot windows**, and `UI-CREATE-001` (16 surfaces) + `UI-CONFIG-001` (11 surfaces) `VERDICT: PASS` in two processes with identical digests. No tag |
 | **M39** | **DONE** at gate level | the 51 interactive playable windows: technical closure measured at HEAD `5803297` — `UI-JUGABLE-001` passes its **9/9** gate rules in two processes with byte-identical stdout (51/51 surfaces, 8/8 blocks, 7/7 axes; AXIS A5 `focus-rows=153` ×2, 4/4 falsifiers red) — and the closure report at `e249004` publishes `requirements_coverage 0.857` with **K7** (owner side-by-side) as the single open clause. Not signed, no tag, and the windows are not yet the running demo window |
-| **M40–M48** | **AUSENTE** | Plan B, remaining (E1–E7). Specifications exist *in the plan*; no code, no dispatch, no tag. M46 also carries `T-M46-GO` (an explicit owner go) |
+| **M40** | **DONE** at gate level | the gate over the complete UI: `UI-FULL-001` prints `VERDICT: PASS` on **8/8** rules in two separate processes with byte-identical stdout (21,472 B, sha256 `39c01070…`, gate stdout `e288505e…`, digest `27ed819c…`), certifying **85/85** census surfaces with per-surface evidence — **85 = 51 playable + 16 creation + 11 configuration + 7 infrastructure**, the 7 `Infra` closed as layer contract of `ui_compat::AXES`, 3 read-only `Playable` (`031`, `071`, `074`) `not-applicable` on A5 — and **4/4** falsifiers red and restored. Not signed, no tag; the side-by-side against the original is the owner's `K7` and is not part of this gate |
+| **M41–M48** | **AUSENTE** | Plan B, remaining (E1–E7). Specifications exist *in the plan*; no code, no dispatch, no tag. M46 also carries `T-M46-GO` (an explicit owner go) |
 | **E8** | **AUSENTE** | a **separate program** after M48, with its own genesis contract. It is not "M49" |
 
-Public surface: tags up to **`v0.3.0-alpha`** (published 2026-10-27), with `v0.3.1-alpha` in
-preparation as a documentation correction. No milestone tag exists from M18 on; M18's acceptance
+Public surface: tags up to **`v0.3.0-alpha`** (published 2026-10-27), with two untagged pre-releases
+above it — `v0.3.1-alpha`, a documentation correction, and `v0.4.0-alpha`, save fidelity generation 4
+(`CONTINUE` restores the saved world; measured `delta pos_mm=[0,0,0]` · `delta mundo=0 min`, and
+**unsigned**: its two register rows stay `candidato`). No milestone tag exists from M18 on; M18's acceptance
 signature is recorded by delegation on 2026-10-26.
 
 ## 3. Closure rule (the only one)
@@ -58,9 +61,9 @@ M44); it is not a gate for closing Plan A. The
 multiplier base (51.85 u) includes M35 for continuity of the historical series, and the roadmap declares
 both figures so the two readings never merge.
 
-## 4. The next gate — M40, and only with an explicit go
+## 4. The next gate — M41, and only with an explicit go
 
-**M36, M37, M38 and M39 are closed at gate level (2026-10-27), with no tag.** M36 produced what used to
+**M36, M37, M38, M39 and M40 are closed at gate level (2026-10-27), with no tag.** M36 produced what used to
 be the blocker: the executable census of the 85 original windows with a measured state per row
 (`UI-AUDIT-001`, blocks A+B+C, `VERDICT: PASS`), the 85×9 fit matrix, the patch-vs-rewrite decision
 (35 PATCH · 50 REWRITE), the UI↔game compatibility contract (seven axes) and the E1 re-estimate
@@ -84,14 +87,17 @@ docs/sintergic/l5-mission/m39-ui3-mission-report-CR-aecd1cef.md — publishes `r
 report. Absence of a go is a hard stop, not an invitation, and an unsigned gate is not an accepted
 milestone.
 
-**M40 — the UI gate at 85/85 with side-by-side, input and accessibility — is the next gate, and only
-with an explicit go.** No M40 work is dispatched today.
+**M40 — the gate over the complete UI — closed at gate level on 2026-10-27** (`UI-FULL-001` 85/85, 8/8
+rules, 4/4 falsifiers, two processes byte-identical;
+`docs/sintergic/l5-mission/m40-ui4-mission-report-CR-bc68d7ce.md`). It is not signed and carries no
+tag, and its side-by-side is the owner's `K7`. **M41 (SYS-1) is the next gate, and only with an
+explicit go.** No M41 work is dispatched today.
 
 ## 5. Limits (hard)
 
 | Limit | Statement |
 |:---|:---|
-| **No code without a go** | Plan B is a written plan. M40–M48 are `AUSENTE`: writing product code for any of them before the milestone's go violates the plan |
+| **No code without a go** | Plan B is a written plan. M41–M48 are `AUSENTE` (the UI-4 gate closed at gate level on 2026-10-27): writing product code for any of them before the milestone's go violates the plan |
 | **No retail assets** | No original game data, textures, sounds, fonts or executables in the repository, in any form. The engine is **BYOA**: the user points it at their own copy. Content scans must stay at zero |
 | **No secrets** | No keys, tokens or credentials in the repository, in tests, in fixtures or in documentation |
 | **No new milestone** | The ending is **M48 + E8**. E8 is a separate program with a new genesis contract — never "M49", never "M48b", never "phase 2" |
@@ -117,9 +123,10 @@ with an explicit go.** No M40 work is dispatched today.
    tells you the dependencies; section 10 tells you what a closure means.
 2. **Pick the next unblocked gate, never a random milestone.** The critical path is depth → dungeon →
    online → platform → modern; the UI runs in parallel. The audit (M36), the layer (M37), the 27
-   surfaces (M38) and the 51 playable windows (M39, technical closure at coverage 0.857) are closed, so
-   **M40** (the UI gate: 85/85 with side-by-side, input and accessibility) is the next gate; M39's only
-   remainder is the owner's signature.
+   surfaces (M38), the 51 playable windows (M39, technical closure at coverage 0.857) and the gate over
+   all 85 census surfaces (M40, `UI-FULL-001` 85/85 on 8/8 rules) are closed, so
+   **M41** (SYS-1: depth in combat, magic, items, stats and resistances) is the next gate; M39's and
+   M40's only remainder is the owner's signature, and M40's side-by-side is the owner's `K7`.
 3. **Write the specification with golden vectors before the code.** A stretch without golden vectors is
    where estimates are least reliable (see the risk factors in section 6.3 of the plan).
 4. **Name the probe in the first commit.** If you cannot name the probe, you do not yet know what you are

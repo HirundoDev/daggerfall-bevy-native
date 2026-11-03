@@ -1,20 +1,23 @@
-//! `savegame_v2` — M33 total persistence: the canonical `DFL-SESSION 2`
-//! text document and the **twelve section codecs** of the v2 envelope.
+//! `savegame_v2` — M33 total persistence: the canonical `DFL-SESSION 3`
+//! text document and the **thirteen section codecs** of the v3 envelope.
 //!
 //! Spec: `docs/sintergic/game/programming/m33-total-persistence-savegame-spec-CR-5243af63.md`
 //! (§3 grammar and section split, §4 golden sample S0, §5 v1→v2 migration,
-//! §6 probe contract). The envelope itself (`DFSV`) lives in
-//! [`crate::save_v2`]; this module owns the **payload** of the twelve
-//! canonical sections and nothing else: it persists state, it never
-//! interprets it (§7.1: HP > maxHP is written as given).
+//! §6 probe contract) and the v3 block `docs/sintergic/m44/blocks/E-save-v3-CR-7fd7260f.md`
+//! (§4 wire format, §5 normative migration, §6 compatibility matrix). The
+//! envelope itself (`DFSV`) lives in [`crate::save_v2`]; this module owns the
+//! **payload** of the thirteen canonical sections and nothing else: it
+//! persists state, it never interprets it (§7.1: HP > maxHP is written as
+//! given).
 //!
 //! ## Wire format (§3.1, line by line, ASCII/UTF-8, `\n`)
 //!
 //! ```text
-//! DFL-SESSION 2                                 ← magic + version
+//! DFL-SESSION 3                                 ← magic + version
 //! <key>=<value>                                 ← 48 fixed keys, always present, §3.3-§3.10 order
 //! <family>_count=<n>                            ← opens a list; exactly n entries follow
 //! <family>=<fields> | <family>.<idx>=<fields>   ← entries (idx 0..n-1)
+//! dungeon_*_count=<n> + entries                 ← the four v3 families, always last
 //! checksum=<16 lowercase hex>                   ← LAST line, FNV-1a 64 of every byte before it
 //! ```
 //!
@@ -42,22 +45,33 @@
 //! | `map` | M18/M34 | loaded chunks (ascending) and per-dungeon automap |
 //! | `rng` | all | persisted RNG states (ascending by name) |
 //!
+//! The v3 tail (block `E-save-v3` §4) adds a thirteenth section, always after
+//! `rng`, whose four families are owned by `dungeon_v3`:
+//!
+//! | key | owner | source of the state |
+//! |:---|:---|:---|
+//! | `dungeon` | M34/M44 | the four dungeon families (`state`, `elig`, `loot`, `instance`), empty by default |
+//!
 //! Each section is a [`SaveSection`]: it writes its own lines and parses them
 //! back (order-strict, closed keys), which is exactly what a
-//! [`crate::save_v2::SectionCodec`] needs. `memory` composes the twelve into
+//! [`crate::save_v2::SectionCodec`] needs. `memory` composes the thirteen into
 //! [`SaveGameV2`] and the envelope, and never looks inside a section.
 //!
 //! ## Migration (§5)
 //!
-//! [`migrate_text`] accepts `DFL-SESSION 1` (through the v1 reader) and
-//! `DFL-SESSION 2` (re-parse + re-emit, so it is idempotent). New keys take
-//! the declared defaults (`0`, `-1` for equipment slots, empty lists) and the
-//! empty name stays empty: a partial migration is declared, never invented.
+//! [`migrate_text`] accepts `DFL-SESSION 1` (through the v1 reader),
+//! `DFL-SESSION 2` (re-parse + re-emit at the live version, so the result is
+//! byte-identical to the canonical v3 document of the same state) and
+//! `DFL-SESSION 3` (identity: the document re-parses and re-emits byte for
+//! byte). New keys take the declared defaults (`0`, `-1` for equipment slots,
+//! empty lists, the four dungeon counts at `0`) and the empty name stays
+//! empty: a partial migration is declared, never invented.
 
 use std::fmt;
 use std::fs;
 use std::path::Path;
 
+use crate::dungeon_v3::{DocumentError, DungeonSection, GrammarToken};
 use crate::save_v2::{
     RegistryError, SaveError as EnvelopeError, SaveStateV2, SectionCodec, SectionError, SectionId,
     SectionRegistry,
@@ -67,7 +81,14 @@ use crate::session_store::{escape, fnv1a64, unescape, SaveError, SessionSnapshot
 /// Magic of the text document (same family as v1, new version).
 pub const MAGIC: &str = "DFL-SESSION";
 /// Version this build writes and accepts.
-pub const VERSION: i64 = 2;
+pub const VERSION: i64 = 3;
+/// The inherited `DFL-SESSION 2` generation, still read by the v3 reader.
+///
+/// Declared as a named constant (never as a bare `2` in the parser) because
+/// both directions of the compatibility matrix of spec §6 cite it: the v3
+/// reader accepts it with the four dungeon families empty, and a reader pinned
+/// at it must refuse a v3 document by name.
+pub const V2_VERSION: i64 = 2;
 
 /// Fixed keys of §3.3-§3.10 (GV-10).
 pub const FIXED_KEYS: usize = 48;
@@ -75,6 +96,23 @@ pub const FIXED_KEYS: usize = 48;
 pub const COUNT_KEYS: usize = 14;
 /// Fixed lines of the document: 48 keys + 14 counts (`GV-10`).
 pub const FIXED_LINES: usize = FIXED_KEYS + COUNT_KEYS;
+/// Count lines the v3 tail adds: one per [`Family`], always written.
+///
+/// Deliberately **not** folded into [`COUNT_KEYS`]: the inherited count is the
+/// census the v2 grammar and the gate pin (`14 + 4 = 18` families), and raising
+/// it would both lie about the v2 body and break that sum.
+pub const DUNGEON_COUNT_LINES: usize = 4;
+/// The four count keys of the tail, in grammar order (contrasted against
+/// [`crate::dungeon_v3::Family::ALL`] by `v3_count_keys_match_the_grammar`).
+pub const V3_COUNT_KEYS: [&str; DUNGEON_COUNT_LINES] = [
+    "dungeon_state_count",
+    "dungeon_elig_count",
+    "dungeon_loot_count",
+    "dungeon_instance_count",
+];
+/// Fixed lines of the whole v3 document: the v2 body plus the four counts.
+pub const FIXED_LINES_V3: usize = FIXED_LINES + DUNGEON_COUNT_LINES;
+
 /// Equipment slots of the classic character record (§2.2, `equippedCount=27`).
 pub const EQUIPPED_SLOTS: usize = 27;
 /// Skills persisted by M20.
@@ -1610,10 +1648,88 @@ impl SaveSection for RngSection {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 13 · dungeon (M34/M44) — the v3 tail
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// The four dungeon families as a section: the envelope id `dungeon` (§7).
+///
+/// The section writes and parses exactly the lines it owns — four counts plus
+/// their entries — and nothing else. The grammar lives in [`crate::dungeon_v3`],
+/// whose [`DungeonSection::parse_lines`] is the single parse loop of the four
+/// families, so this impl adds the section framing and never a second parser.
+impl SaveSection for DungeonSection {
+    const KEY: &'static str = "dungeon";
+    const OWNER: &'static str = "M34/M44";
+
+    fn write_lines(&self, out: &mut String) {
+        // The inherent writer of the grammar, never this method: delegating
+        // keeps one emitter for the four families.
+        DungeonSection::write_lines(self, out);
+    }
+
+    fn parse(cur: &mut Cursor<'_>) -> Result<Self, SaveError> {
+        let section = DungeonSection::parse_lines(&cur.lines[cur.pos..]).map_err(dungeon_error)?;
+        // `parse_lines` refuses a line outside the four families, so a
+        // successful parse has consumed the cursor exactly.
+        cur.pos = cur.lines.len();
+        Ok(section)
+    }
+}
+
+/// Maps a tail refusal into the error the callers of this module handle.
+///
+/// The mapping is the one [`DocumentError`] declares for itself (its `From`
+/// impl): `bad_magic` → [`SaveError::BadMagic`], a header version this build
+/// does not know → [`SaveError::BadVersion`], a defect of the inherited v2 body
+/// → that error untouched, and every §2.5 token → [`SaveError::Corrupt`] whose
+/// message **starts with the token**, so `family_requires_v3`, `unknown_key`
+/// and `count_mismatch` stay distinguishable after the mapping. Restating the
+/// match here would be a second copy free to drift.
+fn dungeon_error(error: DocumentError) -> SaveError {
+    SaveError::from(error)
+}
+
+/// Reads the dungeon tail where the twelve v2 sections end (§2.1, §6).
+///
+/// * `DFL-SESSION 3` — the tail is the rest of the document and is parsed by
+///   the v3 grammar in canonical order; an absent family, a count out of step
+///   or a line outside the four families is refused with its own token.
+/// * `DFL-SESSION 2` — a document that ends with the v2 body is accepted with
+///   the four families **empty**: a v2 document carries no dungeon state and
+///   none is synthesized for it (§6), so re-emitting upgrades it (FX-1).
+/// * `DFL-SESSION 2` carrying a `dungeon_*` key — `family_requires_v3` (N9 of
+///   §4.1): a v2 header cannot carry v3 state, and the refusal names the family
+///   instead of diagnosing a stray key. The v2 pin of
+///   [`SaveGameV2::parse_v2_text`] is the other half of the same matrix.
+fn read_tail(cur: &mut Cursor<'_>, version: i64) -> Result<DungeonSection, SaveError> {
+    if version == V2_VERSION {
+        if let Some((key, _)) = cur.lines[cur.pos..]
+            .iter()
+            .find(|(key, _)| key.starts_with("dungeon_"))
+        {
+            return Err(dungeon_error(DocumentError::reject(
+                GrammarToken::FamilyRequiresV3,
+                format!("{key:?}: the dungeon families require {MAGIC} {VERSION}"),
+            )));
+        }
+        // Any other line after the last section keeps the historical diagnosis
+        // of this crate: an unknown key, not a tail defect.
+        if let Some(key) = cur.peek_key() {
+            return Err(SaveError::Corrupt(format!(
+                "unknown key after the last section: {key:?}"
+            )));
+        }
+        return Ok(DungeonSection::default());
+    }
+    <DungeonSection as SaveSection>::parse(cur)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // The document: the twelve sections in canonical order
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// The complete v2 save state: twelve sections, canonical order (§3.3).
+/// The complete save state: the twelve v2 sections in canonical order (§3.3)
+/// plus the dungeon tail of v3 (§2.1).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SaveGameV2 {
     /// Section 1 — world.
@@ -1640,6 +1756,8 @@ pub struct SaveGameV2 {
     pub map: MapSection,
     /// Section 12 — rng.
     pub rng: RngSection,
+    /// Section 13 — the four dungeon families (v3 tail, §2.1).
+    pub dungeon: DungeonSection,
 }
 
 impl SaveGameV2 {
@@ -1814,6 +1932,8 @@ impl SaveGameV2 {
             rng: RngSection {
                 states: vec![("world".to_string(), 12_345_678_901_234_567)],
             },
+            // S0 is the v2 body; the four v3 families are empty for it (§6).
+            dungeon: DungeonSection::default(),
         }
     }
 
@@ -1914,6 +2034,9 @@ impl SaveGameV2 {
                 )));
             }
         }
+        self.dungeon
+            .validate()
+            .map_err(|error| SaveError::Corrupt(format!("dungeon section: {error}")))?;
         Ok(())
     }
 
@@ -1936,6 +2059,7 @@ impl SaveGameV2 {
         self.calendar.write_lines(out);
         self.map.write_lines(out);
         self.rng.write_lines(out);
+        self.dungeon.write_lines(out);
     }
 
     /// Canonical text of the document, checksum line included.
@@ -1959,9 +2083,10 @@ impl SaveGameV2 {
         fnv1a64(self.payload().as_bytes())
     }
 
-    /// Number of lines [`Self::to_text`] produces.
+    /// Number of lines [`Self::to_text`] produces (§2.4).
     pub fn line_count(&self) -> usize {
-        FIXED_LINES + 2 + self.entry_count() + self.map.ext_line_count()
+        FIXED_LINES_V3 + 2 + self.entry_count() + self.map.ext_line_count()
+            + self.dungeon.entry_count()
     }
 
     /// Entries across the fourteen list families (GV-08).
@@ -1982,8 +2107,20 @@ impl SaveGameV2 {
             + self.rng.states.len()
     }
 
-    /// Parses a canonical document (magic + version + checksum + closed keys).
+    /// Parses a canonical document at the live version ([`VERSION`]).
     pub fn from_text(text: &str) -> Result<Self, SaveError> {
+        Self::from_text_version(text, VERSION)
+    }
+
+    /// Parses a canonical document whose header must declare `expected_version`.
+    ///
+    /// The live reader is `expected_version == VERSION`; `DFL-SESSION 2` is
+    /// still accepted there (spec §6, R24a) and takes the declared defaults of
+    /// the four dungeon families — nothing is synthesized. A reader pinned at
+    /// [`V2_VERSION`] refuses a v3 document by name ([`SaveError::BadVersion`]),
+    /// which is the other half of the matrix: the version gate is not a silent
+    /// pass in either direction.
+    pub fn from_text_version(text: &str, expected_version: i64) -> Result<Self, SaveError> {
         let header = text
             .lines()
             .next()
@@ -1997,7 +2134,13 @@ impl SaveGameV2 {
         let version: i64 = version
             .parse()
             .map_err(|_| SaveError::Corrupt("non-numeric version".into()))?;
-        if version != VERSION {
+        // The pin of the reader, plus the one generation it upgrades from: the
+        // live reader (`expected_version == VERSION`) accepts the v3 document
+        // and the v2 document it migrates (§6, R24a); a pinned reader accepts
+        // only its own generation, so it refuses the one it predates.
+        let pinned = version == expected_version;
+        let upgraded = expected_version == VERSION && version == V2_VERSION;
+        if !pinned && !upgraded {
             return Err(SaveError::BadVersion(version));
         }
 
@@ -2021,7 +2164,7 @@ impl SaveGameV2 {
 
         let body = payload_of_body(&payload);
         let mut cur = Cursor::new(&body)?;
-        let doc = Self {
+        let mut doc = Self {
             world: WorldSection::parse(&mut cur)?,
             clock: ClockSection::parse(&mut cur)?,
             character: CharacterSection::parse(&mut cur)?,
@@ -2034,22 +2177,30 @@ impl SaveGameV2 {
             calendar: CalendarSection::parse(&mut cur)?,
             map: MapSection::parse(&mut cur)?,
             rng: RngSection::parse(&mut cur)?,
+            dungeon: DungeonSection::default(),
         };
-        if cur.remaining() != 0 {
-            let (key, _) = cur.next()?;
-            return Err(SaveError::Corrupt(format!(
-                "unknown key after the last section: {key:?}"
-            )));
-        }
+        doc.dungeon = read_tail(&mut cur, version)?;
         doc.validate()?;
-        // A canonical document is byte-identical to its own re-emission: this
-        // is the determinism check, not a stylistic one.
-        if doc.to_text() != text {
+        // A v3 document is byte-identical to its own re-emission: this is the
+        // determinism check, not a stylistic one. A v2 document cannot be —
+        // `to_text` always writes the live version — so it is accepted as read
+        // and the upgrade stays the explicit migration of spec §5.
+        if version == VERSION && doc.to_text() != text {
             return Err(SaveError::Corrupt(
                 "the document is not in canonical form (bytes differ from re-emission)".into(),
             ));
         }
         Ok(doc)
+    }
+
+    /// Reads a document through the v2 pin: `DFL-SESSION 2` only.
+    ///
+    /// This is the other half of the matrix of spec §6: a document written by
+    /// the live writer (header `3`) is refused **by name** —
+    /// [`SaveError::BadVersion`] — instead of being diagnosed as `Corrupt` by
+    /// some later section.
+    pub fn parse_v2_text(text: &str) -> Result<Self, SaveError> {
+        Self::from_text_version(text, V2_VERSION)
     }
 
     /// Writes the document to `path` (creates missing parents).
@@ -2071,14 +2222,15 @@ impl SaveGameV2 {
         Self::from_text(&text)
     }
 
-    /// Envelope of the twelve sections, in canonical id order.
+    /// Envelope of the thirteen sections, in canonical id order (spec §7).
     ///
     /// This is the "`memory` only composes" path: each section contributes its
-    /// own [`SaveSection::encode_bytes`], nothing else.
+    /// own [`SaveSection::encode_bytes`], nothing else. `dungeon` is the
+    /// thirteenth section and sorts by key between `crime` and `economy`.
     pub fn to_state(&self) -> Result<SaveStateV2, SaveError> {
         self.validate()?;
         let mut state = SaveStateV2::new();
-        let sections: [(SectionId, Vec<u8>); 12] = [
+        let sections: [(SectionId, Vec<u8>); 13] = [
             (WorldSection::id(), self.world.encode_bytes()),
             (ClockSection::id(), self.clock.encode_bytes()),
             (CharacterSection::id(), self.character.encode_bytes()),
@@ -2086,6 +2238,7 @@ impl SaveGameV2 {
             (EffectsSection::id(), self.effects.encode_bytes()),
             (GuildsSection::id(), self.guilds.encode_bytes()),
             (CrimeSection::id(), self.crime.encode_bytes()),
+            (DungeonSection::id(), self.dungeon.encode_bytes()),
             (QuestsSection::id(), self.quests.encode_bytes()),
             (EconomySection::id(), self.economy.encode_bytes()),
             (CalendarSection::id(), self.calendar.encode_bytes()),
@@ -2110,6 +2263,7 @@ impl SaveGameV2 {
             effects: decode_section::<EffectsSection>(state)?,
             guilds: decode_section::<GuildsSection>(state)?,
             crime: decode_section::<CrimeSection>(state)?,
+            dungeon: decode_section::<DungeonSection>(state)?,
             quests: decode_section::<QuestsSection>(state)?,
             economy: decode_section::<EconomySection>(state)?,
             calendar: decode_section::<CalendarSection>(state)?,
@@ -2188,15 +2342,20 @@ fn payload_of_body(payload: &str) -> String {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Migration v1 → v2 (§5)
+// Migration v1 → v2 → v3 (§5)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Migrates `DFL-SESSION 1` text to canonical `DFL-SESSION 2` text.
+/// Migrates a `DFL-SESSION 1` or `DFL-SESSION 2` document to canonical
+/// `DFL-SESSION 3` text, and returns a `DFL-SESSION 3` document **byte for
+/// byte** (spec §5).
 ///
-/// A v2 document is re-parsed and re-emitted, which makes the migration
-/// idempotent by construction: `migrate(migrate(x)) == migrate(x)`. Any other
-/// version is [`SaveError::BadVersion`] and a foreign magic is
-/// [`SaveError::BadMagic`] (spec §5a).
+/// The three arms are keyed on three *distinct* named generations, so no arm
+/// can shadow another (spec §6): [`crate::session_store::FORMAT_VERSION_V1`]
+/// reads the sixteen v1 scalars, [`V2_VERSION`] parses the inherited v2 body
+/// under the v2 pin, and [`VERSION`] is the identity. Every arm parses before
+/// it answers — a document that does not parse is refused with its own error,
+/// because garbage is never migrated (§5 step 1). Any other version is
+/// [`SaveError::BadVersion`] and a foreign magic is [`SaveError::BadMagic`].
 pub fn migrate_text(text: &str) -> Result<String, SaveError> {
     let header = text
         .lines()
@@ -2212,16 +2371,45 @@ pub fn migrate_text(text: &str) -> Result<String, SaveError> {
         .parse()
         .map_err(|_| SaveError::Corrupt("non-numeric version".into()))?;
     match version {
-        crate::session_store::FORMAT_VERSION => {
-            let snapshot = SessionSnapshot::from_text(text)?;
-            Ok(SaveGameV2::from_v1(&snapshot).to_text())
-        }
-        VERSION => {
-            let doc = SaveGameV2::from_text(text)?;
-            Ok(doc.to_text())
-        }
+        crate::session_store::FORMAT_VERSION_V1 => migrate_v1_to_v3(text),
+        V2_VERSION => migrate_v2_to_v3(text),
+        VERSION => migrate_v3_identity(text),
         other => Err(SaveError::BadVersion(other)),
     }
+}
+
+/// §5 steps 1-4 for a `DFL-SESSION 1` document: the sixteen v1 scalars become
+/// a v2 document ([`SaveGameV2::from_v1`]) and the live writer re-emits it at
+/// v3 — header `3`, the four dungeon blocks at `0` and a fresh seal. The v1
+/// keys that have no v2 counterpart (`name`, `game_minutes`) stay at the
+/// declared defaults of [`SaveGameV2::from_v1`]; nothing is invented.
+fn migrate_v1_to_v3(text: &str) -> Result<String, SaveError> {
+    let snapshot =
+        SessionSnapshot::from_text_version(text, crate::session_store::FORMAT_VERSION_V1)?;
+    Ok(SaveGameV2::from_v1(&snapshot).to_text())
+}
+
+/// §5 steps 1-4 for a `DFL-SESSION 2` document: parse with the v2 pin and
+/// re-emit at the live version.
+///
+/// Nothing is synthesized: a v2 body carries no dungeon state, so the four
+/// families are written **empty** (`_count=0`, zero entries) and the checksum
+/// is recomputed over the new bytes. `S0` therefore migrates to `FX-1`, and
+/// `migrate(FX-1) == FX-1` because a re-emitted document already sits on the
+/// identity arm.
+fn migrate_v2_to_v3(text: &str) -> Result<String, SaveError> {
+    Ok(SaveGameV2::from_text_version(text, V2_VERSION)?.to_text())
+}
+
+/// §5 step 2 for a `DFL-SESSION 3` document: the migration **is** the identity.
+///
+/// The document is still parsed first — a v3 header is not a licence to keep
+/// anything (the reader verifies checksum, body and canonical re-emission) —
+/// and then returned byte for byte, never re-serialized, so idempotence is a
+/// fact of the bytes rather than of a writer that happens to agree.
+fn migrate_v3_identity(text: &str) -> Result<String, SaveError> {
+    SaveGameV2::from_text(text)?;
+    Ok(text.to_string())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2276,11 +2464,11 @@ fn attach<S: SaveSection + 'static>(registry: &mut SectionRegistry) -> Result<()
     registry.attach_codec(S::OWNER, Box::new(M33Codec::<S>::default()))
 }
 
-/// Attaches the codec of all twelve canonical sections, each under its owner.
+/// Attaches the codec of all thirteen canonical sections, each under its owner.
 ///
 /// After this call a registry that declared [`crate::save_v2::M33_SECTIONS`]
-/// reports `12/12` coverage: `memory` can now compose, encode and decode the
-/// whole game state.
+/// reports `13/13` coverage: `memory` can now compose, encode and decode the
+/// whole game state, the four dungeon families included (spec §7).
 pub fn attach_m33_codecs(registry: &mut SectionRegistry) -> Result<(), RegistryError> {
     attach::<WorldSection>(registry)?;
     attach::<ClockSection>(registry)?;
@@ -2289,6 +2477,7 @@ pub fn attach_m33_codecs(registry: &mut SectionRegistry) -> Result<(), RegistryE
     attach::<EffectsSection>(registry)?;
     attach::<GuildsSection>(registry)?;
     attach::<CrimeSection>(registry)?;
+    attach::<DungeonSection>(registry)?;
     attach::<QuestsSection>(registry)?;
     attach::<EconomySection>(registry)?;
     attach::<CalendarSection>(registry)?;
@@ -2398,30 +2587,247 @@ checksum=f793b743974d7f39
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dungeon_v3::{
+        DungeonEligRow, DungeonInstanceRow, DungeonLootRow, DungeonStateRow, Family, LootSource,
+        MachineState,
+    };
+    use crate::session_store::{FORMAT_MAGIC, FORMAT_VERSION_V1};
 
     fn lines(text: &str) -> usize {
         text.lines().count()
+    }
+
+    /// FX-1 of spec §3: the S0 body under the v3 header plus the four dungeon
+    /// counts at `0`, resealed — the document `migrate(S0)` must produce.
+    ///
+    /// Derived from [`S0_TEXT`] and the grammar's own count keys (never
+    /// transcribed line by line, so it cannot drift from the body), and pinned
+    /// by the three numbers the block document declares in §3.
+    fn fx1_text() -> String {
+        let body: Vec<&str> = S0_TEXT.lines().collect();
+        let payload: Vec<String> = std::iter::once("DFL-SESSION 3".to_string())
+            .chain(body[1..body.len() - 1].iter().map(|line| (*line).to_string()))
+            // The counts are the grammar's own keys, written at `0` (§2.1).
+            .chain(V3_COUNT_KEYS.iter().map(|key| format!("{key}=0")))
+            .collect();
+        sealed(payload)
+    }
+
+    /// The checksum line of `text`, without its key.
+    fn checksum_of(text: &str) -> &str {
+        text.lines()
+            .next_back()
+            .and_then(|line| line.strip_prefix("checksum="))
+            .expect("the document ends with a checksum line")
     }
 
     #[test]
     fn golden_sample_matches_spec_section_4() {
         let doc = SaveGameV2::sample();
         let text = doc.to_text();
-        assert_eq!(text, S0_TEXT, "S0 must be transcribed literally");
-        assert_eq!(lines(&text), 85);
-        assert_eq!(text.len(), 1705);
-        assert_eq!(doc.digest(), 0xf793_b743_974d_7f39);
+        assert_eq!(text, fx1_text(), "the live writer emits FX-1 for S0's state");
+        assert_eq!(lines(&text), 89, "FX-1 line count (§3)");
+        assert_eq!(text.len(), 1794, "FX-1 byte count (§3)");
+        assert_eq!(checksum_of(&text), "a1199cefed185b41", "FX-1 FNV (§3)");
+        assert_eq!(doc.digest(), 0xa119_9cef_ed18_5b41);
         assert_eq!(doc.entry_count(), 21, "GV-08");
-        assert_eq!(doc.line_count(), 85);
+        assert_eq!(doc.line_count(), 89);
+        assert_eq!(doc.line_count(), lines(&text));
+    }
+
+    #[test]
+    fn golden_fx2_one_entry_per_family_matches_the_spec() {
+        let mut doc = SaveGameV2::sample();
+        doc.dungeon.states.push(DungeonStateRow {
+            location_id: 26_381,
+            block_index: 0,
+            door_id: 26,
+            machine: MachineState::Dormant,
+            since_minutes: 142_561,
+            epoch: 1,
+        });
+        doc.dungeon.eligible.push(DungeonEligRow {
+            token: [0x9f, 0x2c, 0x4e, 0x1a, 0x7b, 0x3d, 0x50, 0x68],
+            location_id: 26_381,
+            container_id: 7,
+            player_id: 0,
+            epoch: 1,
+            seen: false,
+        });
+        doc.dungeon.loot.push(DungeonLootRow {
+            location_id: 26_381,
+            container_id: 7,
+            source: LootSource::Chest,
+            spawn_minutes: 142_561,
+            looted_minutes: 0,
+            looted: false,
+            epoch: 1,
+        });
+        doc.dungeon.instances.push(DungeonInstanceRow {
+            instance_id: [0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f, 0x70, 0x81],
+            location_id: 26_381,
+            epoch: 1,
+            player_id: 0,
+        });
+
+        let text = doc.to_text();
+        assert_eq!(lines(&text), 93, "FX-2 line count (§3)");
+        assert_eq!(text.len(), 1964, "FX-2 byte count (§3)");
+        assert_eq!(checksum_of(&text), "75dc8bec9e9643f4", "FX-2 FNV (§3)");
+        assert_eq!(doc.digest(), 0x75dc_8bec_9e96_43f4);
+        assert_eq!(doc.line_count(), 93);
+        assert_eq!(doc.entry_count(), 21, "GV-08 counts the v2 families only");
+        assert_eq!(doc.dungeon.entry_count(), 4);
+
+        // The four families travel in grammar order (§2.1), after `rng`.
+        let tail: Vec<&str> = text
+            .lines()
+            .filter(|line| line.starts_with("dungeon_"))
+            .collect();
+        assert_eq!(
+            tail,
+            [
+                "dungeon_state_count=1",
+                "dungeon_state=26381,0,26,Dormant,142561,1",
+                "dungeon_elig_count=1",
+                "dungeon_elig=9f2c4e1a7b3d5068,26381,7,0,1,0",
+                "dungeon_loot_count=1",
+                "dungeon_loot=26381,7,Chest,142561,0,0,1",
+                "dungeon_instance_count=1",
+                "dungeon_instance=1a2b3c4d5e6f7081,26381,1,0",
+            ]
+        );
+
+        // A v3 document is byte-identical to its own re-emission (§6).
+        let parsed = SaveGameV2::from_text(&text).expect("FX-2 parses");
+        assert_eq!(parsed, doc);
+        assert_eq!(parsed.to_text(), text);
+        assert_eq!(
+            DungeonSection::decode_bytes(&parsed.dungeon.encode_bytes()).expect("section codec"),
+            doc.dungeon
+        );
     }
 
     #[test]
     fn golden_sample_roundtrips_byte_identically() {
+        // §6: the v3 reader accepts S0 with the four families empty — nothing
+        // is synthesized for a v2 document.
         let doc = SaveGameV2::from_text(S0_TEXT).expect("S0 parses");
         assert_eq!(doc, SaveGameV2::sample());
-        assert_eq!(doc.to_text(), S0_TEXT);
+        assert!(doc.dungeon.is_empty(), "a v2 document carries no dungeon state");
+        // Re-emitting is the declared upgrade: the same body at v3 (= FX-1).
+        assert_eq!(doc.to_text(), fx1_text());
         assert_eq!(doc.digest(), SaveGameV2::sample().digest());
+
+        let fx1 = fx1_text();
+        let again = SaveGameV2::from_text(&fx1).expect("FX-1 parses");
+        assert_eq!(again, doc);
+        assert_eq!(again.to_text(), fx1);
     }
+
+    #[test]
+    fn the_v2_pin_refuses_a_v3_document_by_name() {
+        let fx1 = fx1_text();
+        // The pin names the generation it refused (`BadVersion(3)`), never a
+        // `Corrupt` that would hide the version behind a parse failure.
+        match SaveGameV2::parse_v2_text(&fx1) {
+            Err(SaveError::BadVersion(3)) => {}
+            other => panic!("the v2 pin must refuse v3 by name, got {other:?}"),
+        }
+        // The same pin accepts the generation it was pinned at.
+        let pinned = SaveGameV2::parse_v2_text(S0_TEXT).expect("S0 is a v2 document");
+        assert_eq!(pinned, SaveGameV2::sample());
+    }
+
+    #[test]
+    fn v3_count_keys_match_the_grammar() {
+        assert_eq!(Family::ALL.map(|family| family.spec().count_key), V3_COUNT_KEYS);
+    }
+
+    #[test]
+    fn a_v2_document_with_a_dungeon_key_is_family_requires_v3() {
+        // N9 of §4.1: a v2 header cannot carry v3 state, whatever the family.
+        for intruder in ["dungeon_state_count=0", "dungeon_state=1,0,2,Dormant,0,1"] {
+            let mut payload: Vec<&str> = S0_TEXT.lines().collect();
+            payload.pop();
+            payload.push(intruder);
+            match SaveGameV2::from_text(&sealed(payload)) {
+                Err(SaveError::Corrupt(message)) => assert!(
+                    message.starts_with(GrammarToken::FamilyRequiresV3.as_str()),
+                    "{intruder}: the refusal must name its token, got {message:?}"
+                ),
+                other => panic!("{intruder}: a v2 document with v3 state must be refused: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_v2_document_with_a_stray_key_keeps_the_unknown_key_diagnosis() {
+        let mut payload: Vec<&str> = S0_TEXT.lines().collect();
+        payload.pop();
+        payload.push("gold_extra=1");
+        match SaveGameV2::from_text(&sealed(payload)) {
+            Err(SaveError::Corrupt(message)) => assert!(
+                message.starts_with("unknown key after the last section"),
+                "got {message:?}"
+            ),
+            other => panic!("a stray key after the v2 body must be refused: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_v3_document_without_the_tail_is_missing_family() {
+        // The four counts are part of a v3 document: re-emission always writes
+        // them, so a v3 head that omits them is not canonical (§2.1, §2.5).
+        let fx1 = fx1_text();
+        let payload: Vec<&str> = fx1
+            .lines()
+            .filter(|line| !line.starts_with("dungeon_") && !line.starts_with("checksum="))
+            .collect();
+        match SaveGameV2::from_text(&sealed(payload)) {
+            Err(SaveError::Corrupt(message)) => assert!(
+                message.starts_with(GrammarToken::MissingFamily.as_str()),
+                "got {message:?}"
+            ),
+            other => panic!("a v3 document without its tail must be refused: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_v3_document_with_an_extra_dungeon_key_is_unknown_key() {
+        // N5 of §4.1.
+        let fx1 = fx1_text();
+        let mut payload: Vec<&str> = fx1
+            .lines()
+            .filter(|line| !line.starts_with("checksum="))
+            .collect();
+        payload.push("dungeon_extra=1");
+        match SaveGameV2::from_text(&sealed(payload)) {
+            Err(SaveError::Corrupt(message)) => assert!(
+                message.starts_with(GrammarToken::UnknownKey.as_str()),
+                "got {message:?}"
+            ),
+            other => panic!("an unknown tail key must be refused: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_dungeon_section_declares_its_envelope_identity() {
+        assert_eq!(<DungeonSection as SaveSection>::KEY, "dungeon");
+        assert_eq!(<DungeonSection as SaveSection>::OWNER, "M34/M44");
+        let empty = DungeonSection::default();
+        assert_eq!(
+            DungeonSection::decode_bytes(&empty.encode_bytes()).expect("empty tail roundtrips"),
+            empty
+        );
+        assert_eq!(
+            empty.encode_bytes(),
+            b"dungeon_state_count=0\ndungeon_elig_count=0\ndungeon_loot_count=0\n\
+              dungeon_instance_count=0\n"
+                .to_vec()
+        );
+    }
+
 
     #[test]
     fn section_bytes_roundtrip() {
@@ -2452,12 +2858,33 @@ mod tests {
     fn envelope_composition_roundtrips() {
         let doc = SaveGameV2::sample();
         let state = doc.to_state().expect("compose");
-        assert_eq!(state.sections.len(), 12);
+        assert_eq!(state.sections.len(), 13);
+        // §7: `dungeon` is the thirteenth section and the envelope orders its
+        // sections by key, so it lands exactly between `crime` and `economy`.
+        let keys: Vec<&'static str> = state.sections.iter().map(|s| s.id.key()).collect();
+        assert_eq!(
+            keys,
+            vec![
+                "calendar",
+                "character",
+                "clock",
+                "crime",
+                "dungeon",
+                "economy",
+                "effects",
+                "guilds",
+                "inventory",
+                "map",
+                "quests",
+                "rng",
+                "world",
+            ]
+        );
         assert_eq!(SaveGameV2::from_state(&state).expect("decode"), doc);
     }
 
     #[test]
-    fn all_twelve_codecs_attach_to_the_canonical_table() {
+    fn all_thirteen_codecs_attach_to_the_canonical_table() {
         let mut registry = SectionRegistry::new();
         registry
             .declare_all(&crate::save_v2::M33_SECTIONS)
@@ -2465,7 +2892,7 @@ mod tests {
         attach_m33_codecs(&mut registry).expect("attach");
         let coverage = registry.coverage(&crate::save_v2::M33_SECTIONS);
         assert!(coverage.complete(), "missing: {}", coverage.missing_list());
-        assert_eq!(coverage.ratio(), "12/12");
+        assert_eq!(coverage.ratio(), "13/13");
         let composed = registry.compose();
         let restored = SaveGameV2::from_state(&composed).expect("compose/decode");
         assert_eq!(restored, SaveGameV2::default());
@@ -2524,9 +2951,12 @@ mod tests {
 
     /// Reseals a valid checksum over `payload`, so a rejection can only come
     /// from the closed-key parser and never from the FNV barrier.
-    fn sealed(payload: Vec<&str>) -> String {
-        let mut body = payload.join("\n");
-        body.push('\n');
+    fn sealed<S: AsRef<str>>(payload: Vec<S>) -> String {
+        let mut body = String::new();
+        for line in &payload {
+            body.push_str(line.as_ref());
+            body.push('\n');
+        }
         let checksum = fnv1a64(body.as_bytes());
         body.push_str(&format!("checksum={checksum:016x}\n"));
         body
@@ -2603,6 +3033,29 @@ mod tests {
         assert!(!text.contains("pipe\ny salto"), "the newline must be escaped");
     }
 
+    /// A genuine `DFL-SESSION 1` document: the snapshot body under the v1
+    /// header, resealed with the same FNV-1a 64 the v1 reader verifies.
+    ///
+    /// [`SessionSnapshot::to_text`] writes the live generation
+    /// ([`crate::session_store::FORMAT_VERSION`]), so a v1 document cannot be
+    /// produced by calling it: the header and the seal are rewritten here.
+    fn v1_text(snapshot: &SessionSnapshot) -> String {
+        let live = snapshot.to_text();
+        let total = live.lines().count();
+        let mut payload: Vec<String> = Vec::with_capacity(total);
+        for (index, line) in live.lines().enumerate() {
+            if index == total - 1 {
+                break; // the v3 seal is recomputed over the v1 body
+            }
+            if index == 0 {
+                payload.push(format!("{FORMAT_MAGIC} {FORMAT_VERSION_V1}"));
+            } else {
+                payload.push(line.to_string());
+            }
+        }
+        sealed(payload)
+    }
+
     #[test]
     fn migration_from_v1_keeps_the_sixteen_scalars_and_is_idempotent() {
         let mut snapshot = SessionSnapshot {
@@ -2629,9 +3082,16 @@ mod tests {
             ],
             chunks: vec![(0, 0), (0, 1), (1, 0), (1, 1), (2, 0)],
         };
-        let v1 = snapshot.to_text();
+        let v1 = v1_text(&snapshot);
+        assert_eq!(
+            v1.lines().next(),
+            Some("DFL-SESSION 1"),
+            "the fixture must be a v1 document, not the live generation"
+        );
         let migrated = migrate_text(&v1).expect("v1 migrates");
-        let doc = SaveGameV2::from_text(&migrated).expect("migrated v2 parses");
+        // v1 → v2 → v3: the answer is a v3 document, never the v2 middle step.
+        assert_eq!(migrated.lines().next(), Some("DFL-SESSION 3"));
+        let doc = SaveGameV2::from_text(&migrated).expect("migrated v3 parses");
         assert_eq!(doc.world.pos_x_mm, snapshot.pos_x_mm);
         assert_eq!(doc.world.pos_z_mm, snapshot.pos_z_mm);
         assert_eq!(doc.clock.hour, snapshot.clock_hour);
@@ -2646,11 +3106,12 @@ mod tests {
             [-1; EQUIPPED_SLOTS],
             "new slots default to -1"
         );
+        assert!(doc.dungeon.is_empty(), "no dungeon state is invented");
         assert_eq!(migrate_text(&migrated).expect("idempotent"), migrated);
         assert_eq!(migrate_text(&v1).expect("deterministic"), migrated);
 
         snapshot.goods.clear();
-        let empty = migrate_text(&snapshot.to_text()).expect("empty goods migrate");
+        let empty = migrate_text(&v1_text(&snapshot)).expect("empty goods migrate");
         assert_eq!(
             SaveGameV2::from_text(&empty).expect("parse").inventory.goods.len(),
             0
@@ -2658,16 +3119,38 @@ mod tests {
     }
 
     #[test]
+    fn migration_of_s0_is_fx1_byte_for_byte_and_v3_is_the_identity() {
+        let migrated = migrate_text(S0_TEXT).expect("S0 migrates");
+        let fx1 = fx1_text();
+        // §5: the migration of S0 *is* FX-1 — header 3, the four dungeon
+        // blocks at 0, a fresh seal — and the comparison is over bytes.
+        assert_eq!(migrated.as_bytes(), fx1.as_bytes());
+        assert_eq!(migrated.len(), 1794, "FX-1 byte count (§3)");
+        assert_eq!(lines(&migrated), 89, "FX-1 line count (§3)");
+        assert_eq!(checksum_of(&migrated), "a1199cefed185b41", "FX-1 FNV (§3)");
+        // §5 step 2: a v3 document migrates to itself, byte for byte.
+        let again = migrate_text(&migrated).expect("FX-1 migrates");
+        assert_eq!(again.as_bytes(), migrated.as_bytes());
+        assert_eq!(migrate_text(&fx1).expect("identity"), fx1);
+        // The v2 generation never survives the migration: FX-1 is v3.
+        assert!(migrated.starts_with("DFL-SESSION 3\n"));
+    }
+
+    #[test]
     fn migration_rejects_a_foreign_version() {
-        let text = S0_TEXT.replacen("DFL-SESSION 2", "DFL-SESSION 3", 1);
+        // `3` is no longer foreign — it is the live generation and the
+        // identity arm, pinned by the byte test above. `999` still is.
+        let text = S0_TEXT.replacen("DFL-SESSION 2", "DFL-SESSION 999", 1);
         assert!(matches!(
             migrate_text(&text),
-            Err(SaveError::BadVersion(3))
+            Err(SaveError::BadVersion(999))
         ));
         assert!(matches!(
             migrate_text("OTHER 1\n"),
             Err(SaveError::BadMagic)
         ));
+        // A v1 header is no longer foreign either: it has its own arm.
+        assert!(migrate_text(&v1_text(&SessionSnapshot::default())).is_ok());
     }
 
     #[test]
@@ -2707,8 +3190,9 @@ mod tests {
     fn empty_document_has_the_fixed_census() {
         let doc = SaveGameV2::new();
         let text = doc.to_text();
-        assert_eq!(lines(&text), FIXED_LINES + 2);
+        assert_eq!(lines(&text), FIXED_LINES_V3 + 2);
         assert_eq!(doc.entry_count(), 0);
+        assert_eq!(doc.dungeon.entry_count(), 0, "the four counts are always written");
         let parsed = SaveGameV2::from_text(&text).expect("empty parses");
         assert_eq!(parsed, doc);
         assert_eq!(
@@ -2794,8 +3278,8 @@ mod tests {
             }),
         );
         assert!(doc.map.automap_ext.is_empty(), "all-default ext is dropped");
-        assert_eq!(doc.to_text(), S0_TEXT, "M33 document is untouched");
-        assert_eq!(doc.line_count(), lines(S0_TEXT));
+        assert_eq!(doc.to_text(), fx1_text(), "the v2 body is untouched");
+        assert_eq!(doc.line_count(), lines(&fx1_text()));
     }
 
     #[test]

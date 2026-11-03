@@ -82,8 +82,7 @@ impl MeshSpec {
     /// Do the texture arrays respect the invariant (empty or aligned)?
     pub fn texture_alignment_valid(&self) -> bool {
         (self.uvs.is_empty() || self.uvs.len() == self.positions.len())
-            && (self.face_textures.is_empty()
-                || self.face_textures.len() == self.positions.len())
+            && (self.face_textures.is_empty() || self.face_textures.len() == self.positions.len())
     }
 
     /// Number of triangles in the mesh.
@@ -119,11 +118,7 @@ impl MeshSpec {
     /// Approximate radius: half the diagonal of the bounding box.
     pub fn bounding_radius(&self) -> Option<f32> {
         let (min, max) = self.bounds()?;
-        let d = [
-            max[0] - min[0],
-            max[1] - min[1],
-            max[2] - min[2],
-        ];
+        let d = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
         Some((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() * 0.5)
     }
 }

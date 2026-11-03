@@ -2,7 +2,8 @@
 //! bookkeeping (F0 scaffold).
 //!
 //! Holds the PathChecker seed of the A/B data-universe mode (see
-//! [`path_checker`]); further configuration surfaces land with their lanes.
+//! [`path_checker`]), the canonical retail manifest ([`retail_manifest`]) and
+//! the single data-root resolver ([`data_root`], data contract §4).
 //! M5: [`commerce`] — inventory-lite trade (gold + goods list, dialogue
 //! session; 0 persistence, price-agnostic).
 
@@ -12,10 +13,13 @@
 //! RNG is explicit per container.
 
 pub mod commerce;
+pub mod config_file;
+pub mod data_root;
 pub mod equipment;
 pub mod items;
 pub mod loot;
 pub mod path_checker;
+pub mod retail_manifest;
 
 /// Canonical organ id (Sintergic organ map, ADR-FW-104).
 pub const ORGAN: &str = "inventory";
