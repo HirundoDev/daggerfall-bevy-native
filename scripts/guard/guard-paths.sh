@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-b367c9dd — lista canónica de paths protegidos (FUENTE ÚNICA).
+# GUARD-KIT:CR-b367c9dd — canonical list of protected paths (SINGLE SOURCE).
 #
-# Contrato (citado por los hooks y por docs/NIGHT-RUN-GUARDRAILS.md):
-#   GUARD_PROTECTED_PATTERNS   array — 7 literales del ORDER del encargo
-#   GUARD_PROTECTED_DERIVED    array — cobertura medida (derivados D2 + gates por PATRÓN D2b/D4
-#                              + 3 nombres sueltos que el patrón no alcanza)
-#   guard_is_protected <path>  exit 0 = protegido / 1 = libre
-#   guard_staged_paths         paths del ÍNDICE git, NUL-separados
-#   guard_print_remedy <path>  remedio exacto que imprime el rechazo
+# Contract (cited by the hooks and by docs/NIGHT-RUN-GUARDRAILS.md):
+#   GUARD_PROTECTED_PATTERNS   array — 7 literals from the commission's ORDER
+#   GUARD_PROTECTED_DERIVED    array — measured coverage (D2 derivatives + gates by PATTERN D2b/D4
+#                              + 3 loose names the pattern does not reach)
+#   guard_is_protected <path>  exit 0 = protected / 1 = free
+#   guard_staged_paths         paths of the git INDEX, NUL-separated
+#   guard_print_remedy <path>  exact remedy the rejection prints
 #
-# Propiedades: SOURCEABLE (0 efectos al sourcear) y RE-SOURCEABLE (asignaciones
-# planas, sin acumulación). NO usa `set -e`: se sourcea desde hooks que deciden
-# su propio código de salida.
+# Properties: SOURCEABLE (0 effects when sourced) and RE-SOURCEABLE (flat
+# assignments, no accumulation). It does NOT use `set -e`: it is sourced from hooks that decide
+# their own exit code.
 
-# CR de la lane que introdujo el kit (el marcador vive también en los wrappers).
+# CR of the lane that introduced the kit (the marker also lives in the wrappers).
 GUARD_CR="CR-b367c9dd-db42-4465-9b2f-d8a341aa3135"
 
-# ORDER verbatim: 7 literales protegidos por el encargo (7 y no 8: el patrón de
-# directorio y el de fichero ya cubren su profundidad, no hace falta duplicar).
+# ORDER verbatim: 7 literals protected by the commission (7 and not 8: the directory
+# pattern and the file pattern already cover their depth, no need to duplicate).
 GUARD_PROTECTED_PATTERNS=(
   'docs/sintergic/validation/closure-register*'
   'docs/sintergic/handoffs/INDEX.jsonl'
@@ -28,41 +28,41 @@ GUARD_PROTECTED_PATTERNS=(
   'scripts/*-00[0-9]-*.py'
 )
 
-# Derivados declarados: NO inventados, medidos sobre este árbol (ver D2 del HH-1).
-#  · `daggerfall-side-projects/` no existe aquí; el árbol real de side-projects
-#    es `sides/` (p.ej. `sides/i1-minimal-side/`).
-#  · el glob `scripts/*-00[0-9]-*.py` casa 0 ficheros; los fuentes de gate
-#    reales son `scripts/<familia>-00[0-9].py` (18 ficheros).
-# Retirar esta parte es decisión del owner: quitar los patrones de abajo y D2
-# queda sin efecto (0 cambios en el resto del kit).
+# Declared derivatives: NOT invented, measured over this tree (see D2 of the HH-1).
+#  · `daggerfall-side-projects/` does not exist here; the real side-projects tree
+#    is `sides/` (e.g. `sides/i1-minimal-side/`).
+#  · the glob `scripts/*-00[0-9]-*.py` matches 0 files; the real gate
+#    sources are `scripts/<family>-00[0-9].py` (18 files).
+# Removing this part is the owner's decision: drop the patterns below and D2
+# is void (0 changes in the rest of the kit).
 GUARD_PROTECTED_DERIVED=(
   'scripts/*-00[0-9].py'
   'sides/*'
-  # D2b (CR-4b576323-4c49-4607-90e3-59c92cf5c2ea) — gates de cierre.
-  # D4 (CR-a58f600a-6b7b-4b48-9c31-716625fce035): la cobertura de gates es POR
-  # PATRÓN, no por nombre suelto. `scripts/*gate*.py` casa hoy exactamente 4
-  # ficheros —closure-gate.py, m43-gate-contract.py, m43_gate_lib.py,
-  # plan-gate-check.py— y cualquier `*gate*.py` NUEVO bajo scripts/ entra solo:
-  # un tercer gate no puede quedar fuera mañana sin editar este array (el patrón
-  # es lo que lo garantiza; una lista de nombres solo cubre lo que ya se conoce).
-  # Son instrumento de cierre, no fuentes de sistema: una corrida nocturna no
-  # puede editar lo que la mide. Cada línea es retirable/ampliable por sí sola
-  # (decisión del owner).
+  # D2b (CR-4b576323-4c49-4607-90e3-59c92cf5c2ea) — close gates.
+  # D4 (CR-a58f600a-6b7b-4b48-9c31-716625fce035): gate coverage is BY
+  # PATTERN, not by loose name. `scripts/*gate*.py` matches exactly 4 files today
+  # —closure-gate.py, m43-gate-contract.py, m43_gate_lib.py,
+  # plan-gate-check.py— and any NEW `*gate*.py` under scripts/ joins by itself:
+  # a third gate cannot be left out tomorrow without editing this array (the pattern
+  # is what guarantees it; a list of names only covers what is already known).
+  # They are close instruments, not system sources: a nightly run cannot
+  # edit what measures it. Each line can be removed/extended on its own
+  # (owner's decision).
   'scripts/*gate*.py'
-  # Nombres sueltos que el patrón NO alcanza (no llevan `gate` en el nombre).
+  # Loose names the pattern does NOT reach (they do not carry `gate` in the name).
   'scripts/handoff-lint.py'
   'scripts/mission-log.py'
   'scripts/validate-lane-registry.py'
-  # CR-9dd5c91e (S-13/D5): el AUDITOR DE CIERRE DE LANE. Ningún patrón lo alcanza
-  # (ni `scripts/*gate*.py` ni `scripts/*-00[0-9].py`: no lleva `gate` en el nombre
-  # y cuelga de scripts/guard/). Es instrumento: una lane no puede editar lo que
-  # la mide sin CR autorizado — justo la frontera que el resto del kit protege.
+  # CR-9dd5c91e (S-13/D5): the LANE CLOSE AUDITOR. No pattern reaches it
+  # (neither `scripts/*gate*.py` nor `scripts/*-00[0-9].py`: it does not carry `gate`
+  # and it hangs off scripts/guard/). It is an instrument: a lane cannot edit what
+  # measures it without an authorized CR — exactly the boundary the rest of the kit protects.
   'scripts/guard/lane-integrity.py'
 )
 
 # ── internos ────────────────────────────────────────────────────────────────
 
-# quita `./` y `/` iniciales (los paths del índice son repo-relativos)
+# strips leading `./` and `/` (index paths are repo-relative)
 guard__normalize() {
   local p="${1-}"
   while [ "${p#./}" != "$p" ]; do p="${p#./}"; done
@@ -70,7 +70,7 @@ guard__normalize() {
   printf '%s' "$p"
 }
 
-# prefijo de directorio de un patrón `dir/**` o `dir/*`; rc=1 si no es de directorio
+# directory prefix of a `dir/**` or `dir/*` pattern; rc=1 if it is not a directory pattern
 guard__dir_prefix() {
   case "${1-}" in
     */'**') printf '%s' "${1%/\*\*}"; return 0 ;;
@@ -83,7 +83,7 @@ guard__dir_prefix() {
 guard__match() {
   local path="${1-}" pat="${2-}" dir
   if dir="$(guard__dir_prefix "$pat")"; then
-    # patrón de directorio: casa el propio directorio y CUALQUIER profundidad
+    # directory pattern: it matches the directory itself and ANY depth
     [ "$path" = "$dir" ] && return 0
     case "$path" in
       "$dir"/*) return 0 ;;
@@ -97,7 +97,7 @@ guard__match() {
   return 1
 }
 
-# guard__why <path>: imprime el patrón que lo protege (ORDER primero)
+# guard__why <path>: prints the pattern protecting it (ORDER first)
 guard__why() {
   local path="${1-}" pat
   for pat in "${GUARD_PROTECTED_PATTERNS[@]}"; do
@@ -119,9 +119,9 @@ guard_is_protected() {
   guard__why "$path" >/dev/null
 }
 
-# guard_staged_paths: paths del ÍNDICE, NUL-separados.
-# Sin --diff-filter: deletes, renames (con --no-renames ya vienen como par) y
-# entradas unmerged también cuentan — borrar un instrumento es tocarlo.
+# guard_staged_paths: INDEX paths, NUL-separated.
+# Without --diff-filter: deletes, renames (with --no-renames they already come as a pair) and
+# unmerged entries count too — deleting an instrument is touching it.
 guard_staged_paths() {
   local top
   top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
@@ -129,7 +129,7 @@ guard_staged_paths() {
   git -C "$top" diff --cached --name-only --no-renames -z
 }
 
-# guard_print_remedy <path>: path + por qué está protegido + remedio exacto
+# guard_print_remedy <path>: path + why it is protected + exact remedy
 guard_print_remedy() {
   local path="${1-}" why origen
   path="$(guard__normalize "$path")"

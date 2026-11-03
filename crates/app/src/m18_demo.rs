@@ -2600,11 +2600,11 @@ pub fn compose_demo_with_overrides(overrides: &M18Overrides) -> Result<DemoScene
         apply_cs14_scenario(&mut scene);
     }
     scene.m20_refresh_hud();
-    // **FG-01 / `GAP-FG01-02`** — censo vivo de puertas de la composición: una
-    // línea estable (una sola, sin tiempos) que `scripts/fg01-world-doors.py`
-    // lee como evidencia. `retail` = puertas que vienen del dato (`.RMB` +
-    // planos ARCH3D con archivo 74); `scenario` = la puerta de CS-14
-    // ([`apply_cs14_scenario`]), que es un activo de escenario, no dato.
+    // **FG-01 / `GAP-FG01-02`** — live door census of the composition: one
+    // stable line (a single one, no timings) that `scripts/fg01-world-doors.py`
+    // reads as evidence. `retail` = doors that come from data (`.RMB` +
+    // ARCH3D planes with archive 74); `scenario` = the CS-14 door
+    // ([`apply_cs14_scenario`]), which is a scenario asset, not data.
     let composed_doors: usize = scene.city.buildings.iter().map(|b| b.doors.len()).sum();
     let scenario_doors = usize::from(scene.cs14_door.is_some());
     let buildings_with_doors = scene

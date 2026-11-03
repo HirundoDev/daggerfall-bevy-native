@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Capturas 1280x720 del menu MODERNO: la barra de seleccion tiene que MOVERSE.
+"""1280x720 captures of the MODERN menu: the selection bar must MOVE.
 
-Retarget de `CR-4a9c1e77` (2026-10-31). El script anterior medía el plato retail
-(`ui_spec::build_main_menu_panel`, canvas 320x200 a escala 2, chevron en la
-columna x 790..816): ese plato ya no se embarca — `MENU-MODERN-DESIGN.md` §9.4
-lo deja como fixture de `UI-001` — así que medía pantalla muerta. La pantalla que
-se embarca es `menu_spec::main_menu(row, true).compose()` en su propia capa
-(`MENU_LAYER`), canvas 320x180 a escala 4 = 1280x720 a sangre (0 bandas).
+Retarget of `CR-4a9c1e77` (2026-10-31). The previous script measured the retail plate
+(`ui_spec::build_main_menu_panel`, canvas 320x200 at scale 2, chevron in
+column x 790..816): that plate no longer ships — `MENU-MODERN-DESIGN.md` §9.4
+leaves it as a `UI-001` fixture — so it measured a dead screen. The screen that
+ships is `menu_spec::main_menu(row, true).compose()` in its own layer
+(`MENU_LAYER`), canvas 320x180 at scale 4 = 1280x720 full bleed (0 bands).
 
-Geometria medida contra la maqueta sellada
+Geometry measured against the sealed mockup
 `docs/sintergic/design/mockups/main-menu-1280x720.png` (sha256 `43002b7f…`,
-hermana 320x180 `c50e77b1…`): fila i en `y = 220 + 68i`, alto 56, barra de
-seleccion `x 108..811` con relleno RGB (44,48,49). La columna 500 y la 700 caen
-fuera de todo glifo, así que la banda es un tramo contiguo limpio.
+320x180 sibling `c50e77b1…`): row i at `y = 220 + 68i`, height 56, selection bar
+`x 108..811` with RGB fill (44,48,49). Columns 500 and 700 fall
+outside every glyph, so the band is a clean contiguous run.
 
-Falsificadores (todos con exit != 0):
-  * tamano != 1280x720, o >=1 pixel negro puro  → sigue siendo la pantalla vieja
-    (el menú retail x2 venía letterboxeado con franjas negras);
-  * `paso0` != maqueta sellada pixel a pixel   → la composición derivo;
-  * banda fuera de `220 + 68i` o alto != 56    → no es la fila i a escala 4;
-  * capturas repetidas                         → la pantalla está congelada.
+Falsifiers (all with exit != 0):
+    * size != 1280x720, or >=1 pure black pixel  → it is still the old screen
+        (the retail menu x2 came letterboxed with black stripes);
+    * `paso0` != sealed mockup pixel by pixel    → the composition drifted;
+    * band outside `220 + 68i` or height != 56   → it is not row i at scale 4;
+    * repeated captures                          → the screen is frozen.
 
-`--frozen` es el falsificador en ventana: lanza el binario con
-`DF_MENU_ROW_FROZEN=1` (el sistema pinta siempre la fila 0) y exige que TODAS las
-capturas salgan identicas (gate RED, exit 1).
+`--frozen` is the in-window falsifier: it launches the binary with
+`DF_MENU_ROW_FROZEN=1` (the system always paints row 0) and requires ALL
+captures to come out identical (gate RED, exit 1).
 """
 from __future__ import annotations
 
@@ -57,26 +57,26 @@ BAR_RGB = (44, 48, 49)                  # relleno de la fila seleccionada
 FIELD_RGB = (23, 23, 23)                # campo del menu (fondo a sangre)
 REFERENCE = ROOT / "docs" / "sintergic" / "design" / "mockups" / "main-menu-1280x720.png"
 REFERENCE_SHA256 = "43002b7f8b35b916"
-# El lintel derecho ("CHAPTER II") se compone en el ancla de la maqueta:
-# `glyph_right(..., 304, tracking=0)` ⇒ primera columna de tinta en canvas 262,
-# igual que `render.py::lintel`. Por eso el techo es **0**: cualquier píxel de
-# diferencia en el lintel es una composición que derivó de la referencia
-# sellada, no un delta tolerado (CR-178183d7, lane MenuModernImpl5).
+#  The right lintel ("CHAPTER II") composes at the mockup anchor:
+#  `glyph_right(..., 304, tracking=0)` ⇒ first ink column at canvas 262,
+#  same as `render.py::lintel`. That is why the ceiling is **0**: any pixel of
+#  difference in the lintel is a composition that drifted from the sealed
+#  reference, not a tolerated delta (CR-178183d7, lane MenuModernImpl5).
 LINTEL_RIGHT_BOX = (1008, 36, 1216, 56)
-# Contenido del plato `detail` (canvas 229,41,66,100 x4): cambia con la fila
-# seleccionada (rótulo, retrato, cifras), así que no es zona estática.
+#  Content of the `detail` plate (canvas 229,41,66,100 x4): changes with the
+#  selected row (label, portrait, figures), so it is not a static zone.
 DETAIL_CONTENT_BOX = (916, 164, 1180, 564)
-# Barra de selección de cada fila: su tinta es justo lo que se mide por banda.
-# La fila seleccionada ocupa el contenido del plato nav (canvas 25..203):
-# relleno desde x=108 y raíl de 2 px de canvas en x=100..107.
+#  Selection bar of each row: its ink is exactly what is measured per band.
+#  The selected row occupies the content of the nav plate (canvas 25..203):
+#  fill from x=108 and a 2 canvas-px rail at x=100..107.
 BAR_BOX_X = (100, 812)
 BAR_BOXES = tuple((BAR_BOX_X[0], ROW_FIRST_Y + ROW_STRIDE * i, BAR_BOX_X[1],
                    ROW_FIRST_Y + ROW_STRIDE * i + ROW_HEIGHT) for i in range(5))
 BAR_BOX_W = BAR_BOX_X[1] - BAR_BOX_X[0]   # 712: raíl + relleno (la caja que se cuenta)
-# Techo de la fila `barra`: INTERCAMBIAR la selección de fila cambia exactamente dos
-# bandas enteras (la que la pierde y la que la gana) medidas sobre la caja, no sobre la
-# tinta (712 px, no 704: el raíl de 2 px de canvas también cambia). Con 704 la mudanza
-# legítima de fila 0→1 daba 79744 y el techo la declaraba fallo.
+#  Ceiling for the `bar` row: SWAPPING the row selection changes exactly two
+#  whole bands (the one losing it and the one gaining it) measured over the box, not over the
+#  ink (712 px, not 704: the 2 canvas-px rail changes too). With 704 the legitimate
+#  0→1 row move gave 79744 and the ceiling declared it a failure.
 MAX_BAR_DIFF = 2 * ROW_HEIGHT * BAR_BOX_W
 LINTEL_DELTA_BUDGET = 0                 # el ancla del lintel YA es la de la maqueta
 FIELD = (23, 23, 23)
@@ -141,7 +141,7 @@ def capture(win, png: Path) -> None:
 
 
 def bar_bands(img, column: int):
-    """Tramos contiguos de la tinta de la barra en una columna sin glifos."""
+    """Contiguous runs of the bar ink in a column without glyphs."""
     bands = []
     for y in range(img.height):
         if img.getpixel((column, y)) == BAR_RGB:
@@ -214,7 +214,7 @@ def measure(png: Path, expected_row: int, reference) -> dict:
 
 
 def verdict(m: dict) -> list:
-    """Motivos de fallo de UNA captura (vacío = pasa)."""
+    """Failure reasons for ONE capture (empty = passes)."""
     bad = []
     if m["size"] != (WINDOW_W, WINDOW_H):
         bad.append("size=%dx%d != %dx%d" % (m["size"][0], m["size"][1], WINDOW_W, WINDOW_H))
@@ -299,8 +299,8 @@ def main() -> int:
             d.sync()
         except Exception:
             pass
-        # El surface aparece antes de pintar: se sondea hasta que la captura deja
-        # de ser negra (el menú moderno es a sangre; negro = todavía cargando).
+        #  The surface appears before painting: it is polled until the capture stops
+        #  being black (the modern menu is full bleed; black = still loading).
         ready_png = OUT / ("%s-ready.png" % prefix)
         deadline = time.monotonic() + 90.0
         while True:
@@ -317,8 +317,8 @@ def main() -> int:
             png = OUT / ("%s%d.png" % (prefix, n))
             if n:
                 press(d, win, "Down")
-                # La pintura llega en el frame siguiente a la entrada: se sondea
-                # hasta que el buffer CAMBIA (no se asume un retardo fijo).
+                #  Paint arrives on the frame after the input: it is polled
+                #  until the buffer CHANGES (no fixed delay is assumed).
                 prev = steps[-1]["sha256"]
                 deadline = time.monotonic() + 6.0
                 while True:
@@ -371,7 +371,7 @@ def main() -> int:
     distinct = len(set(shas)) == len(shas)
     tops = [s["bands"].get(500, [[None]])[0][0] for s in steps]
     stride = all((b - a) == ROW_STRIDE for a, b in zip(tops, tops[1:]))
-    # La fila 0 se embarca tal cual: tiene que coincidir con la maqueta sellada.
+    #  Row 0 ships as is: it must match the sealed mockup.
     reference_exact = steps[0]["diff"] == LINTEL_DELTA_BUDGET
     moved = all(0 < s["bar"] <= MAX_BAR_DIFF for s in steps[1:])
     print("tops=%s filas=%s distinct=%s stride=%s ref_fila0=%s barrido=%s fallos=%d"

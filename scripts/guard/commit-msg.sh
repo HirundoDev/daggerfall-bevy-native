@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-b367c9dd — cuerpo del hook commit-msg (brazo de GUARD_ALLOW_CR).
-# ESTE ES EL ÚNICO SITIO donde se decide la excepción por CR: pre-commit solo
-# bloquea y nombra el remedio, y con GUARD_ALLOW_CR definido imprime
-# GUARD-DEFERIDO y cede el paso (= no evalúa nada).
-# El pre-commit solo ve el índice; el mensaje del commit en curso NO es legible
-# allí (hecho 6: .git/COMMIT_EDITMSG trae el mensaje ANTERIOR). Por eso la
-# conjunción «CR en el mensaje» se comprueba aquí, sobre $1.
-# NUNCA lee `.git/COMMIT_EDITMSG` ni ninguna ruta fija: git le pasa en $1 el
-# fichero del mensaje EN CURSO (con `-m`, `-F` o editor; siempre $1). Leer la
-# ruta fija reintroduciría el defecto que cubre el caso L del falsificador
-# (`scripts/guard/verify-guard.sh`): un mensaje heredado autorizaría el commit.
+#  GUARD-KIT:CR-b367c9dd — body of the commit-msg hook (the GUARD_ALLOW_CR arm).
+#  THIS IS THE ONLY PLACE where the per-CR exception is decided: pre-commit only
+#  blocks and names the remedy, and with GUARD_ALLOW_CR set it prints
+#  GUARD-DEFERIDO and steps aside (= it evaluates nothing).
+#  The pre-commit only sees the index; the in-progress commit message is NOT readable
+#  there (fact 6: .git/COMMIT_EDITMSG carries the PREVIOUS message). That is why the
+#  'CR in the message' conjunction is checked here, on $1.
+#  It NEVER reads `.git/COMMIT_EDITMSG` or any fixed path: git passes in $1 the
+#  IN-PROGRESS message file (with `-m`, `-F` or editor; always $1). Reading the
+#  fixed path would bring back the defect covered by case L of the falsifier
+#  (`scripts/guard/verify-guard.sh`): an inherited message would authorize the commit.
 
 [ "${GUARD_ACTIVE:-0}" = 1 ] || exit 0
 
@@ -26,7 +26,7 @@ while IFS= read -r -d '' guard_p; do
   fi
 done < <(guard_staged_paths)
 
-# sin paths protegidos en el índice no hay nada que verificar
+#  with no protected paths in the index there is nothing to verify
 [ "${#guard_blocked[@]}" -eq 0 ] && exit 0
 
 if [ -z "${GUARD_ALLOW_CR:-}" ]; then
@@ -44,15 +44,15 @@ if [ -z "$guard_msg_file" ] || [ ! -f "$guard_msg_file" ]; then
   exit 1
 fi
 
-# El CR se exige como TOKEN, no como subcadena (R2, CR-4b576323): una
-# comparación de subcadena dejaba pasar GUARD_ALLOW_CR=CR-TEST con un mensaje
-# que solo mencionaba CR-TEST-9999. Frontera = inicio/fin de texto o cualquier
-# carácter fuera de [A-Za-z0-9_-], así que el CR autorizado no puede ir pegado a
-# otro identificador. El guion bajo cuenta como carácter de identificador: en
-# `CR-TEST-1_suffix` el CR sigue dentro de otro identificador y NO es token
-# (D3, CR-3862257b). El ERE se construye escapando todo lo que no sea
-# alfanumérico del CR esperado (los CR son del tipo CR-<uuid>, sin `_`: ninguna
-# forma legítima de citarlos pierde el pase por esta frontera).
+#  The CR is required as a TOKEN, not as a substring (R2, CR-4b576323): a
+#  substring comparison let GUARD_ALLOW_CR=CR-TEST through with a message
+#  that only mentioned CR-TEST-9999. Boundary = start/end of text or any
+#  character outside [A-Za-z0-9_-], so the authorized CR cannot sit glued to
+#  another identifier. The underscore counts as an identifier character: in
+#  `CR-TEST-1_suffix` the CR is still inside another identifier and is NOT a token
+#  (D3, CR-3862257b). The ERE is built by escaping everything that is not
+#  alphanumeric in the expected CR (CRs are of the form CR-<uuid>, with no `_`: no
+#  legitimate way of citing them loses the pass through this boundary).
 guard_cr_token_ere() {
   local cr="${1-}" esc='' c i
   for (( i = 0; i < ${#cr}; i++ )); do

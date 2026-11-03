@@ -45,9 +45,9 @@ EVIDENCE_IDS = [f"A{i}" for i in range(1, 11)]
 SEQUENCE_IDS = [f"B{i}" for i in range(1, 4)]
 EVENTS = "Borrow, Due, Overdue, Default, Repay"
 
-# The 12 operations of SPEC-M30 §5 (`Operación` table) resolved to the ledger
+#  The 12 operations of SPEC-M30 §5 (`Operation` table) resolved to the ledger
 # methods that implement them. `account_total` is the per-region read the spec
-# closes the section with ("Cuentas y casas son por región").
+#  closes the section with ('Accounts and houses are per region').
 OPERATIONS = {
     "deposit": f"{LEDGER}:1025",
     "withdraw": f"{LEDGER}:1047",

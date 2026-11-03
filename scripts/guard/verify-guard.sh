@@ -1,46 +1,46 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-b367c9dd — falsificador del kit: 20 casos (A..T).
+#  GUARD-KIT:CR-b367c9dd — kit falsifier: 20 cases (A..T).
 #
-# Casos M..Q (CR-51d25f1e): falsificador del AUDITOR DE CIERRE DE LANE
-# (`lane-integrity.py`). Cada caso corre `--selftest --case <id>` DENTRO del
-# temporal: el instrumento construye sus cadenas de commits colgantes con
-# plumbing (0 refs, 0 HEAD, 0 índice de trabajo) sobre el repo temporal, y aquí
-# se mide que su veredicto muerde donde debe (4 negativos) y que los controles de
-# pase no dan falso rojo. Un instrumento que no muerde sale FALLA y rompe el exit 0.
-# Casos S/T (CR-9dd5c91e): los dos controles nuevos del propio auditor — S mide que
-# el CR en forma corta sin prefijo resuelve sus commits (antes: SIN_COMMITS/FAIL
-# sobre una lane con commits), T mide que una cita que es DIRECTORIO presente en
-# disco sale WARN y no EVIDENCIA_AUSENTE/FAIL (falso positivo por diseño).
-# Caso R (CR-9dd5c91e): `scripts/guard/lane-integrity.py` entra en la lista de
-# paths protegidos — editar el auditor sin CR autorizado debe RECHAZARSE.
+#  Cases M..Q (CR-51d25f1e): falsifier of the LANE-CLOSURE AUDITOR
+#  (`lane-integrity.py`). Each case runs `--selftest --case <id>` INSIDE the
+#  temporary repo: the instrument builds its dangling commit chains with
+#  plumbing (0 refs, 0 HEAD, 0 work index) over the temporary repo, and here we
+#  measure that its verdict bites where it must (4 negatives) and that the pass
+#  controls give no false red. An instrument that does not bite comes out FALLA and breaks exit 0.
+#  Cases S/T (CR-9dd5c91e): the auditor's own two new controls — S measures that
+#  the short form of the CR without prefix resolves its commits (before: SIN_COMMITS/FAIL
+#  on a lane with commits), T measures that a citation that is a DIRECTORY present on
+#  disk comes out WARN and not EVIDENCIA_AUSENTE/FAIL (a false positive by design).
+#  Case R (CR-9dd5c91e): `scripts/guard/lane-integrity.py` joins the list of
+#  protected paths — editing the auditor without an authorized CR must be REJECTED.
 #
-# Prueba el mecanismo en un repo TEMPORAL (`mktemp -d`): bare remote + repo de
-# trabajo + hooks instalados por el instalador real. El árbol del target solo se
-# LEE (huella antes/después). Exit 0 SOLO si las 20 filas de la matriz coinciden.
+#  It exercises the mechanism in a TEMPORARY repo (`mktemp -d`): bare remote + work
+#  repo + hooks installed by the real installer. The target tree is only
+#  READ (fingerprint before/after). Exit 0 ONLY if the 20 matrix rows match.
 #
-# R8 (CR-4b576323): cada caso de RECHAZO no se conforma con `rc != 0` — exige el
-# MARCADOR del hook que debe haber mordido (`GUARD: commit RECHAZADO`, `NO
-# contiene`, `GUARD: push RECHAZADO`). Un rc != 0 por otra causa (typo, repo roto,
-# dependencia ausente) sale como «FALLA (motivo equivocado)» y rompe el exit 0.
-# Caso H (R2): control negativo del token — CR-TEST-1 autorizado, mensaje con
-# SOLO CR-TEST-1999 ⇒ RECHAZA (antes, con comparación de subcadena, PASABA).
-# Caso I (D3, CR-3862257b): el `_` es carácter de identificador — CR-TEST-1
-# autorizado, mensaje con `CR-TEST-1_suffix` ⇒ RECHAZA (antes, con la frontera
-# [^A-Za-z0-9-], el `_` delimitaba y este commit PASABA).
-# Casos J/K/L (D4, CR-a58f600a): la excepción se decide sobre el mensaje REAL que
-# git pasa en `$1` a commit-msg, nunca sobre `.git/COMMIT_EDITMSG` heredado.
-#   J — mensaje vía `git commit -F <fichero>` con el CR delimitado ⇒ PASA (el
-#       hook lee el fichero que git le pasa en $1, no una ruta fija).
-#   K — mismo path protegido, mensaje SIN el CR ⇒ FALLA con `NO contiene`.
-#   L — regresión exacta del defecto: dos pasos en el mismo repo. El paso 1 deja
-#       `.git/COMMIT_EDITMSG` con el CR (aserción explícita: si no, el caso es
-#       VACUO y sale FALLA) y el paso 2, con mensaje nuevo SIN el CR, debe
-#       FALLAR. Un hook que leyera la ruta fija heredada PASARÍA el paso 2: ése
-#       es el defecto que este caso muerde.
+#  R8 (CR-4b576323): every REJECTION case does not settle for `rc != 0` — it requires the
+#  MARKER of the hook that must have bitten (`GUARD: commit RECHAZADO`, `NO
+#  contiene`, `GUARD: push RECHAZADO`). An rc != 0 for another cause (typo, broken repo,
+#  missing dependency) comes out as 'FALLA (wrong reason)' and breaks exit 0.
+#  Case H (R2): token negative control — CR-TEST-1 authorized, message with
+#  ONLY CR-TEST-1999 ⇒ REJECTS (before, with substring comparison, it PASSED).
+#  Case I (D3, CR-3862257b): `_` is an identifier character — CR-TEST-1
+#  authorized, message with `CR-TEST-1_suffix` ⇒ REJECTS (before, with the boundary
+#  [^A-Za-z0-9-], the `_` delimited and this commit PASSED).
+#  Cases J/K/L (D4, CR-a58f600a): the exception is decided on the REAL message that
+#  git passes in `$1` to commit-msg, never on an inherited `.git/COMMIT_EDITMSG`.
+#    J — message via `git commit -F <file>` with the CR delimited ⇒ PASSES (the
+#        hook reads the file git passes it in $1, not a fixed path).
+#    K — same protected path, message WITHOUT the CR ⇒ FALLA with `NO contiene`.
+#    L — exact regression of the defect: two steps in the same repo. Step 1 leaves
+#        `.git/COMMIT_EDITMSG` with the CR (explicit assertion: if not, the case is
+#        EMPTY and comes out FALLA) and step 2, with a new message WITHOUT the CR, must
+#        FALLA. A hook that read the inherited fixed path would PASS step 2: that
+#        is the defect this case bites.
 #
-# Nota de cumplimiento (desviación D3 del HH-1): el borrado del temporal NO usa
-# `rm -rf` (regla del arnés); usa `find -delete` + `rmdir` acotado al prefijo
-# mktemp. Efecto idéntico: el temporal desaparece al salir.
+#  Compliance note (deviation D3 of the HH-1): deleting the temporary does NOT use
+#  `rm -rf` (harness rule); it uses `find -delete` + `rmdir` bounded to the mktemp
+#  prefix. Identical effect: the temporary disappears on exit.
 
 set -u
 
@@ -76,8 +76,8 @@ abortar() {
   exit 2
 }
 
-# línea decisoria del hook: preferir el RECHAZO (la que cierra el caso), luego
-# la última línea GUARD (p.ej. la verificación de la excepción), luego la 1ª.
+#  decisive line of the hook: prefer the REJECTION (the one that closes the case), then
+#  the last GUARD line (e.g. the exception verification), then the 1st.
 linea_hook() {
   local out="$1" line
   line="$(printf '%s\n' "$out" | grep -E 'RECHAZAD' | cut -c1-110 | head -1)"
@@ -86,7 +86,7 @@ linea_hook() {
   printf '%s' "$line"
 }
 
-# directorio de hooks del target REAL (resuelve core.hooksPath cuando exista).
+#  hooks directory of the REAL target (resolves core.hooksPath when it exists).
 target_hooks_dir() {
   local hooks_dir
   hooks_dir="$(git -C "$guard_target" rev-parse --git-path hooks 2>/dev/null || printf '%s/.git/hooks' "$guard_target")"
@@ -97,7 +97,7 @@ target_hooks_dir() {
   printf '%s' "$hooks_dir"
 }
 
-# huella del target: lo que el kit posee + estado de los hooks instalados.
+#  target fingerprint: what the kit owns + state of the installed hooks.
 huella_target() {
   local hooks_dir h
   hooks_dir="$(target_hooks_dir)"
@@ -114,9 +114,9 @@ huella_target() {
   } | sha256sum | cut -d' ' -f1
 }
 
-# registrar <caso> <comando> <esperado> <rc> <salida> [marcador-esperado]
-# R8: en los casos de rechazo NO basta rc != 0 — se mide si el marcador del hook
-# esperado aparece en la salida real. '' = caso de pase (sin marcador exigido).
+#  registrar <case> <command> <expected> <rc> <output> [expected-marker]
+#  R8: for rejection cases `rc != 0` is NOT enough — it is measured whether the marker of the
+#  expected hook appears in the real output. '' = pass case (no marker required).
 registrar() {
   local n="$1" c="$2" e="$3" rc="$4" out="$5" mk="${6-}" got found='—'
   if [ "$rc" -eq 0 ]; then got="PASA (rc=0)"; else got="FALLA (rc=$rc)"; fi
@@ -148,9 +148,9 @@ caso_commit() {
   git reset -q --hard HEAD
 }
 
-# caso_commit_F <caso> <comando-legible> <esperado> <marcador|''> <fichero-mensaje> <path> [env...]
-# Igual que caso_commit pero el mensaje entra con `git commit -F <fichero>`: prueba
-# que commit-msg lee el fichero que git le pasa en $1, no una ruta fija.
+#  caso_commit_F <case> <readable-command> <expected> <marker|''> <message-file> <path> [env...]
+#  Same as caso_commit but the message comes in with `git commit -F <file>`: it proves
+#  that commit-msg reads the file git passes in $1, not a fixed path.
 caso_commit_F() {
   local n="$1" c="$2" e="$3" mk="$4" msgfile="$5" path="$6"
   shift 6
@@ -211,9 +211,9 @@ done
 if ! out_inst="$(env -u GUARD_ACTIVE bash scripts/guard/install-hooks.sh 2>&1)"; then
   abortar "install-hooks.sh falló en el repo temporal: $(linea_hook "$out_inst")"
 fi
-# ── paso bit +x (R3) — bloqueante en el temporal ─────────────────────────────
-# Un hook sin +x es IGNORADO por git sin imprimir nada: la guarda desaparece en
-# silencio. Por eso se mide aquí, no se supone.
+#  ── bit +x step (R3) — blocking in the temporary ─────────────────────────────
+#  A hook without +x is IGNORED by git without printing anything: the guard vanishes in
+#  silence. That is why it is measured here, not assumed.
 printf 'bit +x (temporal, bloqueante): '
 for h in pre-commit commit-msg pre-push; do
   [ -x ".git/hooks/$h" ] || abortar "hook $h quedó SIN bit +x en el temporal (R3: git lo ignoraría y la guarda desaparecería en silencio)"
@@ -221,8 +221,8 @@ for h in pre-commit commit-msg pre-push; do
 done
 printf '\n'
 
-# bit +x del target REAL: se REPORTA (este falsificador corre en el temporal; el
-# target solo se lee). Es el mismo modo de fallo, medido donde importa.
+#  bit +x of the REAL target: REPORTED (this falsifier runs in the temporary; the
+#  target is only read). It is the same failure mode, measured where it matters.
 guard_x_dir="$(target_hooks_dir)"
 guard_x_falta=0
 printf 'bit +x (target real, informativo): '
@@ -239,7 +239,7 @@ if [ "$guard_x_falta" -ne 0 ]; then
   printf 'AVISO R3: %s de 3 hook(s) del target NO son ejecutables ⇒ git los IGNORA y la guarda desaparece en SILENCIO. Remedio: bash scripts/guard/install-hooks.sh\n' "$guard_x_falta"
 fi
 
-# ── precondición 2: baseline con el kit APAGADO (no estorba el arranque) ─────
+#  ── precondition 2: baseline with the kit OFF (it does not disturb startup) ──
 for p in "${baseline_paths[@]}"; do git add -- "$p" || abortar "git add falló en $p"; done
 if ! out_base="$(env -u GUARD_ACTIVE git commit -q -m "baseline: stubs protegidos + kit (GUARD_ACTIVE sin definir)" 2>&1)"; then
   abortar "el commit baseline falló con el kit apagado: $(linea_hook "$out_base")"
@@ -248,9 +248,9 @@ git remote add origin "$guard_tmp/remote.git" || abortar "no se pudo añadir el 
 
 printf 'precondiciones: install-hooks temporal OK (3/3) · baseline con GUARD_ACTIVE sin definir OK\n'
 
-# ── casos ────────────────────────────────────────────────────────────────────
-# El 4º argumento es el marcador que el hook correspondiente DEBE imprimir;
-# '' en los casos de pase (no hay hook que deba morder).
+#  ── cases ────────────────────────────────────────────────────────────────────
+#  The 4th argument is the marker the matching hook MUST print;
+#  '' in pass cases (no hook must bite).
 caso_commit A 'GUARD_ACTIVE=1 commit INDEX.jsonl' 'FALLA' 'GUARD: commit RECHAZADO' \
   'caso A: tocando path protegido' docs/sintergic/handoffs/INDEX.jsonl GUARD_ACTIVE=1
 
@@ -275,45 +275,45 @@ git tag -f guard-tag-1 >/dev/null 2>&1 || abortar "no se pudo crear el tag de pr
 out="$(env GUARD_ACTIVE=1 git push -q origin refs/tags/guard-tag-1 2>&1)"; rc=$?
 registrar G 'GUARD_ACTIVE=1 push de tag a origin' 'FALLA' "$rc" "$out" 'GUARD: push RECHAZADO'
 
-# H (R2, control negativo del token): CR-TEST-1 autorizado, mensaje que solo
-# menciona CR-TEST-1999 (supercadena). Con comparación de subcadena este commit
-# PASABA; con la conjunción por token debe RECHAZAR con el marcador del brazo
-# CR-en-mensaje. Si pasa ⇒ la frontera de token está rota.
+#  H (R2, token negative control): CR-TEST-1 authorized, message that only
+#  mentions CR-TEST-1999 (superstring). With substring comparison this commit
+#  PASSED; with the token conjunction it must REJECT with the CR-in-message
+#  arm marker. If it passes ⇒ the token boundary is broken.
 caso_commit H 'GUARD_ALLOW_CR=CR-TEST-1 con mensaje que SOLO trae CR-TEST-1999' 'FALLA' 'NO contiene' \
   'caso H: mensaje que solo trae CR-TEST-1999 (supercadena del CR autorizado)' docs/sintergic/handoffs/INDEX.jsonl \
   GUARD_ACTIVE=1 GUARD_ALLOW_CR=CR-TEST-1
 
-# I (D3, CR-3862257b): el `_` NO delimita. CR-TEST-1 autorizado, mensaje con
-# `identificador CR-TEST-1_suffix`: con la frontera anterior ([^A-Za-z0-9-]) el
-# `_` contaba como delimitador y el commit PASABA, aunque el CR seguía dentro de
-# otro identificador. Debe RECHAZAR con el marcador del brazo CR-en-mensaje.
+#  I (D3, CR-3862257b): `_` does NOT delimit. CR-TEST-1 authorized, message with
+#  `identifier CR-TEST-1_suffix`: with the previous boundary ([^A-Za-z0-9-]) the
+#  `_` counted as a delimiter and the commit PASSED, even though the CR was still inside
+#  another identifier. It must REJECT with the CR-in-message arm marker.
 caso_commit I 'GUARD_ALLOW_CR=CR-TEST-1 con mensaje con identificador CR-TEST-1_suffix' 'FALLA' 'NO contiene' \
   'caso I: mensaje con identificador CR-TEST-1_suffix (el _ no delimita)' docs/sintergic/handoffs/INDEX.jsonl \
   GUARD_ACTIVE=1 GUARD_ALLOW_CR=CR-TEST-1
 
-# J (D4): el mensaje llega por `git commit -F <fichero>` y contiene el CR como
-# token delimitado ⇒ PASA. Demuestra que commit-msg lee el fichero que git le
-# pasa en $1 (el del commit EN CURSO), no una ruta fija.
+#  J (D4): the message arrives via `git commit -F <file>` and contains the CR as a
+#  delimited token ⇒ PASSES. It proves commit-msg reads the file git
+#  passes in $1 (the IN-PROGRESS commit's), not a fixed path.
 printf 'caso J: excepcion CR-TEST-1 con mensaje via -F\n' > "$guard_tmp/msg-j.txt"
 caso_commit_F J 'GUARD_ALLOW_CR=CR-TEST-1 con mensaje via git commit -F (CR delimitado)' 'PASA' '' \
   "$guard_tmp/msg-j.txt" docs/sintergic/handoffs/INDEX.jsonl \
   GUARD_ACTIVE=1 GUARD_ALLOW_CR=CR-TEST-1
 
-# K (D4): mismo path protegido y misma excepción, mensaje SIN el CR ⇒ FALLA con
-# el marcador del brazo CR-en-mensaje (el pase no es libre).
+#  K (D4): same protected path and same exception, message WITHOUT the CR ⇒ FALLA with
+#  the CR-in-message arm marker (the pass is not free).
 printf 'caso K: mensaje nuevo sin el CR tras la excepcion\n' > "$guard_tmp/msg-k.txt"
 caso_commit_F K 'GUARD_ALLOW_CR=CR-TEST-1 con mensaje via -F SIN el CR' 'FALLA' 'NO contiene' \
   "$guard_tmp/msg-k.txt" docs/sintergic/handoffs/INDEX.jsonl \
   GUARD_ACTIVE=1 GUARD_ALLOW_CR=CR-TEST-1
 
-# L (D4) — regresión exacta del defecto del mensaje HEREDADO, en dos pasos sobre
-# el mismo repo temporal:
-#   paso 1: commit con el CR en el mensaje ⇒ PASA y deja `.git/COMMIT_EDITMSG`
-#           con ese CR. ASERCIÓN EXPLÍCITA: si el fichero no lo contiene, este
-#           caso es VACUO y sale FALLA (nunca pasa por accidente).
-#   paso 2: cambio nuevo al path protegido, mensaje SIN el CR ⇒ FALLA.
-# Un hook que leyera `.git/COMMIT_EDITMSG` en vez de `$1` PASARÍA el paso 2: eso
-# es lo que aquí se mide. El veredicto del caso es el del paso 2.
+#  L (D4) — exact regression of the INHERITED-message defect, in two steps over
+#  the same temporary repo:
+#    step 1: commit with the CR in the message ⇒ PASSES and leaves `.git/COMMIT_EDITMSG`
+#            with that CR. EXPLICIT ASSERTION: if the file does not contain it, this
+#            case is EMPTY and comes out FALLA (it never passes by accident).
+#    step 2: new change to the protected path, message WITHOUT the CR ⇒ FALLA.
+#  A hook that read `.git/COMMIT_EDITMSG` instead of `$1` would PASS step 2: that
+#  is what is measured here. The case verdict is step 2's.
 printf 'caso L paso 1 (heredado): excepcion CR-TEST-1\n' > "$guard_tmp/msg-l1.txt"
 printf 'caso L paso 2: mensaje nuevo sin el CR heredado\n' > "$guard_tmp/msg-l2.txt"
 printf 'linea de prueba L-paso1\n' >> docs/sintergic/handoffs/INDEX.jsonl
@@ -324,8 +324,8 @@ grep -qF 'CR-TEST-1' .git/COMMIT_EDITMSG 2>/dev/null && editmsg_cr='SI'
 printf 'L paso 1: rc=%s · .git/COMMIT_EDITMSG contiene CR-TEST-1 tras el paso 1: %s (la aserción anti-vacua)\n' \
   "$rc_l1" "$editmsg_cr"
 if [ "$rc_l1" -ne 0 ] || [ "$editmsg_cr" != 'SI' ]; then
-  # vacuo o roto: se registra FALLA con el marcador exigido NO encontrado ⇒ el
-  # veredicto cae en «FALLA (motivo equivocado)» y la matriz rompe el exit 0.
+  #  empty or broken: FALLA is recorded with the required marker NOT found ⇒ the
+  #  verdict falls into 'FALLA (wrong reason)' and the matrix breaks exit 0.
   registrar L 'GUARD_ALLOW_CR=CR-TEST-1, 2 pasos: el mensaje heredado tenía el CR y el nuevo no' 'FALLA' \
     "$rc_l1" "L VACUO: el paso 1 no dejó el CR en .git/COMMIT_EDITMSG (rc=$rc_l1, contiene=$editmsg_cr) — $out_l1" 'NO contiene'
   forzado[$((${#nombre[@]} - 1))]='SI'
@@ -340,11 +340,11 @@ else
   git reset -q --hard HEAD
 fi
 
-# ── casos M..Q: auditor de cierre de lane (CR-51d25f1e) ──────────────────────
-# El instrumento se autofalsifica con 5 casos; aquí cada uno es una fila. El rc
-# del selftest es 0 cuando el caso se comportó como DEBE (los negativos salen con
-# veredicto FAIL del instrumento), y el marcador exigido es el CÓDIGO del hallazgo
-# que debe haber emitido: sin el código, la fila es «FALLA (motivo equivocado)».
+#  ── cases M..Q: lane-closure auditor (CR-51d25f1e) ─────────────────────────
+#  The instrument self-falsifies with 5 cases; here each one is a row. The selftest
+#  rc is 0 when the case behaved as it MUST (the negatives come out with the
+#  instrument FAIL verdict), and the required marker is the CODE of the finding
+#  it must have emitted: without the code, the row is 'FALLA (wrong reason)'.
 caso_lane() {
   local id="$1" mk="$2" etiqueta="$3" out rc
   out="$(python3 scripts/guard/lane-integrity.py --selftest --case "$id" 2>&1)"; rc=$?
@@ -359,10 +359,10 @@ caso_lane pase      '| pase | PASS | PASS |' Q
 caso_lane corto     '| corto | PASS | PASS |' S
 caso_lane artefacto 'EVIDENCIA_NO_VERSIONADA' T
 
-# ── caso R (CR-9dd5c91e): el auditor de cierre es INSTRUMENTO, no fuente ─────
-# Se edita el path protegido con el kit armado y mensaje SIN el CR: debe morder
-# con el marcador de commit rechazado. Si el path no estuviera en la lista, git
-# aceptaría el commit y la fila saldría FALLA (el instrumento quedaría editable).
+#  ── case R (CR-9dd5c91e): the closure auditor is an INSTRUMENT, not a source ─
+#  The protected path is edited with the kit armed and a message WITHOUT the CR: it must bite
+#  with the rejected-commit marker. If the path were not in the list, git
+#  would accept the commit and the row would come out FALLA (the instrument would stay editable).
 caso_commit R 'GUARD_ACTIVE=1 commit scripts/guard/lane-integrity.py' 'FALLA' 'GUARD: commit RECHAZADO' \
   'caso R: tocando el auditor de cierre (instrumento) sin CR' scripts/guard/lane-integrity.py GUARD_ACTIVE=1
 
@@ -386,8 +386,8 @@ for i in "${!nombre[@]}"; do
     # R8: rc != 0 solo cuenta si mordió el hook ESPERADO
     if [ "${marca_ok[$i]}" = 'SI' ]; then veredicto='OK'; else veredicto='FALLA (motivo equivocado)'; fi
   fi
-  # caso vacuo: su precondición no se cumplió, así que no demuestra nada ->
-  # FALLO aunque rc/marcador coincidan (nunca pasa por accidente)
+  #  empty case: its precondition was not met, so it proves nothing ->
+  #  FALLO even if rc/marker match (it never passes by accident)
   [ "${forzado[$i]}" = 'SI' ] && veredicto='FALLA (caso vacuo: precondición no cumplida)'
   [ "$veredicto" = 'OK' ] || fallos=$((fallos + 1))
   printf '| %s | %s | %s | %s | %s | %s | %s |\n' \

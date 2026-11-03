@@ -1,45 +1,45 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-01e3aebf — manifiesto sha256 de los paths protegidos (CAPA DE DETECCIÓN).
+#  GUARD-KIT:CR-01e3aebf — sha256 manifest of the protected paths (DETECTION LAYER).
 #
-# Qué es: toma una huella sha256 de TODOS los paths protegidos y la verifica después.
-# NO instala hooks, NO modifica hooks, NO lee `GUARD_ACTIVE`: la detección no depende
-# de que el guard esté encendido — es justo al revés, sirve precisamente cuando el
-# hook no corrió (§7.2 de docs/NIGHT-RUN-GUARDRAILS.md) o cuando alguien lo saltó.
+#  What it is: takes a sha256 fingerprint of ALL protected paths and verifies it later.
+#  It does NOT install hooks, does NOT modify hooks, does NOT read `GUARD_ACTIVE`: detection does not
+#  depend on the guard being on — it is the other way around, it serves precisely when the
+#  hook did not run (§7.2 of docs/NIGHT-RUN-GUARDRAILS.md) or when someone skipped it.
 #
-# Uso:
-#   manifest-protected.sh --write <fichero>   escribe el manifiesto y sale 0
-#   manifest-protected.sh --check <fichero>   compara árbol vs manifiesto
-#   manifest-protected.sh --help              este texto
+#  Usage:
+#    manifest-protected.sh --write <file>   writes the manifest and exits 0
+#    manifest-protected.sh --check <file>   compares tree vs manifest
+#    manifest-protected.sh --help           this text
 #
-# Fuente única de patrones: sourcea `guard-paths.sh` (hermano de este fichero,
-# resuelto por BASH_SOURCE). Este script NO contiene ni un patrón: la lista vive
-# en un solo sitio y `guard_is_protected` es la única decisión de propiedad.
+#  Single source of patterns: it sources `guard-paths.sh` (sibling of this file,
+#  resolved through BASH_SOURCE). This script contains not a single pattern: the list lives
+#  in one place and `guard_is_protected` is the only ownership decision.
 #
-# Universo de paths: `git ls-files -z` (tracked) + `git ls-files -z --others
-# --exclude-standard` (presentes en disco y no ignorados). El segundo término hace
-# literal la definición de NUEVO («protegido en disco y no en el manifiesto»): un
-# instrumento `untracked` de otra lane (p.ej. un gate nuevo aún sin `git add`) es
-# instrumento igual, y el guard de hooks también lo ve.
+#  Path universe: `git ls-files -z` (tracked) + `git ls-files -z --others
+#  --exclude-standard` (present on disk and not ignored). The second term makes the
+#  definition of NUEVO literal ('protected on disk and not in the manifest'): an
+#  `untracked` instrument from another lane (e.g. a new gate with no `git add` yet) is
+#  an instrument all the same, and the hook guard sees it too.
 #
-# Formato del manifiesto: una línea por path, `sha256  <path-rel>`, ordenado por
-# path con `LC_ALL=C sort`. Determinista: dos corridas consecutivas dejan bytes
-# idénticos (sin timestamps, sin rutas absolutas, sin orden de directorio).
-# Límite declarado: paths con salto de línea o barra invertida no se soportan
-# (el formato es de una línea por fichero); en este árbol no existen.
+#  Manifest format: one line per path, `sha256  <rel-path>`, sorted by
+#  path with `LC_ALL=C sort`. Deterministic: two consecutive runs leave identical
+#  bytes (no timestamps, no absolute paths, no directory order).
+#  Declared limit: paths with a newline or a backslash are not supported
+#  (the format is one line per file); in this tree they do not exist.
 #
-# Estados que imprime `--check` (uno por línea, sin adorno, stdout):
-#   OK <path>        en el manifiesto y en disco, sha idéntico
-#   AUSENTE <path>   en el manifiesto y ya no en disco (borrado)
-#   CAMBIADO <path>  en ambos, sha distinto (editado)
-#   NUEVO <path>     protegido en disco y ausente del manifiesto
-# y una última línea de resumen con los conteos por estado.
+#  States `--check` prints (one per line, no decoration, stdout):
+#    OK <path>        in the manifest and on disk, identical sha
+#    AUSENTE <path>   in the manifest and no longer on disk (deleted)
+#    CAMBIADO <path>  in both, different sha (edited)
+#    NUEVO <path>     protected on disk and absent from the manifest
+#  and a final summary line with the counts per state.
 #
-# Exit codes de `--check`: 0 solo si TODOS son OK · 1 si hay AUSENTE/CAMBIADO/NUEVO
-# · 2 error de uso o manifiesto ilegible/inexistente/vacío. `--write`: 0 al escribir
-# · 2 ante error (repositorio ausente, fichero no escribible, hash imposible).
+#  Exit codes of `--check`: 0 only if ALL are OK · 1 if there is AUSENTE/CAMBIADO/NUEVO
+#  · 2 usage error or manifest unreadable/missing/empty. `--write`: 0 on writing
+#  · 2 on error (missing repository, unwritable file, impossible hash).
 #
-# Propiedades: `set -u` y NO `set -e` (el flujo decide códigos); portable en bash 5;
-# paths con espacios soportados (arrays + `IFS= read -r -d ''`); salida determinista.
+#  Properties: `set -u` and NOT `set -e` (the flow decides the codes); portable on bash 5;
+#  paths with spaces supported (arrays + `IFS= read -r -d ''`); deterministic output.
 
 set -u
 
@@ -69,7 +69,7 @@ err() {
   printf 'manifest-protected: %s\n' "$*" >&2
 }
 
-# manifest__top: raíz del repo; rc 1 si no estamos dentro de un repositorio git.
+#  manifest__top: repo root; rc 1 if we are not inside a git repository.
 manifest__top() {
   local top
   top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1
@@ -89,7 +89,7 @@ manifest__paths_protegidos() {
   printf '%s\0' "${acc[@]}" | LC_ALL=C sort -zu
 }
 
-# manifest__hash <path>: sha256 hex del fichero; rc 1 si no se puede leer.
+#  manifest__hash <path>: sha256 hex of the file; rc 1 if it cannot be read.
 manifest__hash() {
   local h
   h="$(sha256sum -- "${1-}" 2>/dev/null)" || return 1
@@ -102,7 +102,7 @@ manifest__hash() {
 manifest_write() {
   local destino="${1-}" top tmp
   [ -n "$destino" ] || { err "--write necesita la ruta del manifiesto"; return 2; }
-  # absoluta ANTES de cambiar de directorio (relativa al invocante, no al repo)
+  #  absolute BEFORE changing directory (relative to the caller, not to the repo)
   case "$destino" in
     /*) ;;
     *) destino="$PWD/$destino" ;;
@@ -219,7 +219,7 @@ manifest_check() {
 case "${1-}" in
   --help | -h | '')
     uso
-    # sin argumentos = error de uso (2); con --help = 0
+    #  no arguments = usage error (2); with --help = 0
     [ "${1-}" = '' ] && exit 2
     exit 0
     ;;

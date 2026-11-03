@@ -222,15 +222,15 @@ pub fn compute_sections(header: &MeshHeader, record: &[u8]) -> Result<MeshSectio
     Ok(MeshSections { points_end, planes_end: offset })
 }
 
-// ── puertas de fachada embebidas en el modelo (FG-01, `GAP-FG01-02`) ───────
+// ── facade doors embedded in the model (FG-01, `GAP-FG01-02`) ──────────────
 //
-// El `.RMB` retail **no** lleva puertas de edificio: los 9005 sub-records del
-// dato declaran `doors_in_exterior = 0` (censo `fg01-door-census.py`). Las
-// puertas de fachada viven en el **modelo 3D** del edificio, como planos con el
-// archivo de textura base 74 — `DFU:MeshReader.cs:614`
-// (`public const int BuildingDoors = 74;`) y `:645-648` (reducción de archivo).
+// The retail `.RMB` does **not** carry building doors: the 9005 sub-records of the
+// datum declare `doors_in_exterior = 0` (census `fg01-door-census.py`). The
+// facade doors live in the building's **3D model**, as planes with base texture
+// archive 74 — `DFU:MeshReader.cs:614`
+// (`public const int BuildingDoors = 74;`) and `:645-648` (archive reduction).
 
-/// Archivo de textura cuyos planos son puertas de edificio
+/// Texture file whose planes are building doors
 /// (`DFU:MeshReader.cs:614`).
 pub const BUILDING_DOORS_ARCHIVE: u16 = 74;
 
@@ -429,7 +429,7 @@ mod tests {
         r.push(4);
         r.push(0);
         r.extend_from_slice(&((74u16 << 7) | 5).to_le_bytes());
-        r.extend_from_slice(&[0u8; 4]); // resto de la cabecera de plano (8 B)
+        r.extend_from_slice(&[0u8; 4]); // rest of the plane header (8 B)
         for index in [0u32, 12, 24, 36] {
             r.extend_from_slice(&index.to_le_bytes());
             r.extend_from_slice(&[0u8; 4]);

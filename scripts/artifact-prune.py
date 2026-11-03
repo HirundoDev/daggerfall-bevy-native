@@ -1,34 +1,34 @@
 #!/usr/bin/env python3
-"""artifact-prune.py — poda de directorios de corrida con dry-run por defecto (CR-4f8a1c93).
+"""artifact-prune.py — run-directory pruning with a dry-run by default (CR-4f8a1c93).
 
-`shell-002.py` crea un directorio por invocacion (`.sintergic/artifacts/shell-002/
-<UTC>-p<pid>`, commit 67a585a) y nada los poda: ~250 KB por corrida, para siempre.
-Esta herramienta aplica una politica explicita y auditable, sin heuristicas:
+`shell-002.py` creates one directory per invocation (`.sintergic/artifacts/shell-002/
+<UTC>-p<pid>`, commit 67a585a) and nothing prunes them: ~250 KB per run, forever.
+This tool applies an explicit, auditable policy, with no heuristics:
 
-  · Solo se consideran entradas de `--root` cuyo NOMBRE encaje EXACTO con
-    `^\\d{8}T\\d{6}Z-p\\d+$` **y** que ademas sean directorios. Todo lo demas
-    (`stdout.txt`, `t1`..`t3`, `manifest.json`, ficheros sueltos, directorios con
-    otro nombre, o un fichero que imite un nombre valido) queda FUERA de
-    consideracion: se lista como SKIP y NUNCA se borra.
-  · Se conservan los `--keep N` (10 por defecto) mas recientes por orden ESTRICTO
-    del nombre: (timestamp UTC, pid NUMERICO). El pid no se compara como texto:
-    `p1000000` es mas nuevo que `p999999`.
-  · Un directorio cuyo pid sigue vivo (`/proc/<pid>` existe) se marca ALIVE y NO
-    se borra, este dentro o fuera de la ventana: una corrida en vuelo es evidencia
-    en construccion.
-  · Sin `--apply` no se toca NADA: solo se imprime la tabla. Con `--apply` se
-    borran unicamente los PRUNE.
+    · Only `--root` entries whose NAME matches EXACTLY
+        `^\d{8}T\d{6}Z-p\d+$` **and** that are directories are considered. Everything else
+        (`stdout.txt`, `t1`..`t3`, `manifest.json`, loose files, directories with
+        another name, or a file imitating a valid name) is OUT of
+        consideration: listed as SKIP and NEVER deleted.
+    · The most recent `--keep N` (10 by default) are kept by STRICT name
+        order: (UTC timestamp, NUMERIC pid). The pid is not compared as text:
+        `p1000000` is newer than `p999999`.
+    · A directory whose pid is still alive (`/proc/<pid>` exists) is marked ALIVE and is NOT
+        deleted, inside or outside the window: a run in flight is evidence
+        under construction.
+    · Without `--apply` NOTHING is touched: only the table is printed. With `--apply`
+        only the PRUNE entries are deleted.
 
-Salida (tabla estable): `dir  mtime  size  pid  estado`, estado ∈
+Output (stable table): `dir  mtime  size  pid  state`, state ∈
 {KEEP, PRUNE, ALIVE, SKIP}.
 
-Uso:
+Usage:
     python3 scripts/artifact-prune.py                       # dry-run, keep=10
-    python3 scripts/artifact-prune.py --keep 5 --apply       # poda real
-    python3 scripts/artifact-prune.py --self-test            # 3 falsificadores
+        python3 scripts/artifact-prune.py --keep 5 --apply       # real pruning
+        python3 scripts/artifact-prune.py --self-test            # 3 falsifiers
 
-Exit: 0 dry-run / 0 apply correcto · 1 fallo al borrar o self-test rojo ·
-2 root inexistente o uso invalido.
+Exit: 0 dry-run / 0 successful apply · 1 delete failure or red self-test ·
+2 missing root or invalid usage.
 """
 from __future__ import annotations
 
@@ -50,12 +50,12 @@ KEEP, PRUNE, ALIVE, SKIP = "KEEP", "PRUNE", "ALIVE", "SKIP"
 
 
 def pid_alive(pid: int) -> bool:
-    """El pid existe en /proc: la corrida puede seguir escribiendo ahi."""
+    """The pid exists in /proc: the run may still be writing there."""
     return pid > 1 and os.path.isdir("/proc/%d" % pid)
 
 
 def tree_size(path: Path) -> int:
-    """Bytes de los ficheros regulares bajo `path` (symlinks no se siguen)."""
+    """Bytes of regular files under `path` (symlinks are not followed)."""
     if path.is_file() and not path.is_symlink():
         return path.stat().st_size
     total = 0
@@ -70,13 +70,13 @@ def tree_size(path: Path) -> int:
 
 
 def order_key(name: str):
-    """Orden estricto: timestamp UTC y pid como entero (no como texto)."""
+    """Strict order: UTC timestamp and pid as an integer (not as text)."""
     match = ORDER_RE.match(name)
     return (match.group(1), int(match.group(2)))
 
 
 def plan(root: Path, keep: int) -> list[dict]:
-    """Clasifica cada entrada del root; no toca el disco."""
+    """Classifies every root entry; does not touch the disk."""
     considered, skipped = [], []
     for entry in sorted(root.iterdir(), key=lambda p: p.name):
         if NAME_RE.match(entry.name) and entry.is_dir() and not entry.is_symlink():
@@ -127,7 +127,7 @@ def render(rows, root: Path, keep: int, apply: bool) -> list[str]:
 
 
 def apply_plan(rows) -> tuple[int, int]:
-    """Borra solo los PRUNE; devuelve (borrados, fallos). Nunca cuenta lo no borrado."""
+    """Deletes only PRUNE entries; returns (deleted, failures). Never counts what was not deleted."""
     deleted = failures = 0
     for row in rows:
         if row["estado"] != PRUNE:
@@ -145,7 +145,7 @@ def apply_plan(rows) -> tuple[int, int]:
 # ── self-test: tres falsificadores propios sobre arboles temporales ──────────
 
 def _dead_pids(count: int) -> list[int]:
-    """Pids que hoy NO existen en /proc (para que ALIVE no ensucie el control)."""
+    """Pids that do NOT exist in /proc today (so ALIVE does not pollute the control)."""
     found = []
     for candidate in range(990000, 980000, -1):
         if not pid_alive(candidate):
@@ -173,7 +173,7 @@ def _run(args: list[str]):
 
 
 def _states(stdout: str) -> dict:
-    """Lee la tabla del CLI: nombre -> estado."""
+    """Reads the CLI table: name -> state."""
     out = {}
     for line in stdout.splitlines():
         parts = line.split()
@@ -192,7 +192,7 @@ def _checker(failures: list[str], tag: str):
 
 def _reconcile(failures: list[str], tag: str, root: Path, states: dict,
                expect: dict) -> None:
-    """Cuenta `path exists` por veredicto y compara con lo declarado."""
+    """Counts `path exists` per verdict and compares with what was declared."""
     check = _checker(failures, tag)
     for name, state in expect.items():
         got = states.get(name)
@@ -215,8 +215,8 @@ def _case_a(failures: list[str], base: Path) -> None:
     root = base / "a"
     root.mkdir()
     dead = _dead_pids(12)
-    # Dos directorios comparten el timestamp mas viejo y difieren en el pid: el
-    # orden estricto (timestamp, pid NUMERICO) debe distinguirlos.
+    #  Two directories share the oldest timestamp and differ in pid: the
+    #  strict order (timestamp, NUMERIC pid) must tell them apart.
     names = _valid_names(dead)
     _make_dirs(root, names)
     result = _run(["--root", str(root), "--keep", "10"])
@@ -230,8 +230,8 @@ def _case_a(failures: list[str], base: Path) -> None:
     check(applied.returncode == 0, "--apply exit 0 (got %d)" % applied.returncode)
     _reconcile(failures, "a", root, _states(applied.stdout) or states, expect)
 
-    # Mismo timestamp, pids 999999 vs 1000000: con keep=11 solo el pid 999999
-    # cae fuera; un orden lexicografico podaria el 1000000.
+    #  Same timestamp, pids 999999 vs 1000000: with keep=11 only pid 999999
+    #  falls outside; a lexicographic order would prune the 1000000.
     tie = base / "a-tie"
     tie.mkdir()
     tie_names = ["20260101T000000Z-p999999", "20260101T000000Z-p1000000"] + \

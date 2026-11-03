@@ -429,34 +429,34 @@ pub fn mesh_record_to_spec(record: &[u8]) -> Result<MeshSpec, ConvertError> {
     Ok(spec)
 }
 
-// ── puertas de fachada del modelo (FG-01, `GAP-FG01-02`) ──────────────────
+// ── facade doors of the model (FG-01, `GAP-FG01-02`) ─────────────────────
 
-/// Una puerta de fachada embebida en el modelo 3D del edificio, en el marco
-/// **local del modelo** (metros, handedness Bevy: y y z negados, igual que la
-/// malla) — derivada con la ruta de referencia
-/// `DFU:MeshReader.cs:614/645-710` (planos con archivo base 74) +
+/// A facade door embedded in the building's 3D model, in the model's **local
+/// frame** (metres, Bevy handedness: y and z negated, as in the mesh) —
+/// derived with the reference path
+/// `DFU:MeshReader.cs:614/645-710` (planes with base archive 74) +
 /// `GameObjectHelper.GetStaticDoors` (`centre = (Vert0 + Vert2) / 2`,
 /// `normal = normalize(cross(Vert0 − Vert2, Vert0 − Vert1))`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DoorSpec {
-    /// Centro de la puerta en el marco del modelo (m).
+    /// Door centre in the model frame (m).
     pub centre: [f32; 3],
-    /// Normal de la puerta (orientación de la fachada). `[0,0,0]` si el plano
-    /// es degenerado: se declara, no se inventa una normal.
+    /// Door normal (facade orientation). `[0,0,0]` if the plane
+    /// is degenerate: declared, never an invented normal.
     pub normal: [f32; 3],
-    /// Archivo de textura base (siempre `mesh::BUILDING_DOORS_ARCHIVE`).
+    /// Base texture archive (always `mesh::BUILDING_DOORS_ARCHIVE`).
     pub texture_archive: u16,
-    /// Record de textura dentro de ese archivo.
+    /// Texture record inside that archive.
     pub texture_record: u16,
 }
 
-/// Puertas de fachada de un record ARCH3D: los planos cuya textura base es el
-/// archivo de puertas (74), con sus tres primeros vértices resueltos a puntos
-/// del modelo (`PointOffset ÷ divisor`, `MeshReader.cs:681-710`).
+/// Facade doors of an ARCH3D record: the planes whose base texture is the
+/// door archive (74), with their first three vertices resolved to model
+/// points (`PointOffset ÷ divisor`, `MeshReader.cs:681-710`).
 ///
-/// Un plano de puerta con menos de tres puntos o con un índice fuera del rango
-/// de puntos es un error declarado ([`ConvertError`]), nunca una puerta
-/// inventada. Un record sin planos 74 devuelve `Vec` vacío.
+/// A door plane with fewer than three points or with an index outside the point
+/// range is a declared error ([`ConvertError`]), never an invented door.
+/// A record with no 74 planes returns an empty `Vec`.
 pub fn model_doors_from_record(record: &[u8]) -> Result<Vec<DoorSpec>, ConvertError> {
     let header = parse_mesh_header(record)?;
     let divisor = point_index_divisor(header.version);

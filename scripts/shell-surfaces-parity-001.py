@@ -1,59 +1,59 @@
 #!/usr/bin/env python3
-"""SHELL-SURFACES-PARITY-001 — gate de superficies de M-SHELL (16 retail + 1 divergencia = 17).
+"""SHELL-SURFACES-PARITY-001 — M-SHELL surface gate (16 retail + 1 divergence = 17).
 
-Porqué existe
+Why it exists
 -------------
-`SH2-09` (`scripts/shell-002.py`) y `UI-CREATE-001` (`scripts/ui-create-001.py`)
-miden **16** superficies y deben seguir midiendo 16: son las 16 páginas del
-wizard **retail** (`StartNewGameWizard`, C01..C16 de
-`crates/app/src/m38_surfaces.rs`). El owner decidió (2026-10-30) **añadir** una
-17.ª superficie que **no es retail**: la provincia. Retirarla es revertir una
-decisión del owner; contarla dentro de las 16 es romper la paridad con las 27
-superficies validadas. La resolución no es mover ningún número existente, es
-**separar las dos clases** en un gate propio:
+`SH2-09` (`scripts/shell-002.py`) and `UI-CREATE-001` (`scripts/ui-create-001.py`)
+measure **16** surfaces and must keep measuring 16: they are the 16 pages of the
+**retail** wizard (`StartNewGameWizard`, C01..C16 of
+`crates/app/src/m38_surfaces.rs`). The owner decided (2026-10-30) to **add** a
+17th surface that is **not retail**: the province. Removing it would revert an
+owner decision; counting it inside the 16 would break parity with the 27
+validated surfaces. The resolution is not to move any existing number, it is
+to **separate the two classes** in a gate of their own:
 
-    retail      = 16   paridad con el censo retail (C01..C16) — lo que miden SH2-09 y UI-CREATE-001
-    divergencia =  1   superficie nueva con atribución + fecha (provincia, 0,60 u, 2026-10-30)
-    total       = 17   lo que el contrato del ciclo declara
+        retail      = 16   parity with the retail census (C01..C16) — what SH2-09 and UI-CREATE-001 measure
+        divergence  =  1   new surface with attribution + date (province, 0.60 u, 2026-10-30)
+        total       = 17   what the cycle contract declares
 
-Este gate NO ablanda los dos anteriores: los dos siguen midiendo 16 y este mide
-la 17.ª como una fila aparte, con su dueño y su fecha. ROJO si:
+This gate does NOT soften the two previous ones: both keep measuring 16 and this one measures
+the 17th as a separate row, with its owner and its date. RED if:
 
-  * la divergencia aparece sin atribución, sin fecha ISO o sin ancla de decisión;
-  * desaparece una superficie retail (el censo y lo declarado dejan de cuadrar);
-  * el total no es 17 (ni por defecto ni por exceso: la provincia no puede
-    colarse dentro del conjunto retail para "llegar" a 17).
+    * the divergence appears without attribution, without an ISO date or without a decision anchor;
+    * a retail surface disappears (the census and the declaration stop matching);
+    * the total is not 17 (neither short nor over: the province cannot
+        sneak into the retail set to 'reach' 17).
 
-Fuentes (los números no se escriben aquí: se leen)
+Sources (the numbers are not written here: they are read)
 --------------------------------------------------
-  censo        → `crates/app/src/m38_surfaces.rs`  (`CREATE_SURFACE_COUNT` + `create_surfaces()`)
-  declaración  → `docs/sintergic/playability/SHELL-SURFACES-DIVERGENCES.json`
-  decisión     → `docs/sintergic/playability/SHELL-VISIBLE-LAYER.md:376-377` y `:410`
-                 (cada divergencia declara sus anclas y las cadenas que deben seguir ahí)
+    census       → `crates/app/src/m38_surfaces.rs`  (`CREATE_SURFACE_COUNT` + `create_surfaces()`)
+    declaration  → `docs/sintergic/playability/SHELL-SURFACES-DIVERGENCES.json`
+    decision     → `docs/sintergic/playability/SHELL-VISIBLE-LAYER.md:376-377` and `:410`
+                                  (each divergence declares its anchors and the strings that must stay there)
 
-Determinismo
+Determinism
 ------------
-Dos procesos sobre el mismo árbol imprimen bytes idénticos (`cmp`): sin
-timestamps, sin `pid`, sin rutas temporales y **sin `head=<commit>`** — el gate
-mide documentos y censo, no el árbol git, así que su `DIGEST` no cambia al mover
-HEAD. `DIGEST <sha256>` cubre todo lo impreso antes de esa línea.
+Two processes over the same tree print identical bytes (`cmp`): without
+timestamps, without `pid`, without temporary paths and **without `head=<commit>`** — the gate
+measures documents and census, not the git tree, so its `DIGEST` does not change when moving
+HEAD. `DIGEST <sha256>` covers everything printed before that line.
 
-Salida (canon de gates del repo)
+Output (repo gate canon)
 --------------------------------
     GATE <id> cr=<CR> mode=run
     SOURCES ...
     PARITY retail=16 divergence=1 total=17 expected-total=17
-    OK <check> <detalle> src=<ancla>      |  [FAIL] / [MISSING]
+        OK <check> <detail> src=<anchor>      |  [FAIL] / [MISSING]
     CHECKS total=<n> green=<n> red=<n> missing=<n> failed=... missing-ids=...
     VERDICT: PASS|FAIL
     DIGEST <sha256>
 
-Uso
+Usage
 ---
     python3 scripts/shell-surfaces-parity-001.py [--out DIR]
     python3 scripts/shell-surfaces-parity-001.py --self-test
 
-Exit: 0 PASS · 1 FAIL · 2 uso/IO.
+Exit: 0 PASS · 1 FAIL · 2 usage/IO.
 """
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ CHECK_IDS = (
 
 
 class CensusError(Exception):
-    """El censo no se puede leer como censo (fuente ilegible o incompleta)."""
+    """The census cannot be read as a census (unreadable or incomplete source)."""
 
 
 # ── censo ─────────────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ def declared_divergence(declaration: dict) -> list[dict]:
 
 
 def anchor_text(ref: str) -> tuple[str, str | None]:
-    """(`texto de las líneas citadas`, None) o ("", motivo) si el ancla no resuelve."""
+    """(`text of the cited lines`, None) or ('', reason) if the anchor does not resolve."""
     match = RE_ANCHOR_REF.match(ref.strip())
     if not match:
         return "", f"ancla no parseable {ref!r}"
@@ -206,7 +206,7 @@ def evaluate(census_text: str, declaration: dict) -> list[tuple[str, bool, str, 
             f"{census_src}:create_surfaces",
         ))
 
-    # 4 · lo declarado como retail debe ser EXACTAMENTE el censo
+    #   4 · what is declared as retail must be EXACTLY the census
     retail = declared_retail(declaration)
     if census_error:
         rows.append(("retail-declared", False, "sin censo contra el que medir", False, decl_src))
@@ -254,7 +254,7 @@ def evaluate(census_text: str, declaration: dict) -> list[tuple[str, bool, str, 
         decl_src,
     ))
 
-    # 6 · la divergencia NO puede ser retail (ni por id ni por estar en el censo)
+    #   6 · the divergence CANNOT be retail (neither by id nor by being in the census)
     retail_ids = {rid for rid, _ in retail} | {pid for pid, _ in pairs}
     smuggled = [str(row.get("id", "")) for row in divergence if str(row.get("id", "")) in retail_ids]
     rows.append((
@@ -266,7 +266,7 @@ def evaluate(census_text: str, declaration: dict) -> list[tuple[str, bool, str, 
         decl_src,
     ))
 
-    # 7 · anclas de la decisión: las líneas citadas siguen diciendo lo citado
+    #   7 · decision anchors: the cited lines still say what is cited
     anchor_problems: list[str] = []
     checked = 0
     for row in divergence:
@@ -304,7 +304,7 @@ def evaluate(census_text: str, declaration: dict) -> list[tuple[str, bool, str, 
         "docs/sintergic/playability/SHELL-VISIBLE-LAYER.md:376-377,410",
     ))
 
-    # 8 · los dos jueces del retail siguen midiendo 16 (no se ablandaron al añadir la 17.ª)
+    #   8 · the two retail judges still measure 16 (they were not softened by adding the 17th)
     judges = declaration.get("retail_judges")
     judges = judges if isinstance(judges, list) else []
     judge_problems: list[str] = []
@@ -337,7 +337,7 @@ def evaluate(census_text: str, declaration: dict) -> list[tuple[str, bool, str, 
         "scripts/shell-002.py:SH2-09,SH2-11 scripts/ui-create-001.py:SURFACES",
     ))
 
-    # 8 · total = 16 + 1 = 17 (ni por defecto ni por exceso)
+    #   8 · total = 16 + 1 = 17 (neither short nor over)
     total = len(retail) + len(divergence)
     declared_total = declaration.get("total_expected")
     ok_total = (
@@ -453,7 +453,7 @@ def red_of(rows: list[tuple[str, bool, str, bool, str]]) -> list[str]:
 
 
 def mode_self_test() -> int:
-    """1 control positivo (la declaración viva) + 4 negativos, cada uno ROJO por su motivo."""
+    """1 positive control (the live declaration) + 4 negatives, each RED for its own reason."""
     lines = [f"gate={GATE} cr={CR} mode=self-test"]
     census_text = CENSUS.read_text(encoding="utf-8") if CENSUS.is_file() else ""
     declaration = load_declaration(DECLARATION) if DECLARATION.is_file() else {}
@@ -463,7 +463,7 @@ def mode_self_test() -> int:
 
     controls: list[tuple[str, list[tuple[str, bool, str, bool, str]], str, tuple[str, ...]]] = []
 
-    # positivo · la declaración viva contra el censo vivo: debe quedar VERDE
+    #  positive · the live declaration against the live census: must stay GREEN
     controls.append(("positive-live", evaluate(census_text, declaration), "PASS", ()))
 
     # negativo 1 · divergencia sin atribución
@@ -473,7 +473,7 @@ def mode_self_test() -> int:
     controls.append(("negative-missing-attribution", evaluate(census_text, broken), "FAIL",
                      ("divergence-attribution",)))
 
-    # negativo 2 · desaparece una superficie retail del censo
+    #  negative 2 · a retail surface disappears from the census
     short = [pair for pair in pairs if pair[0] != "C15"]
     controls.append(("negative-missing-retail", evaluate(census_fixture(short), declaration), "FAIL",
                      ("census-count", "retail-declared")))
@@ -486,7 +486,7 @@ def mode_self_test() -> int:
         doubled["divergence"] = list(doubled["divergence"]) + [extra]
     controls.append(("negative-total-not-17", evaluate(census_text, doubled), "FAIL", ("total-17",)))
 
-    # negativo 4 · la provincia se cuela DENTRO del conjunto retail para "llegar" a 17
+    #  negative 4 · the province sneaks INSIDE the retail set to 'reach' 17
     smuggled = copy.deepcopy(declaration)
     if smuggled.get("divergence") and isinstance(smuggled.get("retail"), list):
         province = smuggled["divergence"][0]

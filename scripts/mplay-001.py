@@ -1,43 +1,43 @@
 #!/usr/bin/env python3
 """
-mplay-001.py — M-PLAY: jugabilidad de punta a punta (CR-7540262b-f163-4c51-9d81-c6a5c6cf72c1).
+mplay-001.py — M-PLAY: end-to-end playability (CR-7540262b-f163-4c51-9d81-c6a5c6cf72c1).
 
-El instrumento **conduce el binario real** (`target/debug/daggerfall-app`) por el recorrido declarado
+The instrument **drives the real binary** (`target/debug/daggerfall-app`) through the declared walkthrough
 
-    cargar → menú → nueva partida → creación de personaje → mundo → mazmorra → guardar → cargar → menú
+    load -> menu -> new game -> character creation -> world -> dungeon -> save -> load -> menu
 
-y decide con **efectos observados**: stdout del producto (2 procesos independientes por estación),
-ficheros escritos en disco y bytes leídos de vuelta. Anclas `archivo:línea` del pack
-`docs/sintergic/orchestrator/packs/CR-7540262b-f163-4c51-9d81-c6a5c6cf72c1.md` §3 **nombran** la
-superficie que cada fila mide; jamás sustituyen la medición.
+and decides with **observed effects**: product stdout (2 independent processes per station),
+files written to disk and bytes read back. `file:line` anchors of the pack
+`docs/sintergic/orchestrator/packs/CR-7540262b-f163-4c51-9d81-c6a5c6cf72c1.md` §3 **name** the
+surface each row measures; they never replace the measurement.
 
-Ids `P1..P9` son estables (canon `docs/sintergic/playability/PLAYTHROUGH-PROBE.md`). El orden de
-ejecución es el del recorrido: P1,P2,P3,P4,P6 (mundo), P5 (mazmorra, NOT-RUN hoy), P7,P8,P9.
+Ids `P1..P9` are stable (canon `docs/sintergic/playability/PLAYTHROUGH-PROBE.md`). The run order
+is the walkthrough's: P1,P2,P3,P4,P6 (world), P5 (dungeon, NOT-RUN today), P7,P8,P9.
 
-Honestidad de ausencia (pack §5): un paso que no se puede medir se declara `NOT-RUN` con causa nombrada
-y cuenta como fallo (`VERDICT: FAIL`); `NOT-RUN` nunca tapa un rojo; una captura que afirma un hecho que
-el producto no produjo se marca falsificación (`FAIL`).
+Honesty of absence (pack §5): a step that cannot be measured is declared `NOT-RUN` with a named cause
+and counts as a failure (`VERDICT: FAIL`); `NOT-RUN` never covers a red; a capture that claims a fact the
+product did not produce is marked as falsification (`FAIL`).
 
-Construcción: el recorrido mide el producto COMPLETO, así que el binario se construye con
-`--features window` (`cargo build -p daggerfall-app --features window`, bajo
-`.sintergic/locks/m43-build.lock`). El flag no es cosmético y no puede ser el default del crate:
-sin él `m8_window` no se compila (`crates/app/src/main.rs:929`, `#[cfg(feature = "window")]`), de
-modo que P7/P8 fallan (`declared-size=absent`, `roundtrip!=true` — esas cadenas sólo existen en
-`crates/app/src/m8_window.rs:56,78`) y, peor, `target/debug/daggerfall-app` queda SIN la feature
-que leen `scripts/menu-window-001.py --skip-build` y `scripts/shell-002.py`: un gate de ventana
-mediría un binario que no abre ventana. Tras construir, una guarda barata comprueba en los bytes
-del binario que los literales de `m8_window` están dentro (es el binario que se mide y el que queda
-en disco); si no están, el instrumento no mide lo que declara y sale `NC`.
+Build: the walkthrough measures the COMPLETE product, so the binary is built with
+`--features window` (`cargo build -p daggerfall-app --features window`, under
+`.sintergic/locks/m43-build.lock`). The flag is not cosmetic and cannot be the crate default:
+without it `m8_window` does not compile (`crates/app/src/main.rs:929`, `#[cfg(feature = "window")]`), so
+P7/P8 fail (`declared-size=absent`, `roundtrip!=true` — those strings only exist in
+`crates/app/src/m8_window.rs:56,78`) and, worse, `target/debug/daggerfall-app` is left WITHOUT the feature
+that `scripts/menu-window-001.py --skip-build` and `scripts/shell-002.py` read: a window gate
+would measure a binary that does not open a window. After building, a cheap guard checks in the binary's
+bytes that the `m8_window` literals are inside (it is the binary being measured and the one left
+on disk); if they are not, the instrument does not measure what it declares and exits `NC`.
 
-Uso:
-  python3 scripts/mplay-001.py                 # recorrido real, 2 procesos por estación
-  python3 scripts/mplay-001.py --no-build      # no construye (exit 3 si el binario está rancio o sin `window`)
-  python3 scripts/mplay-001.py --strict-tree   # exit 4 si crates/ tiene escrituras ajenas
-  python3 scripts/mplay-001.py --self-test     # 9 controles negativos (fixtures, sin binario)
-  python3 scripts/mplay-001.py --falsify p7-save-doc-version
-  python3 scripts/mplay-001.py --keep /tmp/mplay-keep
+Usage:
+    python3 scripts/mplay-001.py                 # real walkthrough, 2 processes per station
+    python3 scripts/mplay-001.py --no-build      # does not build (exit 3 if the binary is stale or lacks `window`)
+    python3 scripts/mplay-001.py --strict-tree   # exit 4 if crates/ has foreign writes
+    python3 scripts/mplay-001.py --self-test     # 9 negative controls (fixtures, no binary)
+    python3 scripts/mplay-001.py --falsify p7-save-doc-version
+    python3 scripts/mplay-001.py --keep /tmp/mplay-keep
 
-Exit: 0 PASS · 1 FAIL (incluye NOT-RUN) · 2 NC de entorno · 3 binario rancio · 4 árbol compartido.
+Exit: 0 PASS · 1 FAIL (includes NOT-RUN) · 2 environment NC · 3 stale binary · 4 shared tree.
 """
 
 from __future__ import annotations
@@ -58,11 +58,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 BIN = REPO / "target" / "debug" / "daggerfall-app"
 BUILD_LOCK = REPO / ".sintergic" / "locks" / "m43-build.lock"
-# Feature set OBLIGATORIO del binario que este gate mide (ver build_binary).
+# MANDATORY feature set of the binary this gate measures (see build_binary).
 BUILD_FEATURES = ("window",)
-# Literales que SÓLO existen en el binario si `m8_window` se compiló: el módulo entero vive
-# bajo `#[cfg(feature = "window")]` (crates/app/src/main.rs:929), así que sin la feature estas
-# cadenas no llegan al ejecutable. Es la prueba barata de que el binario medido es el `window`.
+# Literals that ONLY exist in the binary if `m8_window` was compiled: the whole module lives
+# under `#[cfg(feature = "window")]` (crates/app/src/main.rs:929), so without the feature these
+# strings never reach the executable. It is the cheap proof that the measured binary is the `window` one.
 WINDOW_MARKERS = (b"M8 VE: step 1", b"M8 VE: step 2")
 REGISTER = REPO / "docs" / "sintergic" / "validation" / "closure-register-CR-03390267.md"
 SAVE_REL = Path("saves") / "session.dfs"
@@ -70,7 +70,7 @@ CR = "CR-7540262b-f163-4c51-9d81-c6a5c6cf72c1"
 JOURNEY = "cargar→menú→nueva partida→creación→mundo→mazmorra→guardar→cargar→menú"
 EXEC_ORDER = ["P1", "P2", "P3", "P4", "P6", "P5", "P7", "P8", "P9"]
 
-# ── Filas: id, estación, ancla (archivo:línea del producto) ────────────────────
+# ── Rows: id, station, anchor (product file:line) ────────────────────
 ROWS = [
     ("P1", "cargar binario", "crates/app/src/main.rs:533"),
     ("P2", "menú", "crates/app/src/m18_b1_probe.rs:1200"),
@@ -99,12 +99,12 @@ def sha256_text(text: str) -> str:
 
 
 def fingerprint(path: Path) -> tuple[str, bool]:
-    """sha256 del binario y ¿lleva compilada la feature `window`? — en UNA sola pasada.
+    """sha256 of the binary and does it carry the `window` feature compiled? — in ONE pass.
 
-    La guarda es barata y directa: si los literales de `m8_window` no están en los bytes del
-    ejecutable, la feature no se compiló y ese binario no es el producto que el recorrido
-    declara medir. Devuelve el sha del MISMO binario, de modo que `bin_sha256` del informe es
-    siempre el del binario medido (y el que queda en `target/debug`).
+    The guard is cheap and direct: if the `m8_window` literals are not in the executable's
+    bytes, the feature was not compiled and that binary is not the product the walkthrough
+    declares to measure. Returns the sha of the SAME binary, so the report's `bin_sha256` is
+    always the measured one (and the one left in `target/debug`).
     """
     digest = hashlib.sha256()
     seen = [False] * len(WINDOW_MARKERS)
@@ -122,7 +122,7 @@ def fingerprint(path: Path) -> tuple[str, bool]:
 
 
 def normalize(text: str, scratch: Path | None) -> str:
-    """Determinismo: paths de scratch y temporales del producto no son estado."""
+    """Determinism: scratch and product temporary paths are not state."""
     if scratch is not None:
         text = text.replace(str(scratch), "<SCRATCH>")
     text = TMP_RE.sub("<TMP>", text)
@@ -134,8 +134,8 @@ def normalize(text: str, scratch: Path | None) -> str:
 
 
 def cap(argv, cwd: Path, timeout: int = 900) -> dict:
-    # Headless determinista: sin DISPLAY el producto no abre ventana; SESSION-001
-    # completa su medición y muere en el event loop de winit (exit 101, stderr sólo).
+    # Deterministic headless: without DISPLAY the product opens no window; SESSION-001
+    # completes its measurement and dies in winit's event loop (exit 101, stderr only).
     env = dict(os.environ)
     env.pop("DISPLAY", None)
     env.pop("WAYLAND_DISPLAY", None)
@@ -199,18 +199,18 @@ def tree_state() -> tuple[int, str, list[str]]:
 
 
 def build_binary() -> tuple[int, str]:
-    """`cargo build -p daggerfall-app --features window` bajo el flock del script.
+    """`cargo build -p daggerfall-app --features window` under the script's flock.
 
-    `--features window` es OBLIGATORIO, no un adorno: sin ese flag el crate se construye con su
-    feature set por defecto, donde `m8_window` no existe (`crates/app/src/main.rs:929`,
-    `#[cfg(feature = "window")]`). Dos consecuencias medidas:
-      · P7/P8 fallan (`declared-size=absent`, `roundtrip!=true`): las cadenas que esas filas
-        exigen sólo existen en `crates/app/src/m8_window.rs:56,78`.
-      · el árbol queda con un `target/debug/daggerfall-app` SIN la feature, y
-        `scripts/menu-window-001.py --skip-build` / `scripts/shell-002.py` lo leen: un gate de
-        ventana acabaría midiendo un binario que no tiene ventana.
-    El lock es el que ya usa este instrumento para builds (`.sintergic/locks/m43-build.lock`);
-    no se inventa un mecanismo nuevo.
+    `--features window` is MANDATORY, not decoration: without that flag the crate builds with its
+    default feature set, where `m8_window` does not exist (`crates/app/src/main.rs:929`,
+    `#[cfg(feature = "window")]`). Two measured consequences:
+        · P7/P8 fail (`declared-size=absent`, `roundtrip!=true`): the strings those rows
+            require only exist in `crates/app/src/m8_window.rs:56,78`.
+        · the tree is left with a `target/debug/daggerfall-app` WITHOUT the feature, and
+            `scripts/menu-window-001.py --skip-build` / `scripts/shell-002.py` read it: a window gate
+            would end up measuring a binary that has no window.
+    The lock is the one this instrument already uses for builds (`.sintergic/locks/m43-build.lock`);
+    no new mechanism is invented.
     """
     BUILD_LOCK.parent.mkdir(parents=True, exist_ok=True)
     command = ["cargo", "build", "-p", "daggerfall-app", "--features", ",".join(BUILD_FEATURES)]
@@ -230,7 +230,7 @@ def retail_present() -> bool:
 
 
 def m44_verdict() -> tuple[str, str]:
-    """Veredicto de M44 en el bloque máquina del registro (0-LLM)."""
+    """M44 verdict in the registry's machine block (0-LLM)."""
     try:
         text = REGISTER.read_text(encoding="utf-8")
     except OSError as exc:
@@ -314,9 +314,9 @@ def run_journey(keep: Path | None) -> dict:
     return run
 
 
-# ── evaluación de las 9 filas ─────────────────────────────────────────────────
+# ── evaluation of the 9 rows ─────────────────────────────────────────────────
 def _session_exit(rec: dict) -> tuple[bool, str]:
-    """SESSION-001: exit 0, o 101 si es el panic de ventana DESPUÉS del veredicto."""
+    """SESSION-001: exit 0, or 101 if it is the window panic AFTER the verdict."""
     if rec["rc"] == 0:
         return True, "exit=0"
     if rec["rc"] == 101 and rec.get("window_panic"):
@@ -615,7 +615,7 @@ def evaluate(run: dict) -> dict:
     return {row: EVALUATORS[row](run) for row in EVALUATORS}
 
 
-# ── 9 controles negativos (una mutación distinta por fila) ────────────────────
+# ── 9 negative controls (one distinct mutation per row) ────────────────────
 def _set_line(run: dict, key: str, needle: str, transform) -> None:
     st = run["stations"][key]
     for label in ("r1", "r2"):
@@ -625,7 +625,7 @@ def _set_line(run: dict, key: str, needle: str, transform) -> None:
 
 
 def mut_p1(run: dict) -> None:
-    """binary-copy: la fila mide un binario que no arranca (copia truncada real)."""
+    """binary-copy: the row measures a binary that does not start (real truncated copy)."""
     dirs = run["stations"]["menu"].get("dirs") or []
     if not dirs or not BIN.is_file():
         run["stations"]["menu"]["r1"] = {
@@ -635,8 +635,8 @@ def mut_p1(run: dict) -> None:
         return
     broken = run["bin"]["scratch"] / "daggerfall-app-broken"
     data = BIN.read_bytes()
-    # 4 KiB: por debajo de las cabeceras de programa, el kernel no lo puede mapear.
-    # (Media copia de este binario de depuración arranca igual: corta .debug_*, no código.)
+    # 4 KiB: below the program headers the kernel cannot map it.
+    # (Half a copy of this debug binary still starts: it cuts .debug_*, not code.)
     broken.write_bytes(data[:4096])
     broken.chmod(0o755)
     run["stations"]["menu"]["r1"] = cap([broken, "--probe", "MENU-001"], dirs[0], 120)
@@ -662,7 +662,7 @@ def mut_p4(run: dict) -> None:
 
 
 def mut_p5(run: dict) -> None:
-    """forged-claim: la captura afirma M44 DONE + entrada a mazmorra sin registro que lo sostenga."""
+    """forged-claim: the capture claims M44 DONE + dungeon entry with no registry backing it."""
     st = run["stations"]["dungeon"]
     for label in ("r1", "r2"):
         if "[OK] P5" not in st[label]["out"]:
@@ -675,7 +675,7 @@ def mut_p6(run: dict) -> None:
 
 
 def mut_p7(run: dict) -> None:
-    """artifact: se reescribe la cabecera del fichero real de partida (artefacto del producto)."""
+    """artifact: the real save file's header is rewritten (product artifact)."""
     for doc in run["files"]["save"]:
         path = doc["path"]
         if not isinstance(path, Path) or not path.is_file():  # fixture: misma mutación, 0 I/O
@@ -688,7 +688,7 @@ def mut_p7(run: dict) -> None:
 
 
 def refresh_docs(run: dict, key: str) -> None:
-    """Relee el artefacto del disco: la fila mide bytes, nunca el recuerdo del dict."""
+    """Re-reads the artifact from disk: the row measures bytes, never the dict's memory."""
     for doc in run["files"][key]:
         path = doc["path"]
         if not isinstance(path, Path) or not path.is_file():
@@ -714,7 +714,7 @@ def mut_p8(run: dict) -> None:
 
 
 def mut_p9(run: dict) -> None:
-    """forged-claim: se afirma la vuelta al menú sin la secuencia PLAYING→menu."""
+    """forged-claim: a return to the menu is claimed without the PLAYING→menu sequence."""
     st = run["stations"]["menu"]
     for label in ("r1", "r2"):
         st[label]["out"] = "\n".join(
@@ -736,7 +736,7 @@ FALSIFIERS = {
 }
 
 
-# ── fixtures (solo --self-test: prueban que los predicados son falsables) ─────
+# ── fixtures (only --self-test: they prove the predicates are falsifiable) ─────
 MENU_OK = """PROBE-MENU-001 - startup menu (M18-B1)
 FG01-02 VE: world doors composed=817 retail=817 scenario=0 buildings=647 buildings_with_doors=629
 [OK] startup_phase - phase=MENU · visible panel "main-menu" (index 3) · 63878 opaque px · HUD hidden=true · world frames 0 (the gated bundle owns the game clock)
@@ -891,9 +891,9 @@ def real_run(args) -> int:
 
     bin_sha, window_ok = fingerprint(BIN)
     stale = BIN.stat().st_mtime < newest_source_mtime()
-    # `fresh` incluye la feature: un binario recién construido SIN `window` no es el producto que
-    # este recorrido declara medir (P7/P8 caerían por el feature set, no por el producto) y deja
-    # `target/debug` degradado para los gates que lo leen sin construir
+    # `fresh` includes the feature: a freshly built binary WITHOUT `window` is not the product this
+    # walkthrough declares to measure (P7/P8 would fail for the feature set, not the product) and leaves
+    # `target/debug` degraded for the gates that read it without building
     # (`menu-window-001 --skip-build`, `shell-002`).
     fresh = (not stale) and window_ok
     if not fresh and not args.no_build:
@@ -1007,7 +1007,7 @@ def real_run(args) -> int:
     return 0 if verdict == "PASS" else 1
 
 
-# ── falsify (par probado sobre la corrida real) ───────────────────────────────
+# ── falsify (pair proven over the real run) ───────────────────────────────
 def falsify(names: list[str], args) -> int:
     dirty, head, _paths = tree_state()
     bin_sha = fingerprint(BIN)[0]

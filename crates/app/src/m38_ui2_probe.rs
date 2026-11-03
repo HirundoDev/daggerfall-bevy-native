@@ -90,12 +90,12 @@ fn run(family: Family) -> i32 {
             for line in &lines {
                 println!("{line}");
             }
-            // P4 (`CR-a602cafc`): la rama de creación cierra su medición
-            // ejercitando la ruta de sesión SIN ventana. El pase publica las
-            // líneas `SHELL VE:` que la ventana produce con las mismas teclas
+            // P4 (`CR-a602cafc`): the creation branch closes its measurement by
+            // exercising the session route WITHOUT a window. The pass publishes the
+            // `SHELL VE:` lines that the window produces with the same keys
             // (`create done … state=Playing`, `phase=PLAYING`, `menu state=Menu`)
-            // sobre un directorio temporal propio. Sin escena compuesta: el
-            // pase NO publica `world` ni `hud` (0 hechos inventados).
+            // over its own temporary directory. Without a composed scene: the pass
+            // does NOT publish `world` or `hud` (0 invented facts).
             if family == Family::Create {
                 if let Err(reason) = crate::shell_route::headless_session_pass() {
                     println!("M18 VE: SHELL session pass — {reason}");

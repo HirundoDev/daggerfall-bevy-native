@@ -115,7 +115,7 @@ verde ni rojo: el veredicto es NC.
 """
 
 FOOTER = """
-## Tabla de aceptación (roadmap §3.8) → filas que la cubren
+## Acceptance table (roadmap §3.8) → rows that cover it
 
 | familia | aceptación literal | filas de profundidad que la miden |
 |---|---|---|

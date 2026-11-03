@@ -1,195 +1,195 @@
-# Contrato del ejecutor
+# Executor contract
 
-> **Propósito:** definir qué puede y qué no puede hacer un **ejecutor** (modelo barato que produce)
-> frente a un **auditor** (el capitán, que certifica). El contrato rige cada corrida sin renegociarse
-> y no depende de la memoria del modelo.
+> **Purpose:** define what an **executor** (cheap producing model) may and may not do
+> versus an **auditor** (the captain, who certifies). The contract governs every run without renegotiation
+> and does not depend on the model's memory.
 >
-> **Portabilidad:** §0-§8 son normativos y genéricos — no nombran ningún repo ni ruta absoluta.
-> Copiar este archivo a otro project-target sin cambios: la parte normativa es agnóstica. El **anexo**
-> final es un caso concreto, marcado como no normativo.
+> **Portability:** §0-§8 are normative and generic: they name no repo and no absolute path.
+> Copy this file to another project-target unchanged: the normative part is agnostic. The final
+> **annex** is one concrete case, marked as non-normative.
 >
-> **Stub autocargado:** el bloque `CONTRATO-EJECUTOR` de `AGENTS.md` resume los mínimos y apunta aquí.
-> Este documento manda; el bloque es su forma telegráfica.
+> **Self-loaded stub:** the `CONTRATO-EJECUTOR` block of `AGENTS.md` summarizes the minimums and points here.
+> This document rules; the block is its telegraphic form.
 
-## §0 — Roles y autoridad
+## §0 — Roles and authority
 
-| Rol | Decide | Produce | Certifica | Frontera dura |
+| Role | Decides | Produces | Certifies | Hard boundary |
 |---|---|---|---|---|
-| **Owner** (humano) | GO irreducible: alcance, canon, gasto, publicación | — | — | Nunca se auto-delega; el resto escala aquí |
-| **Capitán** (principal del target) | Decide con fuente citada (`archivo:línea`, fila de ledger, veredicto o GO previo) | — | **SÍ — es el único auditor** | Sin fuente citada no decide: abre decisión pendiente |
-| **Orquestador** | Routing y descomposición: qué lane, con qué pack, con qué presupuesto | Plan de lanes | No certifica el producto | No produce dominio ni audita su propia lane |
-| **Ejecutor** (modelo barato) | Nada de alcance: ejecuta el encargo cerrado | Código, docs, mediciones | **NUNCA** | Su estado máximo es `candidato` |
-| **Auditor** (= capitán, o lane con mandato explícito de auditoría) | Acepta / re-delega / escala | Veredicto | **SÍ** | No hereda afirmaciones: re-deriva |
+| **Owner** (human) | Irreducible GO: scope, canon, spend, publication | — | — | Never self-delegated; everything else escalates here |
+| **Captain** (target principal) | Decides with a cited source (`file:line`, ledger row, verdict or prior GO) | — | **YES, it is the only auditor** | Without a cited source it does not decide: it opens a pending decision |
+| **Orchestrator** | Routing and decomposition: which lane, with which pack, with which budget | Lane plan | Does not certify the product | Produces no domain work and does not audit its own lane |
+| **Executor** (cheap model) | No scope decisions: executes the closed assignment | Code, docs, measurements | **NEVER** | Its maximum state is `candidato` |
+| **Auditor** (= captain, or a lane with an explicit audit mandate) | Accepts / re-delegates / escalates | Verdict | **YES** | Does not inherit claims: re-derives them |
 
-**Regla de autoridad:** el capitán es el **único auditor**. El ejecutor nunca audita ni se audita —
-ni cuando "solo comprueba que quedó bien". Un ejecutor que emite veredicto sobre su propio trabajo
-ha salido del contrato, aunque el veredicto sea correcto.
+**Authority rule:** the captain is the **only auditor**. The executor never audits, not even itself,
+not even when it "just checks that it came out right". An executor that issues a verdict on its own work
+has left the contract, even if the verdict is correct.
 
-## §1 — Los 8 mínimos no negociables
+## §1 — The 8 non-negotiable minimums
 
-Cada cláusula es literal y vinculante. La línea de consecuencia dice qué implica en la práctica.
+Each clause is literal and binding. The consequence line says what it implies in practice.
 
-- **(a)** El gate/instrumento se escribe ANTES, por otra lane, y el ejecutor no puede editarlo.
-  - Consecuencia: si el instrumento no existe al arrancar, el ejecutor para y lo reporta; no lo inventa.
-- **(b)** Entregable = commits por pathspec individual + salida cruda de comandos; la palabra DONE/PASS no la pronuncia el ejecutor nunca — su estado máximo es `candidato`.
-  - Consecuencia: el reporte termina en `candidato` y el veredicto lo escribe otro.
-- **(c)** Si una cifra no se sostiene, se retira; jamás se ajusta el instrumento a la cifra.
-  - Consecuencia: ante una métrica que no cuadra, se retira la cifra y se declara el hueco; no se relaja el umbral.
-- **(d)** 0 mock / 0 TODO / 0 placeholder / 0 unsafe / 0 unwrap en sondas.
-  - Consecuencia: una sonda que aborta por `unwrap`/`expect` produce fila roja, no un exit opaco.
-- **(e)** Prohibido escribirse sondas de auto-verificación, editar el registro de cierre, el índice de cierres ni ledger alguno.
-  - Consecuencia: los ledgers de cierre son de solo-append y su fila la escribe quien cierra, no quien produce.
+- **(a)** The gate/instrument is written FIRST, by another lane, and the executor cannot edit it.
+  - Consequence: if the instrument does not exist at start-up, the executor stops and reports it; it does not invent it.
+- **(b)** Deliverable = commits by individual pathspec + raw command output; the word DONE/PASS is never pronounced by the executor: its maximum state is `candidato`.
+  - Consequence: the report ends at `candidato` and someone else writes the verdict.
+- **(c)** If a figure does not hold, it is withdrawn; the instrument is never adjusted to the figure.
+  - Consequence: faced with a metric that does not add up, the figure is withdrawn and the hole is declared; the threshold is not relaxed.
+- **(d)** 0 mock / 0 TODO / 0 placeholder / 0 unsafe / 0 unwrap in probes.
+  - Consequence: a probe that aborts on `unwrap`/`expect` yields a red row, not an opaque exit.
+- **(e)** Forbidden to write self-verification probes, or to edit the closure register, the closures index or any ledger.
+  - Consequence: closure ledgers are append-only and their row is written by whoever closes, not by whoever produces.
 - **(f)** 0 push / 0 tag.
-  - Consecuencia: el trabajo vive en commits locales; publicar es decisión del capitán/owner.
-- **(g)** Checkpoint de contexto: a 70% emite handoff y cierra.
-  - Consecuencia: mejor un cierre parcial honesto que un cierre completo inventado por agotamiento.
-- **(h)** Cada afirmación debe llevar `file:line` o comando re-ejecutable, y el auditor lo re-deriva con build frío — no hereda.
-  - Consecuencia: una afirmación sin ancla no es evidencia; es prosa y se descarta.
-
+  - Consequence: the work lives in local commits; publishing is a captain/owner decision.
+- **(g)** Context checkpoint: at 70% it emits a handoff and closes.
+  - Consequence: an honest partial closure beats a complete closure invented out of exhaustion.
+- **(h)** Every claim must carry `file:line` or a re-runnable command, and the auditor re-derives it with a cold build: it does not inherit.
+  - Consequence: a claim with no anchor is not evidence; it is prose and is discarded.
+## §2 — Anatomy of the deliverable
 ## §2 — Anatomía del entregable
 
-1. **Commits por pathspec individual.** Un `git add <ruta>` por commit. Nunca `git add -A` ni `git add .`:
-   el árbol compartido trae cambios ajenos y el commit global los secuestra.
-2. **Salida cruda.** Cada comando que sostiene una afirmación se pega con su salida observada
-   (`comando -> salida`). El resumen interpretado va aparte; nunca sustituye a la salida.
-3. **Estado declarado `candidato`.** El entregable nunca se autodeclara terminado. Se declara
-   *qué se hizo*, *qué se verificó ejecutándolo* y *qué quedó abierto*.
-4. **Formato de reporte al auditor** (mínimo):
-   - alcance ejecutado vs. alcance pedido (una línea por divergencia);
-   - lista de commits (sha + pathspec);
-   - comandos ejecutados con su salida;
-   - afirmaciones con `file:line` o comando re-ejecutable;
-   - cifras retiradas (y por qué no se sostenían);
-   - huecos abiertos, con el bloqueo exacto.
-5. **Frontera de árbol.** No se tocan ficheros de otras lanes en vuelo; no se revierten cambios ajenos.
+1. **Commits by individual pathspec.** One `git add <path>` per commit. Never `git add -A` or `git add .`:
+   the shared tree carries other lanes' changes and the global commit hijacks them.
+2. **Raw output.** Every command that supports a claim is pasted with its observed output
+   (`command -> output`). The interpreted summary goes separately; it never replaces the output.
+3. **Declared state `candidato`.** The deliverable never declares itself finished. It declares
+   *what was done*, *what was verified by running it* and *what remains open*.
+4. **Report format to the auditor** (minimum):
+   - executed scope vs. requested scope (one line per divergence);
+   - list of commits (sha + pathspec);
+   - commands run with their output;
+   - claims with `file:line` or a re-runnable command;
+   - withdrawn figures (and why they did not hold);
+   - open holes, with the exact blocker.
+5. **Tree boundary.** Files of other lanes in flight are not touched; other lanes' changes are not reverted.
 
-## §3 — Verificación del auditor
+## §3 — Auditor verification
 
-El auditor **re-deriva**, no lee y acepta:
+The auditor **re-derives**, it does not read and accept:
 
-1. **Build frío.** Reconstruye desde cero (sin caché ni artefactos previos). Un verde en caliente no
-   cuenta como verde.
-2. **Re-derivación de cada cifra.** Toda métrica del reporte se recomputa con su propio comando.
-   Cifra no reproducible ⇒ se retira del reporte y se abre hallazgo.
-3. **`file:line` obligatorio.** Una afirmación sin ancla verificable no se audita: se devuelve.
-4. **No herencia.** El auditor no hereda afirmaciones del ejecutor ni de auditorías previas; hereda
-   únicamente el instrumento y su salida.
-5. **Separación de gates y veredictos.** Un gate mecánico (lint, linter de cierres, validador) produce
-   PASS/FAIL; el veredicto semántico (¿esto cumple el encargo?) es del auditor y va en fila aparte.
-6. **Auditoría del cierre (§9) obligatoria.** Antes de aceptar, el auditor corre el auditor
-   mecánico de cierre sobre el CR (o el rango) y adjunta su matriz. Un FAIL de §9 no se
-   compensa con prosa: el cierre se rechaza o se re-delega.
+1. **Cold build.** Rebuilds from scratch (no cache, no previous artifacts). A warm green does not
+   count as green.
+2. **Re-derivation of every figure.** Every metric in the report is recomputed with its own command.
+   A non-reproducible figure means it is withdrawn from the report and a finding is opened.
+3. **`file:line` mandatory.** A claim with no verifiable anchor is not audited: it is returned.
+4. **No inheritance.** The auditor does not inherit claims from the executor or from previous audits; it inherits
+   only the instrument and its output.
+5. **Separation of gates and verdicts.** A mechanical gate (lint, closures linter, validator) produces
+   PASS/FAIL; the semantic verdict (does this meet the assignment?) belongs to the auditor and goes in a separate row.
+6. **Closure audit (§9) mandatory.** Before accepting, the auditor runs the mechanical closure
+   auditor over the CR (or the range) and attaches its matrix. A §9 FAIL is not
+   compensated with prose: the closure is rejected or re-delegated.
 
-## §4 — Checkpoint de contexto al 70%
+## §4 — Context checkpoint at 70%
 
-Al alcanzar ~70% del presupuesto de contexto, el ejecutor:
+On reaching ~70% of the context budget, the executor:
 
-- **emite handoff** con: hecho / verificado / abierto / para quién, más las rutas tocadas y los
-  comandos ejecutados;
-- **cierra** la lane en estado `candidato` (o `PARTIAL` si el encargo no se completó);
-- **NO declara** cierre del ciclo, ni aceptación, ni PASS: eso es del auditor;
-- **NO** intenta "terminar rápido" recortando verificación: recorta alcance y lo declara.
+- **emits a handoff** with: done / verified / open / for whom, plus the paths touched and the
+  commands run;
+- **closes** the lane in state `candidato` (or `PARTIAL` if the assignment was not completed);
+- **does NOT declare** cycle closure, nor acceptance, nor PASS: that is the auditor's;
+- **does NOT** try to "finish fast" by trimming verification: it trims scope and declares it.
 
-## §5 — Buen encargo / mal encargo
+## §5 — Good assignment / bad assignment
 
-| Buen encargo (delegable de noche) | Mal encargo (NUNCA a un ejecutor) |
+| Good assignment (delegable at night) | Bad assignment (NEVER to an executor) |
 |---|---|
-| Código contra un contrato ya escrito | Escribir su propia verificación |
-| Refactor mecánico con criterio explícito | Decidir cobertura |
-| Implementar una spec cerrada | Declarar cierre |
-| Reparar hallazgos con reporte previo | Auditarse a sí mismo |
-| Rellenar una tabla cuyo esquema ya existe | Arbitrar estado (quién tiene razón) |
+| Code against an already written contract | Writing its own verification |
+| Mechanical refactor with explicit criteria | Deciding coverage |
+| Implementing a closed spec | Declaring closure |
+| Repairing findings with a prior report | Auditing itself |
+| Filling a table whose schema already exists | Arbitrating state (who is right) |
 
-Criterio de corte: si el encargo exige **decidir** (qué cuenta como hecho, qué cubre, quién tiene
-razón), no es encargo de ejecutor. Si exige **producir contra un criterio ya escrito**, sí lo es.
+Cut criterion: if the assignment requires **deciding** (what counts as done, what it covers, who is
+right), it is not an executor assignment. If it requires **producing against already written criteria**, it is.
 
-## §6 — Por qué la separación es estructural
+## §6 — Why the separation is structural
 
-Los últimos 3 milestones mostraron **producto honesto** (552/552 líneas reales, 0 `unsafe`, 0 mock)
-junto a **medición inflada** (0/16 de cobertura real; un gate que comparaba sus propios literales;
-un delta sin consumidor). El código era verdadero; el número que lo certificaba, no. La causa no fue
-mala intención: fue **posición** — el mismo actor que producía se medía, y medir el propio trabajo
-sesga qué se cuenta como terminado. Por eso la separación ejecutor/auditor es **estructural, no
-cosmética**: no se arregla pidiendo honestidad, se arregla quitando al productor la pluma de la
-certificación.
+The last 3 milestones showed **honest product** (552/552 real lines, 0 `unsafe`, 0 mock)
+next to **inflated measurement** (0/16 real coverage; a gate that compared its own literals;
+a delta with no consumer). The code was true; the number that certified it was not. The cause was not
+bad intent: it was **position** — the same actor that produced measured itself, and measuring your own work
+biases what counts as finished. That is why the executor/auditor separation is **structural, not
+cosmetic**: it is not fixed by asking for honesty, it is fixed by taking the certification pen
+away from the producer.
 
-## §7 — Cómo adoptarlo en otro target
+## §7 — How to adopt it in another target
 
-1. **Copiar este documento tal cual** a `docs/AGENT-CONTRACT.md` del target: §0-§8 son agnósticos y no
-   requieren ajuste alguno. Si se quiere conservar el caso de origen como muestra, sustituir el
-   contenido del **anexo** (marcado NO normativo) por el del nuevo repo.
-2. **Pegar el bloque** de `AGENTS.md` (marcadores `CONTRATO-EJECUTOR:INICIO` … `CONTRATO-EJECUTOR:FIN`)
-   como última sección, respetando el tope de ~1,5 KB del bloque.
-3. **Declarar qué es «instrumento» en ese repo**: qué gate/linter/validador mide, quién lo escribe y
-   quién no puede editarlo. Sin esa declaración, la cláusula (a) no tiene referente.
+1. **Copy this document as is** to the target's `docs/AGENT-CONTRACT.md`: §0-§8 are agnostic and
+   require no adjustment at all. If the source case is to be kept as a sample, replace the
+   content of the **annex** (marked NON-normative) with that of the new repo.
+2. **Paste the block** of `AGENTS.md` (markers `CONTRATO-EJECUTOR:INICIO` … `CONTRATO-EJECUTOR:FIN`)
+   as the last section, respecting the block's ~1.5 KB cap.
+3. **Declare what an "instrument" is in that repo**: which gate/linter/validator measures, who writes it and
+   who may not edit it. Without that declaration, clause (a) has no referent.
 
-**Aviso de durabilidad:** si `AGENTS.md` lo **genera un sync** desde una fuente externa, el bloque se
-pierde en la siguiente aplicación del sync. Los marcadores existen para eso: permiten **re-sembrarlo**
-tras cada sync y **detectar la pérdida de forma mecánica** (buscar el marcador de inicio y contar
-exactamente 1). La durabilidad real exige que el bloque viva también en la **fuente** del sync; hasta
-entonces, la re-siembra manual es el mecanismo y la comprobación del marcador es su alarma.
+**Durability notice:** if `AGENTS.md` is **generated by a sync** from an external source, the block is
+lost on the next sync application. The markers exist for that: they allow **re-seeding** it
+after every sync and **detecting the loss mechanically** (look for the start marker and count
+exactly 1). Real durability requires the block to live also in the sync **source**; until
+then, manual re-seeding is the mechanism and the marker check is its alarm.
 
-## §8 — Métricas de muerte del contrato
+## §8 — Contract death metrics
 
-El contrato está muerto (no muerde) si, en una ventana de **≥10 cierres**:
+The contract is dead (it does not bite) if, in a window of **≥10 closures**:
 
-1. el auditor **no retiró ninguna cifra inflada** — señal de que no re-deriva, solo lee; y
-2. **no encontró ninguna afirmación sin `file:line`** — señal de que no audita anclas.
+1. the auditor **withdrew no inflated figure** — a sign that it does not re-derive, only reads; and
+2. **found no claim without `file:line`** — a sign that it does not audit anchors.
 
-Cualquiera de las dos, sostenida en la ventana, obliga a revisar el instrumento (no al ejecutor):
-un contrato que nunca produce un hallazgo no está midiendo nada.
+Either of the two, sustained over the window, forces a review of the instrument (not of the executor):
+a contract that never produces a finding is not measuring anything.
 
-## §9 — Auditoría mecánica del cierre (paso OBLIGATORIO)
+## §9 — Mechanical closure audit (MANDATORY step)
 
-Ningún cierre se acepta por lo que dice su reporte: se acepta por lo que dice la
-historia. Este paso es obligatorio y se ejecuta **antes** de proponer un cierre:
+No closure is accepted for what its report says: it is accepted for what the
+history says. This step is mandatory and runs **before** proposing a closure:
 
-1. **El instrumento.** Un auditor de cierre independiente que recibe **un CR** o **un
-   rango de commits** y dicta PASS/FAIL sin conocer al ejecutor. No lee reportes de la
-   lane; re-deriva de git y de los ficheros de cierre. En este repo:
-   `python3 scripts/guard/lane-integrity.py --cr <CR>` (o `--commits a..b`).
-2. **Qué exige** (un solo FAIL hace FAIL al cierre):
-   - **(a) Separación de actos:** ningún commit toca a la vez implementación
-     (`crates/**`, `src/**`) y gate (`scripts/*-001.py`, `scripts/*gate*.py`).
-   - **(b) Gate anterior:** el gate de la lane existe en un commit **anterior** al
-     primer commit de implementación del mismo CR. Si la lane no toca gates, debe
-     preexistir un gate escrito por otra lane.
-   - **(c) Estado ≤ `candidato`:** el HH-1 no puede declarar más que `candidato` salvo
-     que exista fila de QA **independiente** (autor ≠ autor del HH-1) con veredicto.
-   - **(d) Evidencia viva:** toda ruta citada como evidencia existe en la revisión
-     auditada y, si el INDEX declara `sha256`, coincide con los bytes de ese fichero.
-   - **(e) 0 push / 0 tag:** ningún commit del rango es alcanzable desde
-     `refs/remotes/*` ni desde `refs/tags/*`.
-3. **Exit codes:** `0` = PASS · `1` = FAIL (con hallazgos tipados) · `2` = uso/error.
-   El código del hallazgo (`A-MIXTO`, `GATE_POSTERIOR`, `STATUS_SIN_QA`,
-   `EVIDENCIA_AUSENTE`, `EVIDENCIA_SHA`, `PUSH_DETECTADO`, `TAG_EN_RANGO`) se cita tal
-   cual en el reporte: el auditor no parafrasea el hallazgo.
-4. **Un FAIL no se parchea en la lane que lo sufre.** Se registra (HH-1 + INDEX) y se
-   abre lane propia. Retirar la cifra o editar la evidencia para poner verde es la
-   violación de §1(c).
-5. **El instrumento se falsifica a sí mismo:** `--selftest` construye 4 casos negativos
-   (gate+impl en un commit, gate posterior a la impl, evidencia con ruta inexistente,
-   `status` alto sin QA) y 1 control de no-falso-rojo, con cadenas de commits colgantes
-   **sobre el repo real** (plumbing: 0 refs, 0 HEAD, 0 índice). Si un caso no muerde, el
-   instrumento sale 1.
+1. **The instrument.** An independent closure auditor that receives **one CR** or **one
+   commit range** and dictates PASS/FAIL without knowing the executor. It does not read the
+   lane's reports; it re-derives from git and from the closure files. In this repo:
+   `python3 scripts/guard/lane-integrity.py --cr <CR>` (or `--commits a..b`).
+2. **What it requires** (a single FAIL fails the closure):
+   - **(a) Separation of acts:** no commit touches at once implementation
+     (`crates/**`, `src/**`) and gate (`scripts/*-001.py`, `scripts/*gate*.py`).
+   - **(b) Prior gate:** the lane's gate exists in a commit **prior** to the
+     first implementation commit of the same CR. If the lane touches no gates, a gate written by another lane must
+     pre-exist.
+   - **(c) State ≤ `candidato`:** HH-1 cannot declare more than `candidato` unless
+     there is an **independent** QA row (author ≠ HH-1 author) with a verdict.
+   - **(d) Live evidence:** every path cited as evidence exists in the audited
+     revision and, if INDEX declares `sha256`, matches the bytes of that file.
+   - **(e) 0 push / 0 tag:** no commit in the range is reachable from
+     `refs/remotes/*` or from `refs/tags/*`.
+3. **Exit codes:** `0` = PASS · `1` = FAIL (with typed findings) · `2` = usage/error.
+   The finding code (`A-MIXTO`, `GATE_POSTERIOR`, `STATUS_SIN_QA`,
+   `EVIDENCIA_AUSENTE`, `EVIDENCIA_SHA`, `PUSH_DETECTADO`, `TAG_EN_RANGO`) is cited as is
+   in the report: the auditor does not paraphrase the finding.
+4. **A FAIL is not patched in the lane that suffers it.** It is recorded (HH-1 + INDEX) and its own lane
+   is opened. Withdrawing the figure or editing the evidence to turn it green is the
+   violation of §1(c).
+5. **The instrument falsifies itself:** `--selftest` builds 4 negative cases
+   (gate+impl in one commit, gate after the impl, evidence with a nonexistent path,
+   high `status` without QA) and 1 no-false-red control, with dangling commit chains
+   **over the real repo** (plumbing: 0 refs, 0 HEAD, 0 index). If a case does not bite, the
+   instrument exits 1.
 
-**Límite declarado (lo que este paso NO verifica):** si el gate es **débil por dentro**
-—existe, corre y siempre da verde— pasa todas las comprobaciones; su calidad es materia
-del auditor (§3.5), no de este instrumento. Tampoco juzga si el veredicto de la fila de
-QA es honesto (§3.4: no se hereda, se re-deriva), ni ve un push cuyo ref remoto fue
-borrado, ni una historia reescrita por `amend`/`rebase`.
+**Declared limit (what this step does NOT verify):** if the gate is **weak inside**
+(it exists, runs and always goes green) it passes every check; its quality is a matter
+of the auditor (§3.5), not of this instrument. Nor does it judge whether the QA row's verdict
+is honest (§3.4: it is not inherited, it is re-derived), nor see a push whose remote ref was
+deleted, nor a history rewritten by `amend`/`rebase`.
 
 ---
 
-## Anexo — Caso que motivó el contrato (NO normativo)
+## Annex — Case that motivated the contract (NON-normative)
 
-Datos del repo donde se escribió este documento; sirven como muestra, no como regla:
+Data from the repo where this document was written; they serve as a sample, not as a rule:
 
-- Auditoría `CR-276c7d94`, sha `eead706f`: 7 hallazgos `BLOQUEA-M43`.
-- Milestone M42 cerrado como `PARTIAL` con 8 `GAP-M42-01..08`.
-- Milestone M41: 3 afirmaciones falsas detectadas en la re-auditoría.
-- 64,5% de `crates/app/src` son sondas (código de medición, no de producto).
-- 26 `expect()` que abortan con exit 101 en vez de emitir fila roja.
+- Audit `CR-276c7d94`, sha `eead706f`: 7 findings `BLOQUEA-M43`.
+- Milestone M42 closed as `PARTIAL` with 8 `GAP-M42-01..08`.
+- Milestone M41: 3 false claims detected in the re-audit.
+- 64.5% of `crates/app/src` are probes (measurement code, not product code).
+- 26 `expect()` that abort with exit 101 instead of emitting a red row.
 
-Lectura: el producto existía y era real; la certificación no. Ese delta es exactamente lo que este
-contrato separa.
+Reading: the product existed and was real; the certification was not. That delta is exactly what this
+contract separates.

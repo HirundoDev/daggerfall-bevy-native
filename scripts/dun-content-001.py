@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""DUN-CONTENT-001 — gate de aceptación del bloque D de M44 (contenido de mazmorra).
+"""DUN-CONTENT-001 — acceptance gate for M44 block D (dungeon content).
 
-CR-7fd7260f-ba3d-449a-aea9-e74386a2d5a3 · bloque D (W44-4) + adversariales W44-6
+CR-7fd7260f-ba3d-449a-aea9-e74386a2d5a3 · block D (W44-4) + W44-6 adversarials
 spec: docs/sintergic/m44/blocks/D-content-CR-7fd7260f.md
 
-Requisitos que este instrumento mide (M44-R14..R19):
+Requirements this instrument measures (M44-R14..R19):
 
-  R14  tablas de botín por tipo de mazmorra y nivel, con 12 golden vectors
-       (tabla + tirada -> digest del contenedor esperado)
-  R15  cofre != drop != jefe: tres fuentes, tres tablas (digest distinto)
-  R16  T_respawn exacto 20 / 40 / 30 minutos, tolerancia declarada 0 ticks
-  R17  cinco reglas anti-farm, cada una con falsificador nombrado (--falsify)
-  R18  contrato «nunca saqueada al entrar»: 3 mazmorras x 3 epochs = 9 celdas
-       + el único camino de jugador de M44 (binario de producto -> PLAYING)
-  R19  instancias: instance_id aísla estado (2 instancias de la misma location)
-  ADV-01..03  adversariales de W44-6 (2 jugadores, mismo contenedor / epoch)
+  R14  loot tables per dungeon type and level, with 12 golden vectors
+       (table + roll -> digest of the expected container)
+  R15  chest != drop != boss: three sources, three tables (distinct digest)
+  R16  exact T_respawn 20 / 40 / 30 minutes, declared tolerance 0 ticks
+  R17  five anti-farm rules, each with a named falsifier (--falsify)
+  R18  "never looted on entry" contract: 3 dungeons x 3 epochs = 9 cells
+       + the only player path of M44 (product binary -> PLAYING)
+  R19  instances: instance_id isolates state (2 instances of the same location)
+  ADV-01..03  W44-6 adversarials (2 players, same container / epoch)
 
-Canal de producto que la implementación futura debe publicar (append + flush en
-$DF_DUN_STATE, espejado en stdout, una línea por hecho).  Este gate NO inventa
-otro canal: lee el fichero que el binario escriba y, cuando no hay fichero, mide
-el rojo con el número real (0 líneas, 0 bytes) de una sesión que sí arrancó.
+Product channel the future implementation must publish (append + flush to
+$DF_DUN_STATE, mirrored to stdout, one line per fact). This gate invents no
+other channel: it reads the file the binary writes and, when there is no file, measures
+the red with the real number (0 lines, 0 bytes) of a session that did start.
 
   DUN VE: loot id=<key>-<level> key=<K> level=<n> rolls=<n> digest=<16hex>
   DUN VE: loot_vector id=<key>-<level>-<roll> key=<K> level=<n> roll=<n> expected=<16hex> actual=<16hex>
@@ -32,16 +32,16 @@ el rojo con el número real (0 líneas, 0 bytes) de una sesión que sí arrancó
   DUN VE: instance_isolation a=<16hex> b=<16hex> shared=0
   DUN VE: adversarial id=ADV-0<n> players=<n> containers=<n> instances=<n> epochs=<n> grants=<n> shared=<n>
 
-Gramática de fila (familia shell-001 / sys-*-001):
+Row grammar (family shell-001 / sys-*-001):
 
   [OK]   <ID> - <k>=<v> ... src=<path>:<line>
   [FAIL] <ID> - <token> <hechos> expected=<v> (<síntoma>) src=<path>:<line>
   [NC]   <ID> - <token> <hechos> expected=<v> (<síntoma>) (G12 <razón>) src=<path>:<line>
   [NOT-RUN] <razón mecánica>
 
-Cierre: imprime `VERDICT: PASS|FAIL|NC` y `DIGEST <sha256>` sobre todo lo impreso
-antes de esa línea.  Exit 0/1/2.  Hoy el veredicto esperado es FAIL: el gate se
-escribe contra el contrato, no contra el estado actual.
+Closing: prints `VERDICT: PASS|FAIL|NC` and `DIGEST <sha256>` over everything printed
+before that line. Exit 0/1/2. Today the expected verdict is FAIL: the gate is
+written against the contract, not against the current state.
 """
 
 from __future__ import annotations
@@ -77,14 +77,14 @@ BUILD_LOCK = ROOT / ".sintergic" / "locks" / "cargo-build.lock"
 DEFAULT_TIMEOUT = 90
 
 PROBE = "LOOT-001"
-# Medido con `./target/debug/daggerfall-app --probe LOOT-001` (seed por defecto
-# 20261021, 500 contenedores key=K level=5): el vector golden de la librería de
-# botín M21 que las tablas de mazmorra deben reproducir.
+# Measured with `./target/debug/daggerfall-app --probe LOOT-001` (default seed
+# 20261021, 500 containers key=K level=5): the golden vector of the M21 loot
+# library that the dungeon tables must reproduce.
 LOOT_LIBRARY_GOLDEN = "795e51a427c66cf21d73cd60919ed880e89391d2675ac10b813837a2182a4fb3"
 LOOT_LIBRARY_CHECKS = 3
 
-# Puerta retail alcanzable con `--door-spawn` (block 55).  Es la ÚNICA entrada
-# que el producto sabe abrir hoy: entra a un interior, nunca a una mazmorra.
+# Retail door reachable with `--door-spawn` (block 55). It is the ONLY entry
+# the product can open today: it enters an interior, never a dungeon.
 ENTRY_BLOCK = "N0000055.RDB"
 
 EXIT_GREEN, EXIT_RED, EXIT_NC = 0, 1, 2
@@ -104,7 +104,7 @@ MEASURED_SOURCES = (
 
 # ── contrato declarado (constantes del bloque D) ───────────────────────────
 
-# 19 tipos de mazmorra en DUNGEON_KEYS; tres familias elegidas para el contrato:
+# 19 dungeon types in DUNGEON_KEYS; three families chosen for the contract:
 # 0 Crypt -> K, 5 Mine -> M, 12 Spider Nest -> L.
 DUNGEON_TYPES = ((0, "K"), (5, "M"), (12, "L"))
 ROLL_SPACE = 48
@@ -115,12 +115,12 @@ LOOT_VECTORS = tuple(
 SOURCES = ("Chest", "Drop", "Boss")
 RESPAWN_MINUTES = {"Chest": 20, "Drop": 40, "Boss": 30}
 TOLERANCE_TICKS = 0
-# (regla, slug, métrica, valor exigido).  Métrica por regla:
-#   1 sin re-loot del mismo contenedor en la misma epoch        -> grants=1
-#   2 el respawn no ocurre mientras el jugador está dentro      -> respawns=0
-#   3 el jefe no da botín dos veces por epoch                   -> grants=1
-#   4 lockout global por contenedor entre jugadores del epoch   -> grants=1
-#   5 el botín no escala con el número de entradas del epoch    -> grants_per_entry=1
+# (rule, slug, metric, required value). Metric per rule:
+#     1 no re-loot of the same container in the same epoch        -> grants=1
+#     2 no respawn while the player is inside                     -> respawns=0
+#     3 the boss gives no loot twice per epoch                    -> grants=1
+#     4 global lockout per container between players of the epoch -> grants=1
+#     5 loot does not scale with the number of entries in the epoch -> grants_per_entry=1
 ANTIFARM = (
     (1, "no-reloot-same-epoch", "grants", 1),
     (2, "no-respawn-while-inside", "respawns", 0),
@@ -138,8 +138,8 @@ ADVERSARIAL = (
 
 ADVERSARIAL_BY_ID = {adv_id: payload for adv_id, payload in ADVERSARIAL}
 
-# Anclas: cada fila cita dónde vive HOY la ausencia o la primitiva.  Todas se
-# verifican contra disco (`citation_check`) en cada corrida.
+# Anchors: each row cites where the absence or the primitive lives TODAY. All are
+# verified against disk (`citation_check`) on every run.
 A_MATRICES = "crates/inventory/src/loot.rs:121"
 A_KEYS = "crates/inventory/src/loot.rs:155"
 A_KEYFN = "crates/inventory/src/loot.rs:179"
@@ -156,7 +156,7 @@ A_SAVE_KEYS = "crates/memory/src/savegame_v2.rs:75"
 A_CLOCK = "crates/heart/src/clock.rs:111"
 A_EPOCH = "crates/heart/src/session.rs:219"
 
-# ── regex del canal (una por familia de hecho) ─────────────────────────────
+# ── channel regexes (one per family of fact) ─────────────────────────────
 
 RE_LOOT = re.compile(
     r"^DUN VE: loot id=(?P<id>[A-Z]-\d+) key=(?P<key>[A-Z]) level=(?P<level>\d+) "
@@ -212,7 +212,7 @@ RE_ADVERSARIAL = re.compile(
 
 
 def re_rule(rule: int, metric: str) -> re.Pattern[str]:
-    """Regex de UNA regla anti-farm: la métrica que la regla acota es un grupo."""
+    """Regex of ONE anti-farm rule: the metric the rule bounds is a group."""
     return re.compile(
         rf"^DUN VE: antifarm id=r{rule} rule={rule} name=(?P<name>[a-z0-9-]+) "
         rf"container=(?P<container>\S+) epoch=(?P<epoch>\d+) "
@@ -221,12 +221,12 @@ def re_rule(rule: int, metric: str) -> re.Pattern[str]:
     )
 
 
-# ── comprobadores (los de la librería + dos locales declarados) ─────────────
+# ── checkers (the library's + two declared locals) ─────────────
 #
-# Delta declarado frente a `m43_gate_lib`: la librería no tiene (a) «todos los
-# matches de un grupo valen lo mismo» — `every` exige cardinalidad igual a la
-# lista — ni (b) «N valores distintos de un grupo».  Se añaden aquí, con la
-# misma forma `(matches) -> (ok, detalle)`; no se bifurca la librería.
+# Declared delta against `m43_gate_lib`: the library has neither (a) "all matches
+# of a group are equal" — `every` requires cardinality equal to the list — nor
+# (b) "N distinct values of a group". They are added here with the same
+# `(matches) -> (ok, detail)` shape; the library is not forked.
 
 
 def all_equal(group: str, value: str) -> Callable[[list[re.Match]], tuple[bool, str]]:
@@ -255,10 +255,10 @@ def distinct_group(group: str, want: int) -> Callable[[list[re.Match]], tuple[bo
 
 
 def stable_across(pattern: re.Pattern[str], group: str, ctx: "Ctx") -> tuple[bool, str]:
-    """El mismo hecho publicado por sesiones independientes debe ser idéntico.
+    """The same fact published by independent sessions must be identical.
 
-    Sin esto un generador aleatorio pasaría `expected==actual` publicando ambas
-    mitades de la misma tirada: la referencia independiente es la OTRA sesión.
+    Without this a random generator would pass `expected==actual` by publishing both
+    halves of the same roll: the independent reference is the OTHER session.
     """
     maps = [
         {match["id"]: match[group] for match in matches_of(pattern, text)}
@@ -354,7 +354,7 @@ ROWS: tuple[Row, ...] = (
 
 ROW_BY_ID = {row.rid: row for row in ROWS}
 
-# ── hechos de sesión (camino de jugador) ───────────────────────────────────
+# ── session facts (player path) ───────────────────────────────────
 
 
 @dataclass
@@ -400,7 +400,7 @@ def load_driver():
 
 
 def play_leg(index: int, binary: Path, data_root: Path, out_dir: Path, deadline: float) -> Leg:
-    """Una sesión real de jugador: arranca el binario, llega a PLAYING, entra por la puerta."""
+    """A real player session: starts the binary, reaches PLAYING, enters through the door."""
     leg = Leg(index=index)
     legdir = out_dir / f"leg{index}"
     legdir.mkdir(parents=True, exist_ok=True)
@@ -432,13 +432,13 @@ def play_leg(index: int, binary: Path, data_root: Path, out_dir: Path, deadline:
         leg.window = 1
 
         def sample() -> str:
-            # sólo para detectar PLAYING: el título de ventana es una muestra
-            # instantánea y no se usa como evidencia (medido: run1 Exterior /
-            # run2 Interior en dos sesiones ambos interior=1).
+            # only to detect PLAYING: the window title is a snapshot
+            # and is not used as evidence (measured: run1 Exterior /
+            # run2 Interior across two sessions both interior=1).
             return driver.name_of(display, window) or ""
 
-        # PLAYING: re-activar antes de cada pulso (una ventana sin foco se come
-        # las teclas — medido: 4 Return perdidos sin re-activar).
+        # PLAYING: re-activate before every pulse (a window without focus eats
+        # the keys — measured: 4 lost Returns without re-activating).
         for attempt in range(8):
             if time.monotonic() > deadline:
                 break
@@ -462,7 +462,7 @@ def play_leg(index: int, binary: Path, data_root: Path, out_dir: Path, deadline:
         if not leg.playing:
             leg.abort = "no-playing"
 
-        # Entrada por la única puerta retail alcanzable (interior, no mazmorra).
+        # Entry through the only reachable retail door (interior, not dungeon).
         if leg.playing:
             for _ in range(6):
                 if time.monotonic() > deadline:
@@ -500,9 +500,9 @@ def play_leg(index: int, binary: Path, data_root: Path, out_dir: Path, deadline:
     leg.dun_lines = len([line for line in leg.dun_text.splitlines() if line.strip()])
     registry = re.search(r"door registry (\d+) door", leg.app_text)
     leg.door_registry = int(registry.group(1)) if registry else 0
-    # Escena final derivada del REGISTRO (m18_doors.rs:661), no del título: el
-    # título es una muestra racional del instante y cambió entre dos corridas
-    # con el mismo `interior=1`.
+    # Final scene derived from the REGISTER (m18_doors.rs:661), not from the title: the
+    # title is a rational sample of the instant and changed between two runs
+    # with the same `interior=1`.
     entered = re.search(r"FG01 VE: interact → interior (\S+)", leg.app_text)
     if entered is not None:
         leg.scene_final = f"Interior({entered.group(1)})"
@@ -519,7 +519,7 @@ def play_leg(index: int, binary: Path, data_root: Path, out_dir: Path, deadline:
 
 
 def run_probe(binary: Path, timeout: int) -> dict:
-    """Corre `--probe LOOT-001` dos veces: el golden de la librería debe ser estable."""
+    """Runs `--probe LOOT-001` twice: the library's golden must be stable."""
     digests: list[str] = []
     exits: list[int] = []
     checks = 0
@@ -556,7 +556,7 @@ def run_probe(binary: Path, timeout: int) -> dict:
 
 
 def census(root: Path) -> dict[str, int]:
-    """Recuento literal sobre `root/crates/**/*.rs` con el ámbito nombrado por fila."""
+    """Literal count over `root/crates/**/*.rs` with the scope named per row."""
     results = {
         "matrices": 0,
         "dungeon_keys": 0,
@@ -582,9 +582,9 @@ def census(root: Path) -> dict[str, int]:
                 results["dungeon_key_consumers"] += 1
         results["boss_sources"] += len(re.findall(r"generate_boss_loot|boss_loot|BossLoot", text))
         results["respawn_tokens"] += len(re.findall(r"(?i)respawn", text))
-        # Anti-farm por las CINCO slugs del contrato (sensibles a mayúsculas): un
-        # `(?i)lockout` contaba 27 veces `LockOutcome`/`BlockOutOfBounds` de
-        # crates/side-contract — cifra retirada por falsa (medido 2026-10-29).
+        # Anti-farm by the FIVE contract slugs (case-sensitive): a
+        # `(?i)lockout` counted 27 times `LockOutcome`/`BlockOutOfBounds` of
+        # crates/side-contract — figure withdrawn as false (measured 2026-10-29).
         results["antifarm_tokens"] += sum(text.count(slug) for _, slug, _, _ in ANTIFARM)
         counted = re.search(r"COUNT_KEYS: usize = (\d+)", text)
         if counted is not None:
@@ -696,7 +696,7 @@ def check_row(row: Row, ctx: Ctx) -> tuple[bool, str]:
             for epoch in ENTRY_EPOCHS
         ]
         matches = matches_of(RE_ENTRY, dun)
-        # el ancho del digest (16 hex) ya lo impone RE_ENTRY al emparejar la línea
+        # the digest width (16 hex) is already imposed by RE_ENTRY when matching the line
         return combine(
             lib.every("id", ids)(matches),
             all_equal("looted", "0")(matches),
@@ -746,7 +746,7 @@ def check_row(row: Row, ctx: Ctx) -> tuple[bool, str]:
     return False, f"unknown-row={rid}"
 
 
-# ── fixture (sólo para --self-test / --falsify: NUNCA evidencia de producto) ─
+# ── fixture (only for --self-test / --falsify: NEVER product evidence) ─
 
 
 def digest16(*parts: object) -> str:
@@ -907,8 +907,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation("adv-no-isolation", "ADV-03",
              r"(DUN VE: adversarial id=ADV-03 players=2 containers=1 )instances=2", r"\1instances=1",
              "las dos sesiones no se separan en instancias"),
-    # control del determinismo: expected==actual sigue bien en la sesión 1 y sólo
-    # la sesión 2 discrepa -> la fila debe caer por la referencia independiente.
+    # determinism control: expected==actual still holds in session 1 and only
+    # session 2 disagrees -> the row must fall for the independent reference.
     Mutation("vector-cross-session-drift", "M44-R14a",
              r"(DUN VE: loot_vector id=K-10-47 key=K level=10 roll=47 expected=[0-9a-f]{16} )actual=[0-9a-f]{16}",
              r"\1actual=ffffffffffffffff",
@@ -916,8 +916,8 @@ MUTATIONS: tuple[Mutation, ...] = (
 )
 
 CENSUS_SHADOWS: tuple[tuple[str, str, str, str], ...] = (
-    # el token que la fila exige es la GENERACIÓN de botín en el camino de mazmorra
-    # (`dungeon_key(` sola es el precursor: su consumo se reporta como contraste).
+    # the token the row requires is LOOT GENERATION on the dungeon path
+    # (`dungeon_key(` alone is the precursor: its consumption is reported as contrast).
     ("census-sees-consumer", "M44-R14c", "crates/x/src/dungeon_shadow.rs",
      "pub fn open(key: char) {\n"
      "    let _container = crate::loot::generate_container(1, 2, key, 3);\n"
@@ -992,7 +992,7 @@ def apply_mutation(mutation: Mutation, ctx: Ctx) -> Ctx:
 
 
 def shadow_counts(name: str, out_dir: Path) -> dict[str, int]:
-    """Censo sobre un árbol sombra vacío + el token del falsificador (doble dirección)."""
+    """Census over an empty shadow tree + the falsifier token (two directions)."""
     entry = next(item for item in CENSUS_SHADOWS if item[0] == name)
     _, _, relative, body = entry
     empty_root = out_dir / "shadow" / f"{name}-empty"
@@ -1136,10 +1136,10 @@ def render(row: Row, ok: bool, detail: str, nc_reason: str | None) -> str:
 
 
 def self_cite(marker: str) -> str:
-    """`scripts/dun-content-001.py:<line>` calculado del propio fichero, nunca a mano.
+    """`scripts/dun-content-001.py:<line>` computed from the file itself, never by hand.
 
-    Una fila de arnés sin línea (`src=scripts/dun-content-001.py`) deja
-    `PROC-citations` en rojo por `no-line`: la cita del gate también muerde.
+    A harness row without a line (`src=scripts/dun-content-001.py`) leaves
+    `PROC-citations` red for `no-line`: the gate's own citation bites too.
     """
     text = Path(__file__).read_text(encoding="utf-8")
     for index, line in enumerate(text.splitlines(), 1):
@@ -1252,11 +1252,11 @@ def main(argv: Sequence[str] | None = None) -> int:
               golden=LOOT_LIBRARY_GOLDEN, alts=alts)
 
     sources_line, sources_info = sources_block()
-    # `head` NO va al stdout: lo mueve cualquier lane hermana y rompería el
-    # requisito de stdout byte-idéntico entre dos procesos (medido 2026-10-29:
-    # 087c50f -> e493d56 entre run1 y run2, cuerpo idéntico). La identidad del
-    # instrumento es SOURCES fingerprint, recomputado desde disco; el commit va
-    # al manifiesto (`--json`).
+    # `head` does NOT go to stdout: any sibling lane moves it and would break the
+    # byte-identical stdout requirement between two processes (measured 2026-10-29:
+    # 087c50f -> e493d56 between run1 and run2, identical body). The instrument's
+    # identity is SOURCES fingerprint, recomputed from disk; the commit goes
+    # to the manifest (`--json`).
     lines.append(f"gate={GATE} cr={CR} block={BLOCK}")
     lines.append(
         f"binary={os.path.relpath(binary, ROOT)} sha256={lib.file_sha256(binary) or 'absent'}"
@@ -1292,10 +1292,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 red += 1
 
-    # filas de arnés
-    # (la «frescura por mtime» se retira: medía el churn de las lanes vivas —
-    #  `m18_window.rs` escribiéndose mientras corre el gate —, no mi contrato;
-    #  lo que sí es atribuible es que cada cita resuelva hoy sobre disco.)
+    # harness rows
+    # ("freshness by mtime" is withdrawn: it measured the churn of living lanes —
+    #  `m18_window.rs` being written while the gate runs —, not my contract;
+    #  what is attributable is that every citation resolves on disk today.)
     cites = sorted({row.anchor for row in ROWS})
     cite_ok, cite_detail = lib.citation_check(cites)
     targeted = {falsifier.target for falsifier in falsifiers()}
@@ -1388,8 +1388,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                                  encoding="utf-8")
         lines.append(f"MANIFEST path={os.path.relpath(manifest_path, ROOT)} rows={len(ROWS)}")
 
-    # Orden terminal (familia shell-001/sys-*-001): cuerpo, VERDICT, DIGEST.
-    # `DIGEST` sella todo lo impreso antes de su propia línea.
+    # Terminal order (family shell-001/sys-*-001): body, VERDICT, DIGEST.
+    # `DIGEST` seals everything printed before its own line.
     text = "\n".join(lines) + "\n"
     sys.stdout.write(text)
     sys.stdout.write(f"DIGEST {lib.sha256_hex(text.encode())}\n")

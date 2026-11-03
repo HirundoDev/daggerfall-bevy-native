@@ -126,8 +126,8 @@ use daggerfall_behavior::law::{
 };
 use crate::m2_player;
 use crate::shell::{self, ShellState};
-// M-SHELL fase 3 (`CR-a602cafc`): una sola ruta de sesión — la ventana traduce
-// teclas y llama; las transiciones viven en `shell_route` (medibles sin GPU).
+// M-SHELL phase 3 (`CR-a602cafc`): a single session route — the window translates
+// keys and calls; the transitions live in `shell_route` (measurable without a GPU).
 use crate::shell_route;
 use crate::ui_weather::{Precipitation, WeatherKind};
 use daggerfall_parser_rs::climate::ClimateMap;
@@ -518,9 +518,9 @@ pub fn run_windowed_m18(
         city_m,
     );
 
-    // F1 (`CR-a602cafc`): la evidencia de arriba ya está publicada. Sin
-    // servidor gráfico NO se intenta la ventana — winit aborta con
-    // «Failed to build event loop» (rc=101) y ese pánico no es del producto.
+    // F1 (`CR-a602cafc`): the evidence above is already published. Without a
+    // graphics server the window is NOT attempted — winit aborts with
+    // "Failed to build event loop" (rc=101) and that panic is not the product's.
     if !crate::window_limb_ready("demo") {
         return Ok(());
     }
@@ -560,14 +560,14 @@ pub fn run_windowed_m18(
         // [`crate::m18_phase::phase_playing`] and the game clock advances 0
         // minutes (the startup composition is the menu backdrop).
         .insert_resource(crate::m18_phase::AppPhase::Menu)
-        // CR-625ff0ea: contador de frames del mundo (0 en `Menu`, >0 en
-        // `Playing`). Vive en un recurso propio para que la evidencia lo lea sin
-        // tocar el bundle del mundo.
+        // CR-625ff0ea: world frame counter (0 in `Menu`, >0 in
+        // `Playing`). It lives in its own resource so the evidence can read it without
+        // touching the world bundle.
         .init_resource::<WorldSimTicks>()
         // CR-178183d7: the world half of `NEW GAME` travels as a message from
         // the ECS-free `confirm_create` decision to `m18_new_game_reset`.
         .add_message::<NewGameStarted>()
-        // CR-7a3e9c14: el mundo restaurado viaja como mensaje (misma forma).
+        // CR-7a3e9c14: the restored world travels as a message (same shape).
         .add_message::<SessionRestored>()
         .add_systems(
             Startup,
@@ -583,10 +583,10 @@ pub fn run_windowed_m18(
                 crate::m18_doors::m18_door_startup,
                 m20_spawn_progression,
                 m14_audio_startup,
-                // M-SHELL fase 1: mide los hechos del shell (pasos de carga con
-                // sus unidades reales, HUD, identidad retail, destino de viaje)
-                // ANTES de que el mundo avance y en el mismo `Startup` que la
-                // composición que lee.
+                // M-SHELL phase 1: measures the shell's facts (loading steps with
+                // their real units, HUD, retail identity, travel destination)
+                // BEFORE the world advances and in the same `Startup` as the
+                // composition it reads.
                 shell_startup,
             ),
         )
@@ -600,21 +600,21 @@ pub fn run_windowed_m18(
         // enters the world is the first frame that ticks in both consumers and
         // the probe can never measure an order the window does not declare.
         //
-        // **M-SHELL (CR-ca78eb76):** `shell_pump` publica como máximo una línea
-        // de evidencia por frame en orden de encolado; `shell_progress` hace las
-        // transiciones del shell; `shell_keys` es el único dueño de las teclas
-        // de mundo que el shell consume (`M`, `T`, `Escape`, `Q`) y por eso va
-        // ANTES del muestreo de acciones del jugador (una sola lectura del
-        // `Escape` de pausa, nunca dos efectos).
+        // **M-SHELL (CR-ca78eb76):** `shell_pump` publishes at most one evidence
+        // line per frame in enqueue order; `shell_progress` performs the shell
+        // transitions; `shell_keys` is the only owner of the world keys the
+        // shell consumes (`M`, `T`, `Escape`, `Q`) and that is why it runs
+        // BEFORE the player action sampling (a single read of the pause
+        // `Escape`, never two effects).
         .add_systems(
             Update,
             (
                 shell_pump.before(shell_progress),
-                // Orden declarado (CR-6d086222): cuando las dos encolan una
-                // línea en la MISMA frame, la del autómata gana. Sin esta
-                // arista el par estaba sólo serializado por el `ResMut<Shell>`
-                // compartido — orden no declarado que el ejecutor puede
-                // resolver a cualquiera de los dos lados.
+                // Declared order (CR-6d086222): when both enqueue a
+                // line on the SAME frame, the automaton's wins. Without this
+                // edge the pair was only serialized by the shared
+                // `ResMut<Shell>` — an undeclared order the executor could
+                // resolve on either side.
                 shell_progress.before(shell_keys),
                 shell_focus_pending,
                 m18_phase_keys
@@ -626,14 +626,14 @@ pub fn run_windowed_m18(
                     .before(m18_apply_player_action),
                 m18_yaw_keys,
                 m18_phase_ui,
-                // CR-4a9c1e77: la fila activa se PINTA — tras fijar la
-                // superficie, el sprite del `main-menu` recibe la imagen de la
-                // fila seleccionada (una comparación por frame, sin componer).
+                // CR-4a9c1e77: the active row IS PAINTED — after setting the
+                // surface, the `main-menu` sprite receives the selected row's
+                // image (one comparison per frame, no composition).
                 m18_menu_selection_ui.after(m18_phase_ui),
-                // CR-625ff0ea: la superficie manda en la pantalla — el panel y
-                // el fondo se aplican en el mismo frame (`m18_phase_ui` elige
-                // el panel, `m18_phase_screen` las cámaras) y la evidencia de
-                // simulación se publica detrás.
+                // CR-625ff0ea: the surface commands the screen — the panel and
+                // the background are applied on the same frame (`m18_phase_ui` picks
+                // the panel, `m18_phase_screen` the cameras) and the simulation
+                // evidence is published behind.
                 m18_phase_screen.after(m18_phase_ui),
                 // CR-178183d7: the reset runs on the frame the wizard confirms,
                 // after the phase change (that is the decision) and before the
@@ -644,14 +644,14 @@ pub fn run_windowed_m18(
                     .after(m18_phase_keys)
                     .before(m18_apply_player_action)
                     .before(m18_world_tick),
-                // CR-7a3e9c14: el slot restaurado se aplica en el mismo frame
-                // de la decisión y ANTES del primer paso de la sesión.
+                // CR-7a3e9c14: the restored slot is applied on the same frame
+                // as the decision and BEFORE the session's first step.
                 m18_session_restored
                     .after(m18_phase_keys)
                     .before(m18_apply_player_action)
                     .before(m18_world_tick),
-                // El snapshot del shell se mide DESPUÉS del paso del frame:
-                // es la posición que la cámara muestra, no la del frame previo.
+                // The shell snapshot is measured AFTER the frame's step:
+                // it is the position the camera shows, not the previous frame's.
                 m18_shell_world_snapshot
                     .after(m18_apply_player_action)
                     .run_if(crate::m18_phase::phase_playing),
@@ -662,20 +662,20 @@ pub fn run_windowed_m18(
         )
         // World-only shell keys (m-7): `T` re-samples the terrain (a world
         // mutation) and `1-4` reveal the world panels — neither belongs to the
-        // menu, which shows the retail `main-menu` composition only. La pausa
-        // congela también estas teclas (`shell_world_live`): con el mapa abierto
-        // `T` es viaje rápido y `m18_origin_toggle` se retira.
+        // menu, which shows the retail `main-menu` composition only. The pause
+        // also freezes these keys (`shell_world_live`): with the map open
+        // `T` is fast travel and `m18_origin_toggle` is removed.
         .add_systems(
             Update,
             (m18_origin_toggle, m18_switch_panel)
                 .run_if(crate::m18_phase::phase_playing)
                 .run_if(shell_world_live),
         )
-        // M-QST (CR-3c7a91e6): el prompt de la quest se pinta del ESTADO, no de
-        // una tecla — sin pulsar `I`. Corre en `Playing` (también con el juego
-        // en pausa: no toca el mundo, sólo su sprite) y DESPUÉS de los dos
-        // únicos escritores del estado: `shell_keys` aplica `Y`/`N`/`P`/`X` y
-        // `m14_melee_sfx` aplica la muerte del objetivo.
+        // M-QST (CR-3c7a91e6): the quest prompt is painted from the STATE, not from
+        // a key — without pressing `I`. It runs in `Playing` (also with the game
+        // paused: it does not touch the world, only its sprite) and AFTER the two
+        // only writers of the state: `shell_keys` applies `Y`/`N`/`P`/`X` and
+        // `m14_melee_sfx` applies the objective's death.
         .add_systems(
             Update,
             m18_quest_prompt
@@ -730,14 +730,14 @@ pub fn run_windowed_m18(
                 m14_song_on_playing,
             )
                 .run_if(crate::m18_phase::phase_playing)
-                // La pausa congela el mundo: `world_ticks` no avanza mientras
-                // `ShellState::Paused` (SH-09 lo mide comparando ticks).
+                // The pause freezes the world: `world_ticks` does not advance while
+                // `ShellState::Paused` (SH-09 measures it by comparing ticks).
                 .run_if(shell_world_live),
         )
-        // CR-625ff0ea: el contador de simulación viaja con **las mismas dos
-        // puertas** que el bundle del mundo (fase `Playing` + sesión viva), así
-        // que en `Menu`/`Create`/pausa vale 0 por construcción. Registro aparte
-        // porque el bundle ya está en el límite de aridad de `add_systems`.
+        // CR-625ff0ea: the simulation counter travels through **the same two
+        // gates** as the world bundle (`Playing` phase + live session), so
+        // in `Menu`/`Create`/pause it is 0 by construction. Registered separately
+        // because the bundle is already at the `add_systems` arity limit.
         .add_systems(
             Update,
             m18_world_tick
@@ -757,8 +757,8 @@ pub fn run_windowed_m18(
                 m14_drain_audio.after(m14_fall_sfx).after(m14_melee_sfx),
             )
                 .run_if(crate::m18_phase::phase_playing)
-                // El audio del mundo es parte del mundo: en pausa no suena un
-                // golpe ni cae nadie.
+                // World audio is part of the world: while paused no blow sounds
+                // and nobody falls.
                 .run_if(shell_world_live),
         )
         .run();
@@ -1046,9 +1046,9 @@ fn m14_melee_sfx(
         return;
     };
     let strike = &report.strike;
-    // M-QST: la muerte del objetivo es la transición `Act1Hunt → Act1Return`.
-    // La tabla decide si esta muerte cuenta (una segunda muerte en
-    // `Act1Return` se publica como rechazo, no avanza el acto).
+    // M-QST: the objective's death is the `Act1Hunt → Act1Return` transition.
+    // The table decides whether this death counts (a second death in
+    // `Act1Return` is published as a refusal, it does not advance the act).
     if strike.target_died {
         crate::mainquest_route::on_defeat(&mut shell);
     }
@@ -1298,39 +1298,39 @@ fn m14_drain_audio(mut audio_state: ResMut<GameAudio>, mut warned: Local<bool>) 
     }
 }
 
-// ── Pantalla del menú (**CR-625ff0ea**) ─────────────────────────────────────
+// ── Menu screen (**CR-625ff0ea**) ─────────────────────────────────────
 //
-// La 1996 no enseña el mundo detrás del menú: el menú **es** su propia
-// pantalla. Tres marcadores separan las cámaras para que la separación sea
-// estructural (no un `if` en cada sistema):
+// 1996 does not show the world behind the menu: the menu **is** its own
+// screen. Three markers separate the cameras so the separation is
+// structural (not an `if` in every system):
 
-/// Cámara 3D del mundo. Se apaga en `Menu`/`Create`: ningún píxel de escena
-/// llega a la ventana.
+/// World 3D camera. It turns off in `Menu`/`Create`: no scene pixel
+/// reaches the window.
 #[derive(Component)]
 struct WorldCamera;
 
-/// Cámara 2D del mundo (paneles, HUD, overlays, lluvia sobre el 3D). Se apaga
-/// en `Menu`/`Create` por la misma razón.
+/// World 2D camera (panels, HUD, overlays, rain over the 3D). It turns off
+/// in `Menu`/`Create` for the same reason.
 #[derive(Component)]
 struct WorldUiCamera;
 
-/// Cámara de la pantalla del menú: **opaca** (`ClearColorConfig::Custom` negro)
-/// y aislada en [`MENU_LAYER`], así que solo puede extraer los paneles retail
-/// — nunca el HUD, la lluvia, las leyendas ni la escena.
+/// Menu screen camera: **opaque** (black `ClearColorConfig::Custom`)
+/// and isolated in [`MENU_LAYER`], so it can only extract the retail panels
+/// — never the HUD, the rain, the legends or the scene.
 #[derive(Component)]
 struct MenuScreenCamera;
 
-/// Capa de render exclusiva del panel de menú. Los paneles pertenecen a la capa
-/// 0 **y** a ésta (las dos cámaras del mundo los ven como hasta ahora); el resto
-/// del 2D del mundo se queda solo en la capa 0.
+/// Render layer exclusive to the menu panel. The panels belong to layer
+/// 0 **and** to this one (both world cameras see them as before); the rest
+/// of the world's 2D stays only on layer 0.
 const MENU_LAYER: usize = 1;
 
-/// Frames que el **bundle de mundo** ejecutó (**CR-625ff0ea**).
+/// Frames the **world bundle** executed (**CR-625ff0ea**).
 ///
-/// Solo lo incrementa un sistema que corre con [`crate::m18_phase::phase_playing`]
-/// y `shell_world_live`, así que en `Menu`/`Create` vale **0 por construcción**
-/// (no por confianza): es el contador que la evidencia publica para probar que
-/// el mundo no simula mientras el menú está en pantalla.
+/// Only a system running with [`crate::m18_phase::phase_playing`]
+/// and `shell_world_live` increments it, so in `Menu`/`Create` it is **0 by construction**
+/// (not by trust): it is the counter the evidence publishes to prove that
+/// the world does not simulate while the menu is on screen.
 #[derive(Resource, Default)]
 struct WorldSimTicks {
     frames: u64,
@@ -1368,26 +1368,26 @@ struct SessionRestored {
     world: shell_slots::WorldSnapshot,
 }
 
-/// **CONTINUE real (`CR-7a3e9c14`)** — aplica el mundo que el slot declara.
+/// **Real CONTINUE (`CR-7a3e9c14`)** — applies the world the slot declares.
 ///
-/// Tres piezas, y las tres son necesarias:
+/// Three pieces, and all three are necessary:
 ///
-/// 1. **Reloj**: `GameClock::from_total_minutes` + **re-siembra** de
-///    `last_minute` y `carry`. Restaurar `total_minutes` sin re-sembrar los dos
-///    haría que `while p.clock.last_minute < now { progression.minute() …
-///    m23_magic_round() }` recorriera el delta entero en UN frame (la trampa
-///    medida: 358 tallies y 358 rondas de magia de golpe).
-/// 2. **Posición**: `Locomotion` es la autoridad; la cámara se reescribe aquí y
-///    `m18_apply_player_action` (ordenada después) la vuelve a componer desde
-///    `Locomotion` en el mismo frame, así que no hay ventana de un frame con la
-///    cámara vieja.
-/// 3. **Orientación**: `M2Player.yaw/pitch` + `Quat::from_euler(YXZ, …)`, la
-///    misma convención que el paso del jugador.
+/// 1. **Clock**: `GameClock::from_total_minutes` + **re-seeding** of
+///    `last_minute` and `carry`. Restoring `total_minutes` without re-seeding the two
+///    would make `while p.clock.last_minute < now { progression.minute() ...
+///    m23_magic_round() }` walk the whole delta in ONE frame (the measured
+///    trap: 358 tallies and 358 magic rounds at once).
+/// 2. **Position**: `Locomotion` is the authority; the camera is rewritten here and
+///    `m18_apply_player_action` (ordered after) recomposes it from
+///    `Locomotion` on the same frame, so there is no one-frame window with the old
+///    camera.
+/// 3. **Orientation**: `M2Player.yaw/pitch` + `Quat::from_euler(YXZ, ...)`, the
+///    same convention as the player step.
 ///
-/// Un slot que declara interior/mazmorra restaura reloj y orientación pero **no**
-/// teletransporta la posición a coordenadas de otra escena: la reentrada al
-/// bloque no está en el alcance (`FG-01` resuelve la puerta, no la reentrada
-/// desde un slot) y el aviso `W-SAVE-002` lo declara en el canal.
+/// A slot that declares an interior/dungeon restores clock and orientation but does **not**
+/// teleport the position to coordinates of another scene: re-entry to the
+/// block is out of scope (`FG-01` resolves the door, not the re-entry
+/// from a slot) and the `W-SAVE-002` warning declares it on the channel.
 fn m18_session_restored(
     mut restored: MessageReader<SessionRestored>,
     mut cameras: Query<(&mut Transform, &mut m2_player::M2Player), With<WorldCamera>>,
@@ -1412,7 +1412,7 @@ fn m18_session_restored(
         m19.locomotion.vertical_velocity = 0.0;
         m19.locomotion.falling = false;
         m19.locomotion.fall_start_y = eye[1];
-        // La prueba de alcance de puertas del próximo frame lee esta posición.
+        // The door reach test of the next frame reads this position.
         doors.transit.position = eye;
     } else {
         shell.say(
@@ -1441,14 +1441,14 @@ fn m18_session_restored(
     );
 }
 
-/// Mide el estado de mundo de la sesión UNA vez por frame jugado y lo deja en
+/// Measures the session's world state ONCE per played frame and leaves it in
 /// [`shell::Shell::snapshot`] (`CR-7a3e9c14`).
 ///
-/// Es el único productor del snapshot: la ventana mide (`Locomotion`, cámara,
-/// `ProgressionClock`, escena de puertas), el shell solo declara y la puerta de
-/// escritura (`shell_route::write_slot`) sigue sin tocar la ECS. Corre después
-/// del paso del jugador para que la posición medida sea la que la cámara
-/// muestra.
+/// It is the only producer of the snapshot: the window measures (`Locomotion`, camera,
+/// `ProgressionClock`, door scene), the shell only declares and the write door
+/// (`shell_route::write_slot`) still does not touch ECS. It runs after
+/// the player step so the measured position is the one the camera
+/// shows.
 fn m18_shell_world_snapshot(
     mut shell: ResMut<shell::Shell>,
     m19: Res<M19Player>,
@@ -1459,8 +1459,8 @@ fn m18_shell_world_snapshot(
     let Ok(player) = cameras.single() else {
         return;
     };
-    // `environment`/`map_id` salen de la escena compuesta, no de un literal: el
-    // exterior es el mapa abierto (`65535`) y el interior declara su bloque.
+    // `environment`/`map_id` come from the composed scene, not from a literal: the
+    // exterior is the open map (`65535`) and the interior declares its block.
     let site = shell.location;
     let (environment, map_id) = match doors.scene {
         daggerfall_nervous::events::SceneId::Exterior => (1, shell_slots::MAP_ID_OPEN_WORLD),
@@ -1468,8 +1468,8 @@ fn m18_shell_world_snapshot(
             2,
             site.map(|(_, _, block)| i64::from(block)).unwrap_or(0),
         ),
-        // El menú no es un estado de mundo: `environment = 0` hace que el slot
-        // resultante declare generación 3 en vez de mentir con un sitio.
+        // The menu is not a world state: `environment = 0` makes the resulting
+        // slot declare generation 3 instead of lying with a site.
         daggerfall_nervous::events::SceneId::Menu => (0, 0),
     };
     let (region_index, location_index) = site
@@ -1487,14 +1487,14 @@ fn m18_shell_world_snapshot(
     ));
 }
 
-/// Único dueño del contador: corre **dentro** del bundle gateado del mundo.
+/// Only owner of the counter: it runs **inside** the gated world bundle.
 fn m18_world_tick(mut ticks: ResMut<WorldSimTicks>) {
     ticks.frames += 1;
 }
 
-/// Los recursos que `NEW GAME` devuelve a su primer frame, agrupados para que
-/// [`m18_new_game_reset`] quepa en la aridad del `SystemParam` y el reset se
-/// lea como una lista (un recurso por línea, sin accessors).
+/// The resources `NEW GAME` returns to their first frame, grouped so that
+/// [`m18_new_game_reset`] fits in the `SystemParam` arity and the reset
+/// reads as a list (one resource per line, no accessors).
 #[derive(SystemParam)]
 struct NewGameState<'w> {
     world: ResMut<'w, DemoWorld>,
@@ -1822,11 +1822,11 @@ fn m18_spawn_world(
             ..default()
         },
     ));
-    // **CR-625ff0ea** — la pantalla del menú: cámara propia, `order: 2`, fondo
-    // negro **opaco** y capa [`MENU_LAYER`]. `m18_phase_screen` la enciende
-    // mientras la superficie es el menú y apaga las dos del mundo, así que el
-    // mundo no puede asomar por ninguna franja; al entrar al juego ocurre lo
-    // contrario y el mundo se pinta como antes.
+    // **CR-625ff0ea** — the menu screen: own camera, `order: 2`, **opaque**
+    // black background and [`MENU_LAYER`] layer. `m18_phase_screen` turns it on
+    // while the surface is the menu and turns the two world ones off, so the
+    // world cannot peek through any strip; on entering the game the opposite
+    // happens and the world is painted as before.
     commands.spawn((
         Camera2d,
         MenuScreenCamera,
@@ -1860,9 +1860,9 @@ fn m18_spawn_world(
         };
         let scale = panel_present_scale(&panel.id);
         let presented = presented_size(panel.width, panel.height, scale);
-        // **CR-178183d7** — la ventana del demo (1280×720): el menú `×4` la
-        // llena exactamente (`letterbox = 0`); el mundo `×2` conserva sus
-        // franjas (30,10) como en M17.
+        // **CR-178183d7** — the demo window (1280×720): the `×4` menu fills it
+        // exactly (`letterbox = 0`); the `×2` world keeps its
+        // strips (30,10) as in M17.
         let bands = letterbox(Vec2::new(1280.0, 720.0), presented);
         let entity = commands.spawn((
             Sprite {
@@ -1870,9 +1870,9 @@ fn m18_spawn_world(
                 custom_size: Some(presented),
                 ..default()
             },
-            // La capa es de la PANTALLA (CR-178183d7): el menú `×4` solo en
-            // `MENU_LAYER`, el mundo `×2` solo en la capa `0` — ver
-            // [`panel_layers`]. El `main-menu` ya no se dibuja en el mundo.
+            // The layer belongs to the SCREEN (CR-178183d7): the `×4` menu only in
+            // `MENU_LAYER`, the `×2` world only in layer `0` — see
+            // [`panel_layers`]. The `main-menu` is no longer drawn in the world.
             panel_layers(&panel.id),
             Transform::from_xyz(0.0, surface_y(index, 0), 0.0),
             // Same twin rule as the runtime owner: parked ⇒ also hidden.
@@ -2181,17 +2181,17 @@ fn shell_pump(time: Res<Time>, mut shell: ResMut<shell::Shell>) {
     shell.pump(time.delta_secs());
 }
 
-/// Pide el foco de teclado mientras el shell está en su antesala (`Boot`,
-/// `Loading`, `Menu`) y la ventana no lo tiene.
+/// Requests keyboard focus while the shell is in its antechamber (`Boot`,
+/// `Loading`, `Menu`) and the window does not have it.
 ///
-/// Las teclas del contrato llegan como eventos X11 **dirigidos a la ventana**,
-/// pero winit sólo entrega `KeyboardInput` con el foco de entrada puesto. La
-/// composición tarda ~14 s en `Startup`: si el foco se pidió mientras la ventana
-/// aún no estaba mapeada nadie vuelve a pedirlo y la sesión queda muda — es el
-/// fallo medido por `SHELL-001` el 2026-10-29 (run1: 0 teclas en 180 s con la
-/// misma evidencia que el control sin entrada). Se reintenta cada
-/// [`shell::FOCUS_RETRY`] s y **sólo antes de jugar**: dentro de la partida la
-/// aplicación no roba el foco.
+/// The contract keys arrive as X11 events **directed at the window**,
+/// but winit only delivers `KeyboardInput` with input focus set. The
+/// composition takes ~14 s in `Startup`: if focus was requested while the window
+/// was not yet mapped nobody asks again and the session goes mute — it is the
+/// failure measured by `SHELL-001` on 2026-10-29 (run1: 0 keys in 180 s with the
+/// same evidence as the input-less control). It retries every
+/// [`shell::FOCUS_RETRY`] s and **only before playing**: inside the game the
+/// application does not steal focus.
 fn shell_focus_pending(
     time: Res<Time>,
     shell: Res<shell::Shell>,
@@ -2252,10 +2252,10 @@ fn shell_progress(mut shell: ResMut<shell::Shell>, mut exit: MessageWriter<AppEx
                     shell::LABEL_SETTLE,
                     shell::menu_line(shell::MENU_ITEMS.len(), shell::MENU_NEW_GAME),
                 );
-                // El conjunto de ítems es estático: se declara UNA vez al entrar
-                // al menú. `check_menu_order` (SHELL-002:301) lo lee antes de
-                // cualquier tecla; la tecla muerta del control (`z`) no navega,
-                // así que la declaración no depende de la entrada del jugador.
+                // The set of items is static: it is declared ONCE on entering
+                // the menu. `check_menu_order` (SHELL-002:301) reads it before
+                // any key; the control's dead key (`z`) does not navigate,
+                // so the declaration does not depend on player input.
                 shell.say(shell::LABEL_SETTLE + 0.05, shell::menu_order_line());
                 shell.say(
                     shell::LABEL_SETTLE + 0.10,
@@ -2324,9 +2324,9 @@ fn shell_keys(
                 }
             }
             shell::ShellPanel::None | shell::ShellPanel::Save => {
-                // Navegación natural del menú de 5 ítems con wrap: el cursor lo
-                // mueven `Up`/`Down` y nada más. Cerrar un panel NO lo mueve ni
-                // re-emite selección (corrección del capitán, CR-4b1c198c).
+                // Natural navigation of the 5-item menu with wrap: the cursor is
+                // moved by `Up`/`Down` and nothing else. Closing a panel does NOT move it nor
+                // re-emit selection (captain's correction, CR-4b1c198c).
                 if keys.just_pressed(KeyCode::ArrowDown) {
                     shell_menu_nav(&mut shell, true);
                 } else if keys.just_pressed(KeyCode::ArrowUp) {
@@ -2358,9 +2358,9 @@ fn shell_keys(
             if keys.just_pressed(KeyCode::KeyT) && shell.map_open {
                 shell_travel(&mut *shell, &doors, &climate, &mut player);
             }
-            // M-QST: teclas de la quest principal. La tabla decide si cada una
-            // es legal en el estado actual; una tecla fuera de lugar publica un
-            // `refused` y no mueve el estado (no se traga el input).
+            // M-QST: main quest keys. The table decides whether each one
+            // is legal in the current state; a key out of place publishes a
+            // `refused` and does not move the state (input is not swallowed).
             for (key, quest_key) in [
                 (KeyCode::KeyY, crate::mainquest_route::QuestKey::Accept),
                 (KeyCode::KeyN, crate::mainquest_route::QuestKey::Decline),
@@ -2372,9 +2372,9 @@ fn shell_keys(
                 }
             }
             if keys.just_pressed(KeyCode::Escape) {
-                // `pause_begin` encola `pause state=Paused` y `pause frozen=1`
-                // juntas: el congelado ya no espera a un temporizador de reloj
-                // real (su posición era función del frame, no del input).
+                // `pause_begin` enqueues `pause state=Paused` and `pause frozen=1`
+                // together: the freeze no longer waits for a wall-clock timer
+                // (its position was a function of the frame, not of the input).
                 shell.pause_begin();
                 let ticks = shell.paused_ticks;
                 // `m2_escape_cursor` lives inside the frozen bundle: the pause
@@ -2421,8 +2421,8 @@ fn shell_keys(
                 shell.say(shell::RESUME_SETTLE, shell::resume_line());
                 println!("M18 VE: SHELL resume — world live again");
             } else if keys.just_pressed(KeyCode::KeyO) {
-                // Una sola ruta para las dos aperturas: el panel de opciones es
-                // el mismo desde el menú (`Return` en `options`) y desde aquí.
+                // A single route for both openings: the options panel is
+                // the same from the menu (`Return` on `options`) and from here.
                 shell_open_options(&mut shell);
             } else if keys.just_pressed(KeyCode::KeyS) {
                 shell_open_save(&mut shell);
@@ -2457,8 +2457,8 @@ fn shell_travel(
         println!("M18 VE: SHELL travel — CLIMATE.PAK unavailable, the route cannot be costed");
         return;
     };
-    // El origen es el píxel de sesión que el shell midió en `Startup`: una sola
-    // fuente para la ruta y para `travel from=…`, sin releer el mundo.
+    // The origin is the session pixel the shell measured in `Startup`: a single
+    // source for the route and for `travel from=...`, without rereading the world.
     let from = shell.base_pixel;
     let lookup = |x: i32, y: i32| climate.climate_index(x, y);
     match shell::plan_travel(&lookup, (from[0], from[1]), (target[0], target[1])) {
@@ -2575,11 +2575,11 @@ fn m18_phase_keys(
     mut started: MessageWriter<NewGameStarted>,
     mut restored: MessageWriter<SessionRestored>,
 ) {
-    // ── creación: `Right`/`Left` eligen cara, `Down` avanza el canon, `Enter`
-    //    confirma desde cualquier paso (el driver confirma en el paso 2). ──
+    // ── creation: `Right`/`Left` choose face, `Down` advances the canon, `Enter`
+    //    confirms from any step (the driver confirms at step 2). ──
     if let ShellState::Create { .. } = shell.state {
-        // Una sola ruta de creación (`shell_route`): la ventana no reimplementa
-        // el canon ni el texto de la evidencia — solo traduce teclas.
+        // A single creation route (`shell_route`): the window does not reimplement
+        // the canon or the evidence text — it only translates keys.
         if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::ArrowLeft) {
             let next_face =
                 shell_route::create_face(&mut shell, keys.just_pressed(KeyCode::ArrowRight));
@@ -2593,17 +2593,17 @@ fn m18_phase_keys(
         if !keys.just_pressed(KeyCode::Enter) {
             return;
         }
-        // `confirm_create` publica `create done`, la primera `session` y la
-        // entrada al mundo con la escena compuesta de esta ventana.
+        // `confirm_create` publishes `create done`, the first `session` and the
+        // entry to the world with this window's composed scene.
         let scene = session_scene(&world, &doors);
         let slots_present = shell_slots::scan().count();
         if let Some(character) =
             shell_route::confirm_create(&mut shell, &mut phase, Some(&scene), slots_present)
         {
             println!("M18 VE: SHELL create done — character {character} enters the world");
-            // El mundo no puede resetearse desde `confirm_create` (ECS-free): el
-            // half de mundo viaja como mensaje y lo consume `m18_new_game_reset`
-            // en este mismo frame, después del cambio de fase.
+            // The world cannot be reset from `confirm_create` (ECS-free): the world
+            // half travels as a message and `m18_new_game_reset` consumes it
+            // on this same frame, after the phase change.
             started.write(NewGameStarted);
         }
         return;
@@ -2612,7 +2612,7 @@ fn m18_phase_keys(
     if !keys.just_pressed(KeyCode::Enter) {
         return;
     }
-    // La pausa con el browser de guardado abierto: `Enter` escribe el slot.
+    // Pause with the save browser open: `Enter` writes the slot.
     if matches!(shell.state, ShellState::Paused) {
         if shell.panel == shell::ShellPanel::Save {
             shell_write_slot(&mut shell);
@@ -2620,7 +2620,7 @@ fn m18_phase_keys(
         return;
     }
     let ShellState::Menu { selection } = shell.state else {
-        // `Enter` solo significa algo en el menú; la pausa sale con `Q`.
+        // `Enter` only means something in the menu; the pause exits with `Q`.
         return;
     };
     match shell.panel {
@@ -2653,7 +2653,7 @@ fn m18_phase_keys(
     }
 }
 
-/// `Up`/`Down` del menú: 5 ítems, wrap natural.
+/// `Up`/`Down` of the menu: 5 items, natural wrap.
 fn shell_menu_nav(shell: &mut shell::Shell, down: bool) {
     let ShellState::Menu { selection } = shell.state else {
         return;
@@ -2667,8 +2667,8 @@ fn shell_menu_nav(shell: &mut shell::Shell, down: bool) {
     shell.say(0.0, shell::selection_line(next));
 }
 
-/// `Up`/`Down` del browser: el cursor recorre los slots OCUPADOS leídos al
-/// abrir el panel (un perfil vacío no mueve nada) y cada paso declara el slot.
+/// `Up`/`Down` of the browser: the cursor walks the OCCUPIED slots read on
+/// opening the panel (an empty profile moves nothing) and each step declares the slot.
 fn shell_browser_move(shell: &mut shell::Shell, down: bool) {
     let len = shell.slots.len();
     if len == 0 {
@@ -2685,7 +2685,7 @@ fn shell_browser_move(shell: &mut shell::Shell, down: bool) {
     }
 }
 
-/// Abre el browser de carga del menú con los slots REALES del perfil.
+/// Opens the menu's load browser with the profile's REAL slots.
 fn shell_open_load(shell: &mut shell::Shell) {
     let store = shell_slots::scan();
     let count = store.count();
@@ -2701,7 +2701,7 @@ fn shell_open_load(shell: &mut shell::Shell) {
     println!("M18 VE: SHELL load — browser open over {count} readable slot(s)");
 }
 
-/// Abre el browser de guardado de la pausa.
+/// Opens the pause save browser.
 fn shell_open_save(shell: &mut shell::Shell) {
     let occupied = shell_route::open_save(shell, shell_slots::scan());
     println!(
@@ -2710,7 +2710,7 @@ fn shell_open_save(shell: &mut shell::Shell) {
     );
 }
 
-/// Abre el panel de opciones (menú o pausa: una sola ruta).
+/// Opens the options panel (menu or pause: a single route).
 fn shell_open_options(shell: &mut shell::Shell) {
     if shell.options.is_empty() {
         println!(
@@ -2727,15 +2727,15 @@ fn shell_open_options(shell: &mut shell::Shell) {
     shell.say(0.0, shell::options_open_line(&page, pages));
 }
 
-/// Cierra el panel de opciones sin salir del estado (menú o pausa).
+/// Closes the options panel without leaving the state (menu or pause).
 fn shell_options_close(shell: &mut shell::Shell) {
     shell.panel = shell::ShellPanel::None;
     shell.say(0.0, shell::options_close_line());
     println!("M18 VE: SHELL options — panel closed, the state is unchanged");
 }
 
-/// `Right`/`Left` mueven el valor de la página en curso (una sola copia del
-/// valor: el estado sobrevive a cerrar el panel, al menú y a la pausa).
+/// `Right`/`Left` move the current page's value (a single copy of the
+/// value: the state survives closing the panel, the menu and the pause).
 fn shell_options_step(shell: &mut shell::Shell, delta: i64) {
     let pages = shell.options_pages();
     if pages == 0 {
@@ -2754,7 +2754,7 @@ fn shell_options_step(shell: &mut shell::Shell, delta: i64) {
     println!("M18 VE: SHELL options — {key} = {next} (page {at}, {pages} pages)");
 }
 
-/// `Down`/`Up` recorren las páginas del censo (wrap).
+/// `Down`/`Up` walk the census pages (wrap).
 fn shell_options_page_move(shell: &mut shell::Shell, delta: i64) {
     let pages = shell.options_pages();
     if pages == 0 {
@@ -2767,7 +2767,7 @@ fn shell_options_page_move(shell: &mut shell::Shell, delta: i64) {
     shell.say(0.0, shell::options_open_line(&page, pages));
 }
 
-/// Escribe el slot elegido por el browser con el reloj de sesión real.
+/// Writes the slot chosen by the browser with the real session clock.
 fn shell_write_slot(shell: &mut shell::Shell) {
     let Some(dir) = shell_slots::save_dir() else {
         println!("M18 VE: SHELL save — DF_SAVE_DIR is not set: no slot is guessed");
@@ -2785,9 +2785,9 @@ fn shell_write_slot(shell: &mut shell::Shell) {
     }
 }
 
-/// `continue`: sin slots no hay partida (`notice=no-save`, se queda en MENU);
-/// con slots restaura el de mayor índice ocupado (regla declarada: el
-/// documento v3 no guarda instante de escritura).
+/// `continue`: without slots there is no game (`notice=no-save`, it stays in MENU);
+/// with slots it restores the highest occupied index (declared rule: the
+/// v3 document stores no write instant).
 fn shell_continue(
     shell: &mut shell::Shell,
     phase: &mut crate::m18_phase::AppPhase,
@@ -2817,8 +2817,8 @@ fn shell_continue(
             shell.face = face;
             shell.clock_minutes = minutes;
             shell.session_slot = Some(facts.index);
-            // M-QST: el estado de la quest se rehidrata ANTES de entrar al
-            // mundo, para que el disparador vea el estado real y no re-ofrezca.
+            // M-QST: the quest state is rehydrated BEFORE entering the
+            // world, so the trigger sees the real state and does not offer again.
             crate::mainquest_route::restore_into(shell, &doc);
             let restored = resume_world(shell, facts.index, &doc, "continue");
             shell.say(
@@ -2837,7 +2837,7 @@ fn shell_continue(
     }
 }
 
-/// `Return` sobre el slot del browser: restaura la sesión guardada.
+/// `Return` on the browser slot: restores the saved session.
 fn shell_load_slot(
     shell: &mut shell::Shell,
     phase: &mut crate::m18_phase::AppPhase,
@@ -2861,8 +2861,8 @@ fn shell_load_slot(
             shell.face = face;
             shell.clock_minutes = minutes;
             shell.session_slot = Some(facts.index);
-            // M-QST: mismo rehidratado que `continue` — el disparador de
-            // `enter_playing` no puede re-ofrecer lo ya decidido en el slot.
+            // M-QST: same rehydration as `continue` — `enter_playing`'s trigger
+            // cannot re-offer what the slot already decided.
             crate::mainquest_route::restore_into(shell, &doc);
             let restored = resume_world(shell, facts.index, &doc, "load");
             shell.say(
@@ -2881,14 +2881,14 @@ fn shell_load_slot(
     }
 }
 
-/// Decisión de reanudación de un documento ya leído (`continue` y `load` la
-/// comparten: una sola regla, un solo aviso).
+/// Resume decision of an already read document (`continue` and `load`
+/// share it: a single rule, a single warning).
 ///
-/// - Generación 4: devuelve el mundo que el slot declara y lo deja en
-///   [`shell::Shell::snapshot`] (el siguiente guardado lo vuelve a declarar).
-/// - Generación 3: publica `W-SAVE-001` con los campos ausentes y **no**
-///   inventa posición ni reloj de mundo — el avatar se queda donde está el
-///   mundo y el reloj de la sesión no salta.
+/// - Generation 4: returns the world the slot declares and leaves it in
+///   [`shell::Shell::snapshot`] (the next save declares it again).
+/// - Generation 3: publishes `W-SAVE-001` with the absent fields and does **not**
+///   invent position or world clock — the avatar stays where the world is and
+///   the session clock does not jump.
 fn resume_world(
     shell: &mut shell::Shell,
     slot: usize,
@@ -2913,10 +2913,10 @@ fn resume_world(
     }
 }
 
-/// Hechos del mundo compuesto que la línea `world` publica: la etiqueta de la
-/// puerta/celda compuesta y los tres contadores del `DemoScene` real. La
-/// entrada al mundo la compone [`crate::shell_route::enter_playing`]: aquí solo
-/// se miden los hechos que la ventana tiene delante.
+/// Facts of the composed world the `world` line publishes: the label of the
+/// composed door/cell and the three counters of the real `DemoScene`. The
+/// entry to the world is composed by [`crate::shell_route::enter_playing`]: here only
+/// the facts the window has in front of it are measured.
 fn session_scene(
     world: &DemoWorld,
     doors: &crate::m18_doors::DoorWorld,
@@ -2929,7 +2929,7 @@ fn session_scene(
     }
 }
 
-/// `b` en la pausa: la sesión vuelve al menú (misma ruta que el pase headless).
+/// `b` while paused: the session returns to the menu (same route as the headless pass).
 fn shell_back_to_menu(shell: &mut shell::Shell) {
     shell_route::back_to_menu(shell);
     println!("M18 VE: SHELL menu — back from the session, selection reset to new-game");
@@ -3048,11 +3048,11 @@ fn m18_phase_ui(
     mut transforms: Query<&mut Transform>,
     mut applied: Local<Option<(usize, bool)>>,
 ) {
-    // `b` devuelve la sesión al menú y la creación abre el wizard: en los dos
-    // casos la superficie es la del menú retail, aunque `AppPhase` conserve el
-    // mundo compuesto (la pausa, en cambio, sigue mostrando el mundo congelado).
-    // La regla vive en [`screen_phase`] porque también decide qué cámaras están
-    // encendidas ([`m18_phase_screen`]): panel y fondo nunca discrepan.
+    // `b` returns the session to the menu and creation opens the wizard: in both
+    // cases the surface is the retail menu's, although `AppPhase` keeps the
+    // composed world (the pause, on the other hand, keeps showing the frozen world).
+    // The rule lives in [`screen_phase`] because it also decides which cameras are
+    // on ([`m18_phase_screen`]): panel and background never disagree.
     let effective = screen_phase(*phase, shell.state);
     let ids: Vec<&str> = world
         .0
@@ -3098,13 +3098,13 @@ fn m18_phase_ui(
     );
 }
 
-/// Fase **de pantalla**: `Menu` y `Create` son la pantalla del menú (mismo arte
-/// retail, mundo apagado); el resto es la fase real del mundo.
+/// **Screen** phase: `Menu` and `Create` are the menu screen (same retail
+/// art, world off); the rest is the world's real phase.
 ///
-/// Es la única regla de la separación visual (**CR-625ff0ea**): `m18_phase_ui`
-/// la usa para elegir el panel y [`m18_phase_screen`] para encender o apagar las
-/// cámaras, así que el arte del menú y el fondo detrás de él nunca pueden
-/// contradecirse.
+/// It is the only rule of the visual separation (**CR-625ff0ea**): `m18_phase_ui`
+/// uses it to choose the panel and [`m18_phase_screen`] to turn the
+/// cameras on or off, so the menu art and the background behind it can never
+/// contradict each other.
 fn screen_phase(
     phase: crate::m18_phase::AppPhase,
     state: ShellState,
@@ -3115,20 +3115,20 @@ fn screen_phase(
     }
 }
 
-/// Estado de una superficie medido en la ventana: `(Visible, y, custom_size)`.
+/// State of a surface measured in the window: `(Visible, y, custom_size)`.
 pub(crate) type SurfaceProbe = (bool, f32, Option<Vec2>);
 
-/// **CR-178183d7** — el gate de escalas de la pantalla: **una pantalla nunca
-/// presenta la escala de la otra**.
+/// **CR-178183d7** — the screen scale gate: **one screen never
+/// presents the other's scale**.
 ///
-/// - `menu` enciende: cámaras del mundo apagadas (3D + 2D), cámara del menú
-///   encendida, y la superficie del menú `Visible`, a `y = 0` y presentada a
-///   `320×180 ×4 = 1280×720` (**sin bandas**).
-/// - `menu` apagado: lo contrario, y la superficie del menú **no** puede estar
-///   en `y = 0` visible (se pinta a `×2` sobre `×4`).
+/// - `menu` on: world cameras off (3D + 2D), menu camera
+///   on, and the menu surface `Visible`, at `y = 0` and presented at
+///   `320×180 ×4 = 1280×720` (**without bands**).
+/// - `menu` off: the opposite, and the menu surface **cannot** be
+///   at `y = 0` visible (it would be painted at `×2` over `×4`).
 ///
-/// Devuelve la línea de evidencia o la lista de violaciones medidas; no mira el
-/// estado declarado, mira las cámaras y la geometría reales.
+/// Returns the evidence line or the list of measured violations; it does not look at
+/// the declared state, it looks at the real cameras and geometry.
 fn scale_gate(
     menu: bool,
     cameras: (bool, bool, bool),
@@ -3192,16 +3192,16 @@ fn scale_gate(
     }
 }
 
-/// Cadencia de la evidencia de simulación (segundos reales).
+/// Cadence of the simulation evidence (real seconds).
 const SIM_EVIDENCE_PERIOD_S: f32 = 5.0;
 
-/// **CR-625ff0ea** — el menú es **su propia pantalla**: `Menu`/`Create` apagan
-/// las dos cámaras del mundo (3D + 2D) y encienden la pantalla del menú, que
-/// pinta negro opaco y solo extrae los paneles retail ([`MENU_LAYER`]).
+/// **CR-625ff0ea** — the menu is **its own screen**: `Menu`/`Create` turn
+/// the two world cameras off (3D + 2D) and turn the menu screen on, which
+/// paints opaque black and extracts only the retail panels ([`MENU_LAYER`]).
 ///
-/// `Playing`/`Paused` hacen lo contrario: el mundo se dibuja como antes (la
-/// pausa lo muestra congelado — eso lo decide la fase, no este sistema). Solo
-/// escribe cuando la pantalla cambia (`Local`), así que cuesta 0 por frame.
+/// `Playing`/`Paused` do the opposite: the world is drawn as before (the
+/// pause shows it frozen — the phase decides that, not this system). It only
+/// writes when the screen changes (`Local`), so it costs 0 per frame.
 fn m18_phase_screen(
     phase: Res<crate::m18_phase::AppPhase>,
     shell: Res<shell::Shell>,
@@ -3259,9 +3259,9 @@ fn m18_phase_screen(
             "world cameras on (3D+2D) · menu screen off · scene + HUD"
         },
     );
-    // **CR-178183d7** — el gate mide lo que acaba de pasar: una pantalla no
-    // puede quedarse con la escala de la otra. Si el spawn no ha llegado, no hay
-    // superficie que medir (la primera pasada solo enciende cámaras).
+    // **CR-178183d7** — the gate measures what has just happened: one screen cannot
+    // keep the other's scale. If the spawn has not arrived, there is no
+    // surface to measure (the first pass only turns cameras on).
     let Some(ui) = ui.as_deref() else {
         println!("M18 VE: scale gate — surfaces not spawned yet");
         return;
@@ -3301,13 +3301,13 @@ fn m18_phase_screen(
     }
 }
 
-/// **CR-625ff0ea** — contadores de simulación por fase, medidos en la ventana.
+/// **CR-625ff0ea** — simulation counters per phase, measured in the window.
 ///
-/// Publica `M18 VE: sim ticks=<n> …` cuando la pantalla cambia y cada
-/// [`SIM_EVIDENCE_PERIOD_S`] s. En `Menu`/`Create` el contador es **0** (el
-/// bundle del mundo no corre) y en `Playing` crece; el reloj de juego lo
-/// confirma (los minutos no avanzan). Lee el mismo [`WorldSimTicks`] que
-/// incrementa el bundle gateado: no hay contador paralelo que pueda mentir.
+/// Publishes `M18 VE: sim ticks=<n> ...` when the screen changes and every
+/// [`SIM_EVIDENCE_PERIOD_S`] s. In `Menu`/`Create` the counter is **0** (the
+/// world bundle does not run) and in `Playing` it grows; the game clock
+/// confirms it (the minutes do not advance). It reads the same [`WorldSimTicks`] the
+/// gated bundle increments: there is no parallel counter that can lie.
 fn m18_sim_evidence(
     phase: Res<crate::m18_phase::AppPhase>,
     shell: Res<shell::Shell>,
@@ -3387,8 +3387,8 @@ fn m18_origin_toggle(
     if !keys.just_pressed(KeyCode::KeyT) {
         return;
     }
-    // `T` es viaje rápido mientras el mapa está abierto ([`shell_keys`]): la
-    // rama del mapa tiene precedencia y este sistema no re-muestrea el terreno.
+    // `T` is fast travel while the map is open ([`shell_keys`]): the
+    // map branch takes precedence and this system does not re-sample the terrain.
     if shell.map_open {
         return;
     }
@@ -4036,9 +4036,9 @@ fn m19_update_title(
     doors: Res<crate::m18_doors::DoorWorld>,
 ) {
     let mode = player.locomotion.mode;
-    // `SHELL <ETAPA>` es la etiqueta que mide `SHELL-001` (`label_of`) y la que
-    // conserva las subcadenas `MENU`/`PLAYING` que esperan los gates previos
-    // (`playthrough-p1-door.py` pulsa `Return` hasta ver `PLAYING`).
+    // `SHELL <STAGE>` is the label `SHELL-001` measures (`label_of`) and the one that
+    // keeps the `MENU`/`PLAYING` substrings the previous gates expect
+    // (`playthrough-p1-door.py` presses `Return` until it sees `PLAYING`).
     let mut title = format!(
         "DAGGERFALL-LIKE — {} · M20 demo · {} · {} · breath {}/{} · POP {} · guards visible {}",
         shell.state.title(),
@@ -4181,11 +4181,11 @@ fn m18_switch_panel(
     } else if keys.just_pressed(KeyCode::Digit3) {
         Some(2)
     } else if keys.just_pressed(KeyCode::Digit4) {
-        // **CR-178183d7** — el índice 3 ya no es un panel del mundo: es la
-        // pantalla del menú (`320×180 ×4`, capa `MENU_LAYER`). Dejarlo
-        // `Visible` desde aquí mezclaba una superficie `×4` con el mundo `×2`
-        // (y ahora, sin la capa `0`, dejaría la pantalla vacía), así que la
-        // tecla se declara sin panel en vez de componer una pantalla mezclada.
+        // **CR-178183d7** — index 3 is no longer a world panel: it is the
+        // menu screen (`320×180 ×4`, `MENU_LAYER` layer). Leaving it
+        // `Visible` from here mixed a `×4` surface with the `×2` world
+        // (and now, without layer `0`, it would leave the screen empty), so the
+        // key is declared without a panel instead of composing a mixed screen.
         println!(
             "M18 VE: key 4 has no world panel — index 3 is the menu surface \
              (320×180 ×4, MENU_LAYER) and belongs to the Menu phase"
@@ -4228,22 +4228,22 @@ const PARKED_Y: f32 = -20_000.0;
 /// Scale of the retail overlays on the 2D camera (same 2× as the panels).
 const OVERLAY_SCALE: f32 = 2.0;
 
-/// **CR-178183d7 — la escala pertenece a la PANTALLA, no al sprite.**
+/// **CR-178183d7 — the scale belongs to the SCREEN, not to the sprite.**
 ///
-/// El mundo compone a `320×200` y se presenta a `640×400` (`×2`), como desde
-/// M17: HUD, inventario, quests y mapas no cambian. El menú moderno compone a
-/// `320×180` y se presenta **a sangre**: `320×180 ×4 = 1280×720`, que es la
-/// ventana del demo (ver el `WindowPlugin` de [`build_app`]), con
-/// `letterbox = 0` — ninguna banda. Una pantalla nunca mezcla las dos escalas.
+/// The world composes at `320×200` and is presented at `640×400` (`×2`), as since
+/// M17: HUD, inventory, quests and maps do not change. The modern menu composes at
+/// `320×180` and is presented **full-bleed**: `320×180 ×4 = 1280×720`, which is the
+/// demo window (see the `WindowPlugin` of [`build_app`]), with
+/// `letterbox = 0` — no bands. One screen never mixes the two scales.
 const WORLD_PRESENT_SCALE: f32 = 2.0;
-/// Escala de presentación de la pantalla del menú (`320×180 ×4 = 1280×720`).
+/// Presentation scale of the menu screen (`320×180 ×4 = 1280×720`).
 const MENU_PRESENT_SCALE: f32 = 4.0;
 
-/// Escala de presentación de un panel del escenario.
+/// Presentation scale of a scenario panel.
 ///
-/// Solo el `main-menu` ([`crate::m18_phase::MENU_PANEL_ID`], compuesto por
-/// `MenuScreen::compose` a `320×180`) es la pantalla del menú; cualquier otro
-/// panel es el mundo (`320×200`) y sigue a `×2`.
+/// Only the `main-menu` ([`crate::m18_phase::MENU_PANEL_ID`], composed by
+/// `MenuScreen::compose` at `320×180`) is the menu screen; any other
+/// panel is the world (`320×200`) and follows `×2`.
 fn panel_present_scale(id: &str) -> f32 {
     if id == crate::m18_phase::MENU_PANEL_ID {
         MENU_PRESENT_SCALE
@@ -4252,12 +4252,12 @@ fn panel_present_scale(id: &str) -> f32 {
     }
 }
 
-/// Capa de render de un panel: **la capa es de la pantalla**.
+/// Render layer of a panel: **the layer belongs to the screen**.
 ///
-/// El menú vive solo en [`MENU_LAYER`] y el mundo solo en la capa `0`, así la
-/// cámara del menú (`RenderLayers::layer(MENU_LAYER)`) no puede componer un
-/// panel `×2` ni la del mundo (`order: 1`, capa `0`) uno `×4` — ni siquiera si
-/// una tecla deja el panel equivocado `Visible`.
+/// The menu lives only in [`MENU_LAYER`] and the world only in layer `0`, so the
+/// menu camera (`RenderLayers::layer(MENU_LAYER)`) cannot compose a
+/// `×2` panel nor the world one (`order: 1`, layer `0`) a `×4` one — not even if
+/// a key leaves the wrong panel `Visible`.
 fn panel_layers(id: &str) -> RenderLayers {
     if id == crate::m18_phase::MENU_PANEL_ID {
         RenderLayers::layer(MENU_LAYER)
@@ -4266,12 +4266,12 @@ fn panel_layers(id: &str) -> RenderLayers {
     }
 }
 
-/// Tamaño presentado de un lienzo `(w, h)` a la escala de su pantalla.
+/// Presented size of a `(w, h)` canvas at its screen's scale.
 fn presented_size(width: u16, height: u16, scale: f32) -> Vec2 {
     Vec2::new(f32::from(width) * scale, f32::from(height) * scale)
 }
 
-/// Franjas que deja una superficie presentada en una ventana (`0` = a sangre).
+/// Strips a presented surface leaves in a window (`0` = full-bleed).
 fn letterbox(window: Vec2, presented: Vec2) -> Vec2 {
     Vec2::new(
         (window.x - presented.x).max(0.0) * 0.5,
@@ -6068,9 +6068,9 @@ mod surface_drive_tests {
 
     #[test]
     fn world_keys_put_their_panel_on_camera_and_park_the_rest() {
-        // **CR-178183d7** — `4` ya no es un panel del mundo: el índice 3 es la
-        // pantalla del menú (`320×180 ×4`, `MENU_LAYER`), así que el mapa es
-        // 1→0, 2→1, 3→2, 5→4, 6→5 y `Digit4` se declara sin panel.
+        // **CR-178183d7** — `4` is no longer a world panel: index 3 is the
+        // menu screen (`320×180 ×4`, `MENU_LAYER`), so the map is
+        // 1→0, 2→1, 3→2, 5→4, 6→5 and `Digit4` is declared without a panel.
         let keys = [
             (0usize, KeyCode::Digit1),
             (1, KeyCode::Digit2),
@@ -6101,8 +6101,8 @@ mod surface_drive_tests {
         }
     }
 
-    /// `Digit4` **no** puede poner la pantalla del menú encima del mundo: la
-    /// superficie queda intacta (índice 0, sin mezclar `×4` con `×2`).
+    /// `Digit4` **cannot** put the menu screen over the world: the
+    /// surface stays untouched (index 0, without mixing `×4` with `×2`).
     #[test]
     fn key_4_never_puts_the_menu_surface_over_the_world() {
         let (rows, current) = drive(0, KeyCode::Digit4);
@@ -6115,9 +6115,9 @@ mod surface_drive_tests {
     }
 }
 
-/// **CR-178183d7** — la presentación por pantalla: el menú a `×4` (1280×720,
-/// `letterbox = 0`), el mundo a `×2` (640×400), y el panel del menú en su propia
-/// capa para que ninguna cámara componga la escala de la otra pantalla.
+/// **CR-178183d7** — presentation per screen: the menu at `×4` (1280×720,
+/// `letterbox = 0`), the world at `×2` (640×400), and the menu panel in its own
+/// layer so that no camera composes the other screen's scale.
 #[cfg(test)]
 mod present_scale_tests {
     use super::*;
@@ -6142,7 +6142,7 @@ mod present_scale_tests {
 
     #[test]
     fn the_menu_and_the_world_never_share_a_render_layer() {
-        // La cámara del menú extrae `MENU_LAYER`; la del mundo, la capa 0.
+        // The menu camera extracts `MENU_LAYER`; the world one, layer 0.
         assert_eq!(panel_layers("main-menu"), RenderLayers::layer(MENU_LAYER));
         for id in ["hud", "inventory", "quests", "map-local", "map-world"] {
             assert_eq!(panel_layers(id), RenderLayers::layer(0), "{id} left layer 0");
@@ -6154,7 +6154,7 @@ mod present_scale_tests {
         }
     }
 
-    /// El gate enciende/conduce la pantalla del menú tal y como se presenta.
+    /// The gate turns on/drives the menu screen exactly as it is presented.
     #[test]
     fn the_scale_gate_passes_a_full_bleed_menu_screen() {
         let surface = (true, 0.0, Some(Vec2::new(1280.0, 720.0)));
@@ -6162,7 +6162,7 @@ mod present_scale_tests {
         assert!(line.contains("size=1280×720") || line.contains("size=1280"), "{line}");
     }
 
-    /// Falsificador: la misma pantalla presentada a `×2` (el defecto del ticket).
+    /// Falsifier: the same screen presented at `×2` (the ticket's defect).
     #[test]
     fn the_scale_gate_rejects_x2_on_the_menu_screen() {
         let surface = (true, 0.0, Some(Vec2::new(640.0, 400.0)));
@@ -6173,7 +6173,7 @@ mod present_scale_tests {
         );
     }
 
-    /// Falsificador: mundo apagado pero cámara del mundo encendida.
+    /// Falsifier: world off but world camera on.
     #[test]
     fn the_scale_gate_rejects_a_world_camera_on_the_menu_screen() {
         let surface = (true, 0.0, Some(Vec2::new(1280.0, 720.0)));
@@ -6181,8 +6181,8 @@ mod present_scale_tests {
         assert!(bad.iter().any(|v| v.contains("world camera on")), "{bad:?}");
     }
 
-    /// La pantalla del mundo exige lo contrario y comprueba que el menú no esté
-    /// encima: `Visible` en `y = 0` sobre el mundo es la mezcla prohibida.
+    /// The world screen requires the opposite and checks that the menu is not
+    /// on top: `Visible` at `y = 0` over the world is the forbidden mix.
     #[test]
     fn the_scale_gate_rejects_the_menu_surface_over_the_world() {
         let legal = (false, PARKED_Y, Some(Vec2::new(1280.0, 720.0)));
@@ -6193,20 +6193,20 @@ mod present_scale_tests {
     }
 }
 
-/// **CR-625ff0ea** — la regla de la pantalla: `Menu` y `Create` son la pantalla
-/// del menú (mundo apagado); `Playing`/`Paused` son la pantalla del mundo.
+/// **CR-625ff0ea** — the screen rule: `Menu` and `Create` are the menu
+/// screen (world off); `Playing`/`Paused` are the world screen.
 #[cfg(test)]
 mod menu_screen_tests {
     use super::*;
     use crate::m18_phase::AppPhase;
 
-    /// El menú y el wizard de creación nunca muestran el mundo: la vuelta con
-    /// `b` y la creación resuelven a `Menu` aunque `AppPhase` conserve el mundo
-    /// compuesto ⇒ cámaras del mundo apagadas, pantalla del menú encendida.
+    /// The menu and the creation wizard never show the world: the return with
+    /// `b` and creation resolve to `Menu` even though `AppPhase` keeps the
+    /// composed world ⇒ world cameras off, menu screen on.
     ///
-    /// `Boot`/`Loading` **conservan la fase** (no la fuerzan): solo existen antes
-    /// del `Enter`, cuando la fase ya es `Menu` — el mismo reparto que tenía la
-    /// selección de panel.
+    /// `Boot`/`Loading` **keep the phase** (they do not force it): they only exist before
+    /// `Enter`, when the phase is already `Menu` — the same split the panel
+    /// selection had.
     #[test]
     fn menu_and_create_are_the_menu_screen() {
         for state in [
@@ -6227,8 +6227,8 @@ mod menu_screen_tests {
         }
     }
 
-    /// Dentro del juego (y en la pausa, que muestra el mundo congelado) la
-    /// pantalla es la del mundo.
+    /// Inside the game (and in the pause, which shows the frozen world) the
+    /// screen is the world's.
     #[test]
     fn playing_and_paused_are_the_world_screen() {
         for state in [ShellState::Playing, ShellState::Paused] {
@@ -6238,9 +6238,9 @@ mod menu_screen_tests {
         }
     }
 
-    /// Control negativo: el shell no puede **abrir** el mundo por sí solo. Con
-    /// la fase en `Menu` (nadie pulsó `Enter`) el shell diciendo `Playing` deja
-    /// la pantalla en el menú — la fase sigue siendo la puerta.
+    /// Negative control: the shell cannot **open** the world by itself. With
+    /// the phase in `Menu` (nobody pressed `Enter`) the shell saying `Playing` leaves
+    /// the screen in the menu — the phase is still the door.
     #[test]
     fn the_shell_cannot_enter_the_world_alone() {
         assert_eq!(

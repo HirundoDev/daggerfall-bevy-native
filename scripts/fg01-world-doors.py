@@ -1,43 +1,43 @@
 #!/usr/bin/env python3
-"""fg01-world-doors.py — probe de MUNDO de las puertas retail (`GAP-FG01-02`).
+"""fg01-world-doors.py — WORLD probe of the retail doors (`GAP-FG01-02`).
 
-Mide en la ventana real lo que el censo de bytes dice que existe:
+Measures in the real window what the byte census says exists:
 
-  * la app imprime, al terminar de componer la ciudad,
-    `FG01-02 VE: world doors composed=<n> retail=<n> scenario=<n> …`
-    (`m18_demo.rs`, instrumentación de FG-01);
-  * `--door-spawn` (`m18_window.rs:363`) coloca al jugador a
-    `DOOR_STANDOFF_M = 1.0` m de la PRIMERA puerta de la composición;
-  * `E` es `action.interact` -> `m18_door_interact` (`m18_doors.rs`), que resuelve
-    alcance (`DOOR_REACH_M = 2.5`) contra `DoorWorld` y transiciona al interior
-    `N0000055.RDB` reutilizando `DoorLoader`;
-  * el driver X11 es el aceptado en este puesto (`scripts/playthrough-p1-door.py`):
-    `_NET_WM_NAME` + `_NET_ACTIVE_WINDOW` + `set_input_focus`, teclado NUCLEO por
-    `send_event` (XTEST es inerte para este cliente).
+    * on finishing composing the city the app prints
+        `FG01-02 VE: world doors composed=<n> retail=<n> scenario=<n> ...`
+        (`m18_demo.rs`, FG-01 instrumentation);
+    * `--door-spawn` (`m18_window.rs:363`) places the player at
+        `DOOR_STANDOFF_M = 1.0` m from the FIRST door of the composition;
+    * `E` is `action.interact` -> `m18_door_interact` (`m18_doors.rs`), which resolves
+        reach (`DOOR_REACH_M = 2.5`) against `DoorWorld` and transitions to the interior
+        `N0000055.RDB` reusing `DoorLoader`;
+    * the X11 driver is the one accepted on this workstation (`scripts/playthrough-p1-door.py`):
+        `_NET_WM_NAME` + `_NET_ACTIVE_WINDOW` + `set_input_focus`, CORE keyboard via
+        `send_event` (XTEST is inert for this client).
 
-Piernas
-  * `retail-interact`: `--door-spawn`, **sin** `M18_CS14` -> la puerta que se abre
-    es dato, no escenario. Fila `retail-door-interact` PASS solo si la linea
-    `FG01 VE: interact -> interior N0000055.RDB … digest <16 hex>` aparece.
-  * `negative-no-interact`: mismo setup, `W` 1 s y **sin** `E` -> no transiciona
-    (la transicion de la otra pierna es imputable a `E`).
-  * `scenario-compose`: `M18_CS14=1 --door-spawn` -> la puerta de escenario sigue
-    entrando en la composicion (`scenario=1`) y el conteo cuadra
-    (`composed = retail + scenario`).
+Legs
+    * `retail-interact`: `--door-spawn`, **without** `M18_CS14` -> the door that opens
+        is data, not scenario. Row `retail-door-interact` PASS only if the line
+        `FG01 VE: interact -> interior N0000055.RDB ... digest <16 hex>` appears.
+    * `negative-no-interact`: same setup, `W` for 1 s and **no** `E` -> it does not
+        transition (the other leg's transition is attributable to `E`).
+    * `scenario-compose`: `M18_CS14=1 --door-spawn` -> the scenario door still
+        enters the composition (`scenario=1`) and the count adds up
+        (`composed = retail + scenario`).
 
-ROJO literal: sin puertas de dato la pierna `retail-interact` imprime
-`door-spawn=refused` (la app rechaza abrir el mundo en otro punto, exit 2) y
-`retail-door-interact=FAIL` -> este probe sale **1**.
+Literal RED: without data doors the `retail-interact` leg prints
+`door-spawn=refused` (the app refuses to open the world elsewhere, exit 2) and
+`retail-door-interact=FAIL` -> this probe exits **1**.
 
-Salida: filas normalizadas `row <nombre>=<valor>` (sin timestamps, duraciones ni
-PIDs). Dos ejecuciones imprimen bytes identicos. Los logs crudos quedan en `--out`.
+Output: normalised rows `row <name>=<value>` (no timestamps, durations or
+PIDs). Two runs print identical bytes. Raw logs stay in `--out`.
 
-Exit: 0 todas las filas PASS · 1 alguna FAIL · 2 uso/IO (sin DISPLAY, sin ARENA2,
-binario ausente, build roto, linea de instrumento ausente).
+Exit: 0 all rows PASS · 1 some FAIL · 2 usage/IO (no DISPLAY, no ARENA2,
+binary absent, broken build, instrument line absent).
 
-Uso:
-  scripts/fg01-world-doors.py [--skip-build] [--out DIR] [--bin PATH]
-                              [--data-root DIR] [--timeout S]
+Usage:
+    scripts/fg01-world-doors.py [--skip-build] [--out DIR] [--bin PATH]
+                                                            [--data-root DIR] [--timeout S]
 """
 import argparse
 import hashlib
@@ -59,7 +59,7 @@ NET_WM_NAME = "_NET_WM_NAME"
 UTF8 = "UTF8_STRING"
 NET_ACTIVE_WINDOW = "_NET_ACTIVE_WINDOW"
 
-# `m18_doors.rs` — constantes del binding que este probe ejercita.
+# `m18_doors.rs` — constants of the binding this probe exercises.
 REACH_M = 2.5
 STANDOFF_M = 1.0
 INTERIOR_BLOCK_NAME = "N0000055.RDB"
@@ -221,7 +221,7 @@ def hold(d, win, name, secs):
     time.sleep(0.35)
 
 
-# ── log de la app ──────────────────────────────────────────────────────────
+# ── app log ──────────────────────────────────────────────────────────
 def read_log(path):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -254,9 +254,9 @@ def wait_title(d, win, needle, timeout, proc=None):
     return None
 
 
-# ── una pierna: un proceso, una ventana ────────────────────────────────────
+# ── one leg: one process, one window ────────────────────────────────────
 class Session:
-    """Un proceso del demo; `cs14` decide si se inyecta la puerta de escenario."""
+    """One demo process; `cs14` decides whether the scenario door is injected."""
 
     def __init__(self, d, binary, data_root, out_dir, leg, cs14, door_spawn=True):
         self.d = d
@@ -363,7 +363,7 @@ def bash_distance(lines):
 
 # ── piernas ────────────────────────────────────────────────────────────────
 def leg_retail_interact(d, args, rows):
-    """Pierna A: la puerta de DATO se abre con `E` (sin puerta de escenario)."""
+    """Leg A: the DATA door opens with `E` (no scenario door)."""
     with Session(d, args.bin, args.data_root, args.out, "retail-interact", cs14=False) as s:
         world = wait_lines(s.log_path, RE_WORLD, args.timeout, s.proc)
         counts = world_counts(world)
@@ -405,9 +405,9 @@ def leg_retail_interact(d, args, rows):
             return False, None
         rows.append(row("phase", "PLAYING"))
 
-        # `G` (`m28_door_bash`): prueba independiente de que el jugador esta a
-        # una puerta retail de DATO (la rama del crimen solo se alcanza dentro
-        # del alcance).
+        # `G` (`m28_door_bash`): independent proof that the player is at
+        # a DATA retail door (the crime branch is only reachable within
+        # reach).
         bash = []
         for _ in range(3):
             press(d, s.win, "G", hold=0.10)

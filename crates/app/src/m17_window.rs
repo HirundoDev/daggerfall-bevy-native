@@ -67,9 +67,9 @@ pub fn run_windowed_m17(
         presentations.len()
     );
 
-    // F1 (`CR-a602cafc`): la evidencia de arriba ya está publicada. Sin
-    // servidor gráfico NO se intenta la ventana — winit aborta con
-    // «Failed to build event loop» (rc=101) y ese pánico no es del producto.
+    // F1 (`CR-a602cafc`): the evidence above is already published. Without a
+    // graphical server the window is NOT attempted — winit aborts with
+    // "Failed to build event loop" (rc=101) and that panic is not the product's.
     if !crate::window_limb_ready("ui") {
         return Ok(());
     }

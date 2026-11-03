@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""lane-integrity.py — auditor de cierre de lane, model-agnóstico (CR-51d25f1e).
+"""lane-integrity.py — lane-close auditor, model-agnostic (CR-51d25f1e).
 
-No conoce al ejecutor: recibe un CR o un rango de commits y dicta PASS/FAIL sobre
-el CIERRE tal como quedó en la historia. No lee reportes de la lane ni confía en
-su prosa; re-deriva de git y de los ficheros de cierre.
+It does not know the executor: it receives a CR or a commit range and rules PASS/FAIL on
+the CLOSE as it was left in history. It does not read the lane's reports nor trust
+their prose; it re-derives from git and from the close files.
 
-Uso:
+Usage:
   python3 scripts/guard/lane-integrity.py --cr CR-ca78eb76
   python3 scripts/guard/lane-integrity.py --cr CR-ca78eb76-a8a9-4789-a841-1b27bf428110
   python3 scripts/guard/lane-integrity.py --commits d897d94..d1ee654
@@ -13,38 +13,38 @@ Uso:
   python3 scripts/guard/lane-integrity.py --selftest           # 7 casos, sobre ESTE repo
   python3 scripts/guard/lane-integrity.py --selftest --case mixto
 
-Comprobaciones (códigos tipados; un solo FAIL hace FAIL al cierre):
-  (a) A-MIXTO            un commit toca a la vez implementación (`crates/**`, `src/**`)
-                         y gate (`scripts/*-001.py`, `scripts/*gate*.py`).
-  (b) GATE_POSTERIOR     el gate de la lane NO existía en el árbol del commit ANTERIOR
-                         al primer commit de implementación del mismo CR (nació después
-                         o en el mismo commit). Si la lane no toca ningún gate, basta
-                         con que OTRO gate preexista (gate escrito por otra lane).
-      GATE_AUSENTE       hay implementación y no hay ningún gate previo identificable.
-  (c) STATUS_SIN_QA      el HH-1 declara `status` por encima de `candidato` y no existe
-                         fila de QA independiente (autor ≠ autor del HH-1) con veredicto.
-  (d) EVIDENCIA_AUSENTE  una ruta citada como evidencia no existe en la revisión auditada.
-      EVIDENCIA_SHA      el sha256 declarado en el INDEX no coincide con los bytes del
-                         fichero citado en esa misma revisión.
-  (e) PUSH_DETECTADO     un commit auditado es alcanzable desde `refs/remotes/*`.
-      TAG_EN_RANGO       un commit auditado es alcanzable desde `refs/tags/*`.
+Checks (typed codes; a single FAIL makes the close FAIL):
+    (a) A-MIXTO            one commit touches both implementation (`crates/**`, `src/**`)
+                                                  and gate (`scripts/*-001.py`, `scripts/*gate*.py`).
+    (b) GATE_POSTERIOR     the lane's gate did NOT exist in the tree of the commit BEFORE
+                                                  the first implementation commit of the same CR (it was born later
+                                                  or in the same commit). If the lane touches no gate, it is enough
+                                                  that ANOTHER gate pre-exists (gate written by another lane).
+            GATE_AUSENTE       there is implementation and no identifiable previous gate.
+    (c) STATUS_SIN_QA      the HH-1 declares `status` above `candidato` and no independent
+                                                  QA row exists (author != HH-1 author) with a verdict.
+    (d) EVIDENCIA_AUSENTE  a path cited as evidence does not exist in the audited revision.
+            EVIDENCIA_SHA      the sha256 declared in INDEX does not match the bytes of the
+                                                  file cited in that same revision.
+    (e) PUSH_DETECTADO     an audited commit is reachable from `refs/remotes/*`.
+            TAG_EN_RANGO       an audited commit is reachable from `refs/tags/*`.
 
-Salida: matriz de 5 filas + lista de hallazgos; exit 0 = PASS, 1 = FAIL, 2 = uso/error.
+Output: 5-row matrix + finding list; exit 0 = PASS, 1 = FAIL, 2 = usage/error.
 
-LÍMITES DECLARADOS (lo que este instrumento NO puede verificar):
-  · Si el gate es DÉBIL por dentro: un gate que existe, corre y siempre da verde pasa
-    aquí. La calidad del gate es del auditor, no de este script.
-  · Si el gate mide lo que dice medir (fidelidad contrato↔fila): fuera de alcance.
-  · Si el veredicto de la fila de QA es honesto: aquí solo se comprueba que existe una
-    fila de OTRO autor con un token de veredicto; no se juzga su contenido.
-  · Rutas citadas como evidencia de OTRO repo, o borradas después del cierre, salen
-    como ausentes en la revisión auditada (la revisión se declara con `--at`).
-  · Un push cuyo ref remoto fue borrado después no deja rastro en `refs/remotes/*`.
-  · Un commit que se reescribió (amend/rebase) no es visible: se audita la historia
-    vigente, no la que existió.
-  · `status` se lee del frontmatter del HH-1 y del INDEX: si ambos callan, no se opina.
-  · Commits que no llevan el CR en el mensaje quedan FUERA del conjunto auditado en
-    modo `--cr` (ese hueco lo señala `SIN_COMMITS`/la fila de conteo, no se adivina).
+DECLARED LIMITS (what this instrument CANNOT verify):
+    · Whether the gate is WEAK inside: a gate that exists, runs and is always green passes
+        here. Gate quality belongs to the auditor, not to this script.
+    · Whether the gate measures what it says it measures (contract<->row fidelity): out of scope.
+    · Whether the QA row's verdict is honest: here only the existence of a row by ANOTHER
+        author with a verdict token is checked; its content is not judged.
+    · Paths cited as evidence of ANOTHER repo, or deleted after the close, come out
+        as absent in the audited revision (the revision is declared with `--at`).
+    · A push whose remote ref was deleted afterwards leaves no trace in `refs/remotes/*`.
+    · A commit that was rewritten (amend/rebase) is not visible: the history in force is
+        audited, not the one that existed.
+    · `status` is read from the HH-1 frontmatter and the INDEX: if both are silent, no opinion.
+    · Commits that do not carry the CR in the message stay OUT of the audited set in
+        `--cr` mode (that gap is flagged by `SIN_COMMITS`/the count row, it is not guessed).
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ from pathlib import Path
 
 # ── contrato de patrones ─────────────────────────────────────────────────────
 
-# gate = instrumento de cierre (mismo universo que guard-paths.sh, D2b/D4)
+# gate = close instrument (same universe as guard-paths.sh, D2b/D4)
 RE_GATE = re.compile(r"^scripts/(?:[^/]*-001\.py|[^/]*gate[^/]*\.py|closure-gate\.py)$")
 # implementación = producto
 RE_IMPL = re.compile(r"^(?:crates|src)/")
@@ -74,7 +74,7 @@ RE_VERDICT = re.compile(r"\b(PASS|ACEPTA(?:DO)?|APROBADO|VERDE|veredicto\s*:\s*\
 RE_FM_BLOCK = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
 RE_FM_FIELD = re.compile(r"^([a-z_]+)\s*:\s*(.+?)\s*$", re.MULTILINE)
 
-# estado ≤ candidato (contrato §1b + §4). Cualquier otro valor por encima exige QA.
+# state ≤ candidato (contract §1b + §4). Any other value above it requires QA.
 STATUS_BAJOS = {
     "candidato", "candidate", "partial", "parcial", "blocked", "bloqueado",
     "escalated", "escalado", "open", "abierto", "running", "en_curso", "wip",
@@ -137,7 +137,7 @@ def commit_paths(repo: Path, sha: str) -> list[str]:
 
 
 def first_add_commit(repo: Path, rev: str, path: str) -> str:
-    """sha del commit que AÑADIÓ `path` (el más antiguo de los `A`), o ''."""
+    """sha of the commit that ADDED `path` (the oldest of the `A`s), or ''."""
     out = git_text(repo, "log", "--diff-filter=A", "--format=%H", rev, "--", path)
     lines = [line.strip() for line in out.splitlines() if line.strip()]
     return lines[-1] if lines else ""
@@ -184,12 +184,12 @@ def cr_tokens(text: str) -> list[str]:
 
 
 def cr_short(cr: str) -> str:
-    """Id corto comparable: `CR-<8hex>-<resto>` -> `<8hex>`.
+    """Comparable short id: `CR-<8hex>-<rest>` -> `<8hex>`.
 
-    Un id corto SIN prefijo (`8cf48b73`, la forma en que el capitán nombra una lane
-    en su ORDER) YA ES el id corto: se devuelve tal cual. Sin esto `--cr 8cf48b73`
-    no resolvía ningún commit y el auditor emitía SIN_COMMITS/FAIL sobre una lane
-    que sí tenía commits: el FAIL no medía la lane y ESCONDÍA sus hallazgos reales.
+    A short id WITHOUT prefix (`8cf48b73`, the form the captain uses to name a lane
+    in its ORDER) ALREADY IS the short id: returned as is. Without this `--cr 8cf48b73`
+    resolved no commits and the auditor emitted SIN_COMMITS/FAIL over a lane
+    that did have commits: the FAIL did not measure the lane and HID its real findings.
     """
     cr = (cr or "").strip()
     if not cr:
@@ -201,9 +201,9 @@ def cr_short(cr: str) -> str:
 
 
 def cr_match(given: str, other: str) -> bool:
-    """Compara CR corto/largo. Si ambos llevan id corto y coinciden, es el mismo CR:
-    sin esto, un CR con el sufijo UUID mal escrito resolvía commits (por el id corto)
-    pero no las filas del INDEX, y el HH-1 quedaba invisible (falso PASS)."""
+    """Compares short/long CR. If both carry a short id and they match, it is the same CR:
+    without this, a CR with a mistyped UUID suffix resolved commits (by the short id)
+    but not the INDEX rows, and the HH-1 stayed invisible (false PASS)."""
     if not given or not other:
         return False
     if other == given or other.startswith(given) or given.startswith(other):
@@ -215,8 +215,8 @@ def cr_match(given: str, other: str) -> bool:
 # ── resolución del conjunto auditado ─────────────────────────────────────────
 
 def resolve_cr_commits(repo: Path, cr: str, rev: str) -> list[str]:
-    """Commits de `rev` cuyo mensaje lleva el CR como TOKEN delimitado, en orden
-    topológico inverso (padre→hijo). Sin `--all`: se audita la historia vigente."""
+    """Commits of `rev` whose message carries the CR as a delimited TOKEN, in reverse
+    topological order (parent->child). Without `--all`: the history in force is audited."""
     out = git_text(repo, "log", "--format=%H%x1f%s%x1f%b%x1e", rev)
     ordered = [line.strip() for line in out.splitlines() if line.strip()]
     hit = []
@@ -248,10 +248,10 @@ def resolve_range(repo: Path, spec: str) -> tuple[str, list[str], str]:
 # ── lectura de HH-1 / INDEX ──────────────────────────────────────────────────
 
 def rel_path(repo: Path, raw: str) -> str:
-    """Normaliza una ruta citada a repo-relativa. '' si queda fuera del repo.
+    """Normalises a cited path to repo-relative. '' if it falls outside the repo.
 
-    El INDEX de este target guarda rutas ABSOLUTAS; el cuerpo de los HH-1 usa
-    rutas relativas. Ambas formas son la misma evidencia: se comparan igual.
+    This target's INDEX stores ABSOLUTE paths; the HH-1 bodies use
+    relative paths. Both forms are the same evidence: they compare equally.
     """
     path = (raw or "").strip().strip('"').strip("'")
     if path.startswith("./"):
@@ -304,7 +304,7 @@ def parse_frontmatter(text: str) -> dict:
 
 def handoff_files_for_cr(repo: Path, rev: str, cr: str, rows: list[dict],
                          handoffs_dir: str) -> list[str]:
-    """HH-1 del CR: los que declara el INDEX + los que aparecen en el directorio."""
+    """CR's HH-1: those the INDEX declares + those appearing in the directory."""
     found: list[str] = []
     for row in rows:
         if not cr_match(cr, str(row.get("cr", ""))):
@@ -336,11 +336,11 @@ def author_of(text: str) -> str:
 
 def find_independent_qa(repo: Path, cr: str, forbidden_author: str,
                         validation_dir: str) -> tuple[bool, str]:
-    """Busca una fila de QA con veredicto y autor ≠ autor del HH-1.
+    """Looks for a QA row with a verdict and author != HH-1 author.
 
-    Universo: ficheros under `docs/sintergic/validation/` en el árbol de trabajo
-    (declarado: es la vista «en disco»). Una fila cuenta si (i) menciona el CR,
-    (ii) contiene un token de veredicto y (iii) declara un autor distinto.
+    Universe: files under `docs/sintergic/validation/` in the working tree
+    (declared: it is the "on disk" view). A row counts if (i) it mentions the CR,
+    (ii) it contains a verdict token and (iii) it declares a different author.
     """
     base = repo / validation_dir
     if not base.is_dir():
@@ -434,7 +434,7 @@ def check_gate_orden(repo: Path, commits: list[str], at_rev: str,
                     f"{first[:12]}"))
                 veredicto = "FAIL"
         return veredicto
-    # la lane no toca gates: el gate lo escribió otra lane ⇒ debe preexistir alguno
+    # the lane touches no gates: another lane wrote the gate => one must pre-exist
     candidatos = [p for p in git_text(repo, "ls-files", "scripts").splitlines()
                   if p.strip() and RE_GATE.match(p.strip())]
     previos = [p for p in candidatos if exists_at(repo, parent, p)]
@@ -455,8 +455,8 @@ def check_status(repo: Path, cr: str, at_rev: str, rows: list[dict],
                  handoffs: list[str], validation_dir: str,
                  findings: list[Finding]) -> str:
     if not handoffs:
-        # hay commits (check_status solo se llama con el conjunto no vacío) pero ningún
-        # HH-1 con este CR: C6 exige file de handoff por lane cerrada ⇒ no es un aviso
+        # there are commits (check_status is only called with a non-empty set) but no
+        # HH-1 with this CR: C6 requires a handoff file per closed lane => it is not a warning
         findings.append(Finding(
             "HH1_AUSENTE", "c", "FAIL",
             f"sin HH-1 localizable para {cr} en {at_rev[:12]}: la lane tiene commits "
@@ -537,7 +537,7 @@ def check_evidencia(repo: Path, cr: str, at_rev: str, rows: list[dict],
                     f"{index_path}: fila {row.get('id', '?')} declara sha256 {declared[:16]}… "
                     f"para {rel} y los bytes de {at_rev[:12]} dan {real[:16]}…"))
                 veredicto = "FAIL"
-    # 2) rutas citadas en el cuerpo de los HH-1 (backticks)
+    # 2) paths cited in the HH-1 body (backticks)
     for rel_hh in handoffs:
         text = read_text_at(repo, at_rev, rel_hh)
         if text is None:
@@ -558,10 +558,10 @@ def check_evidencia(repo: Path, cr: str, at_rev: str, rows: list[dict],
                 vistos.append(token)
                 if exists_at(repo, at_rev, token):
                     continue
-                # `.exists()` y no `.is_file()`: un artefacto de lane puede ser un
-                # DIRECTORIO (`.sintergic/artifacts/<lane>/`). Con `.is_file()` esa
-                # cita salía EVIDENCIA_AUSENTE/FAIL aunque el directorio estuviera en
-                # disco — falso positivo por diseño, no defecto de la lane.
+                # `.exists()` and not `.is_file()`: a lane artifact can be a
+                # DIRECTORY (`.sintergic/artifacts/<lane>/`). With `.is_file()` that
+                # citation came out EVIDENCIA_AUSENTE/FAIL even though the directory was on
+                # disk — a false positive by design, not a lane defect.
                 if (repo / token).exists():
                     findings.append(Finding(
                         "EVIDENCIA_NO_VERSIONADA", "d", "WARN",
@@ -667,7 +667,7 @@ def render(result: dict, stream=sys.stdout) -> None:
           f"exit {EXIT_PASS if result['veredicto'] == 'PASS' else EXIT_FAIL}", file=stream)
 
 
-# ── selftest (cadenas de commits colgantes SOBRE ESTE REPO) ──────────────────
+# ── selftest (dangling commit chains OVER THIS REPO) ──────────────────
 
 SELFTEST_CR = "CR-selftest-51d25f1e"
 SELFTEST_GATE = "scripts/zz-selftest-gate-001.py"
@@ -685,8 +685,8 @@ def _hash_blob(repo: Path, data: bytes) -> str:
 
 def _build_commit(repo: Path, base: str, files: dict[str, bytes],
                   message: str) -> str:
-    """Commit colgante sobre `base` con `files` escritos. NO mueve HEAD, ni refs,
-    ni el índice del repo: usa un GIT_INDEX_FILE temporal y `commit-tree`."""
+    """Dangling commit over `base` with `files` written. It moves neither HEAD, nor refs,
+    nor the repo index: it uses a temporary GIT_INDEX_FILE and `commit-tree`."""
     fd, idx_path = tempfile.mkstemp(prefix="lane-integrity-idx.")
     os.close(fd)
     os.unlink(idx_path)
@@ -728,8 +728,8 @@ def _index_append(repo: Path, base: str, row: dict, index_path: str) -> bytes:
 
 
 def _gate_existente(repo: Path, base: str) -> str:
-    """Primer gate presente en el árbol de `base` (para editar uno real en el caso
-    (i)). Lista el ÍNDICE del repo (plumbing) y confirma existencia en `base`."""
+    """First gate present in `base`'s tree (to edit a real one in case
+    (i)). Lists the repo INDEX (plumbing) and confirms existence in `base`."""
     preferido = "scripts/shell-001.py"
     if exists_at(repo, base, preferido):
         return preferido
@@ -761,23 +761,23 @@ def _hh1_bytes(status: str, cited: list[str], author: str = "selftest-ejecutor")
 def _selftest_cases(repo: Path, base: str
                     ) -> tuple[list[tuple[str, str, list[str], str, str | None, list[str]]],
                                list[str]]:
-    """Devuelve ([(id, esperado, códigos-FAIL-esperados, tip, cr, códigos-WARN-
-    esperados)], [rutas-de-limpieza]) construyendo las cadenas. Cada caso es
-    independiente (su propia cadena desde `base`).
+    """Returns ([(id, expected, expected-FAIL-codes, tip, cr, expected-WARN-
+    codes)], [cleanup-paths]) by building the chains. Each case is
+    independent (its own chain from `base`).
 
-    Dos controles extra (CR-9dd5c91e) blindan dos falsos positivos por diseño del
-    propio instrumento, medidos sobre lanes ya cerradas de este target:
-      · `corto`     — el CR llega como id corto sin prefijo (`selftest`): si `cr_match`
-                      no lo resuelve, el caso sale SIN_COMMITS/FAIL (el defecto real).
-      · `artefacto` — una cita que es DIRECTORIO presente en disco y no versionada:
-                      debe salir WARN EVIDENCIA_NO_VERSIONADA, nunca FAIL.
+    Two extra controls (CR-9dd5c91e) harden two false positives by design of the
+    instrument itself, measured over already closed lanes of this target:
+        · `corto`     — the CR arrives as a short id without prefix (`selftest`): if `cr_match`
+                                        does not resolve it, the case comes out SIN_COMMITS/FAIL (the real defect).
+        · `artefacto` — a citation that is a DIRECTORY present on disk and unversioned:
+                                        it must come out WARN EVIDENCIA_NO_VERSIONADA, never FAIL.
     """
     casos = []
 
-    # (i) commit que EDITA un gate existente + impl a la vez. Si hay un gate en el
-    # árbol de `base` se edita ése (así (b) queda satisfecha y el único hallazgo es
-    # A-MIXTO: el caso mide lo que dice medir); si no lo hay, el gate nace en el
-    # mismo commit y el caso añade GATE_POSTERIOR, que es verdad y no se esconde.
+    # (i) commit that EDITS an existing gate + impl at the same time. If there is a gate in
+    # `base`'s tree that one is edited (so (b) is satisfied and the only finding is
+    # A-MIXTO: the case measures what it says it measures); if there is none, the gate is born in the
+    # same commit and the case adds GATE_POSTERIOR, which is true and is not hidden.
     gate_previo = _gate_existente(repo, base)
     msg = f"selftest mixto {SELFTEST_CR}"
     if gate_previo:
@@ -786,8 +786,8 @@ def _selftest_cases(repo: Path, base: str
                    SELFTEST_IMPL: b"// impl\n"}
     else:
         files_i = {SELFTEST_GATE: b"# gate\n", SELFTEST_IMPL: b"// impl\n"}
-    # el caso lleva su HH-1 `candidato` dentro de la MISMA cadena: si faltara, (c)
-    # añadiría HH1_AUSENTE y el caso dejaría de medir sólo lo que dice medir
+    # the case carries its `candidato` HH-1 inside the SAME chain: without it, (c)
+    # would add HH1_AUSENTE and the case would stop measuring only what it says it measures
     hh1_1 = _hh1_bytes("candidato", [gate_previo or SELFTEST_GATE])
     files_i[SELFTEST_HH1] = hh1_1
     files_i[SELFTEST_INDEX] = _index_append(repo, base, {
@@ -799,7 +799,7 @@ def _selftest_cases(repo: Path, base: str
     m = _build_commit(repo, base, files_i, msg)
     casos.append(("mixto", "FAIL", ["A-MIXTO"], m, None, []))
 
-    # (ii) gate POSTERIOR a la implementación (con su HH-1 en la cadena, igual que (i))
+    # (ii) gate AFTER the implementation (with its HH-1 in the chain, as in (i))
     hh1_2 = _hh1_bytes("candidato", [SELFTEST_IMPL])
     i0 = _build_commit(repo, base, {
         SELFTEST_IMPL: b"// impl sin gate previo\n",
@@ -843,7 +843,7 @@ def _selftest_cases(repo: Path, base: str
                        f"selftest status alto {SELFTEST_CR}")
     casos.append(("status", "FAIL", ["STATUS_SIN_QA"], s4, None, []))
 
-    # (v) control de NO falso rojo: gate antes, impl después, HH-1 candidato
+    # (v) NO false red control: gate before, impl after, candidate HH-1
     g5 = _build_commit(repo, base, {SELFTEST_GATE: b"# gate\n"},
                        f"selftest pase gate {SELFTEST_CR}")
     i5 = _build_commit(repo, g5, {SELFTEST_IMPL: b"// impl contra gate previo\n"},
@@ -859,10 +859,10 @@ def _selftest_cases(repo: Path, base: str
                        f"selftest pase cierre {SELFTEST_CR}")
     casos.append(("pase", "PASS", [], p5, None, []))
 
-    # (vi) control de falso positivo CERRADO: cita que es DIRECTORIO en disco y no
-    # versionada. La cadena de commits es idéntica a la de `pase` (gate antes, impl
-    # después, HH-1 candidato): lo único que cambia es la cita del HH-1, así que si
-    # el caso no mide lo que dice medir, sale FALLA por otro código y se ve.
+    # (vi) CLOSED false-positive control: a citation that is a DIRECTORY on disk and
+    # unversioned. The commit chain is identical to `pase`'s (gate before, impl
+    # after, candidate HH-1): the only thing that changes is the HH-1 citation, so if
+    # the case does not measure what it says it measures, it comes out FAIL for another code and shows.
     dir_ev_rel = ".sintergic/artifacts/zz-selftest-dir"
     dir_ev = repo / dir_ev_rel
     dir_ev.mkdir(parents=True, exist_ok=True)
@@ -880,9 +880,9 @@ def _selftest_cases(repo: Path, base: str
                        f"selftest artefacto directorio {SELFTEST_CR}")
     casos.append(("artefacto", "PASS", [], a6, None, ["EVIDENCIA_NO_VERSIONADA"]))
 
-    # (vii) control de resolución: el MISMO cierre de `pase`, auditado con el CR en
-    # forma corta sin prefijo. Debe dar el MISMO veredicto (PASS): lo que se mide es
-    # `cr_match`, no el cierre.
+    # (vii) resolution control: the SAME close as `pase`, audited with the CR in
+    # short form without prefix. It must give the SAME verdict (PASS): what is measured is
+    # `cr_match`, not the close.
     casos.append(("corto", "PASS", [], p5, "selftest", []))
 
     return casos, limpieza
@@ -893,8 +893,8 @@ def run_selftest(repo: Path, only: str | None, as_json: bool) -> int:
     if not base:
         print("selftest: el repo no tiene commits (HEAD irresoluble)", file=sys.stderr)
         return EXIT_USO
-    # El CR sintético se aísla por token: los mensajes de las cadenas colgantes lo
-    # llevan, y ningún commit real lo lleva (se comprueba, si no el caso es vacuO).
+    # The synthetic CR is isolated by token: the dangling chains' messages carry it,
+    # and no real commit carries it (checked, otherwise the case is vacuous).
     reales = resolve_cr_commits(repo, SELFTEST_CR, base)
     if reales:
         print(f"selftest ABORTADO: {len(reales)} commit(s) reales ya llevan {SELFTEST_CR}; "
@@ -910,8 +910,8 @@ def run_selftest(repo: Path, only: str | None, as_json: bool) -> int:
 
     filas, fallos, detalles = [], 0, {}
     for caso_id, esperado, codigos, tip, cr_caso, warns in casos:
-        # (iii)/(iv)/(v) resuelven por CR y leen INDEX/HH-1 en el tip de la cadena;
-        # (i)/(ii) auditan el rango base..tip.
+        # (iii)/(iv)/(v) resolve by CR and read INDEX/HH-1 at the chain tip;
+        # (i)/(ii) audit the base..tip range.
         cr_use = cr_caso or SELFTEST_CR
         resultado = run_audit(
             repo, cr_use, resolve_cr_commits(repo, cr_use, tip), tip,
@@ -959,8 +959,8 @@ def run_selftest(repo: Path, only: str | None, as_json: bool) -> int:
         print(f"RESUMEN: {len(filas) - fallos}/{len(filas)} casos OK · exit "
               f"{EXIT_PASS if fallos == 0 else EXIT_FAIL}")
         if only and only in detalles:
-            # el caso aislado imprime TAMBIÉN el informe real del instrumento: es la
-            # prueba que se pega en el HH-1 (no un resumen de la expectativa).
+            # the isolated case ALSO prints the instrument's real report: it is the
+            # proof pasted into the HH-1 (not a summary of the expectation).
             print("")
             print(f"— informe real del instrumento para el caso `{only}` —")
             print("")

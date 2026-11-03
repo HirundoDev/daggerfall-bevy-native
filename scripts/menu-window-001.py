@@ -1,150 +1,150 @@
 #!/usr/bin/env python3
-"""MENU-WINDOW-001 — el menú principal SE PINTA en la ventana real (CR-625ff0ea).
+"""MENU-WINDOW-001 — the main menu IS PAINTED in the real window (CR-625ff0ea).
 
-Por qué existe
+Why it exists
 --------------
-`mplay-001.py` P2 daba **PASS** midiendo `items-surface=main-menu` (estructura de
-datos del shell) mientras la ventana **no pintaba** el menú: `main-menu` (index 3)
-estaba `Visible` pero su sprite seguía aparcado en `y=PARKED_Y=-20000.0`, fuera de
-cámara (defecto 2026-10-30, fix `m18_apply_surface`). Una sonda que se cree a sí
-misma no puede distinguir «el dato dice menú» de «la ventana muestra el menú».
+`mplay-001.py` P2 gave **PASS** by measuring `items-surface=main-menu` (shell data
+structure) while the window did **not paint** the menu: `main-menu` (index 3)
+was `Visible` but its sprite stayed parked at `y=PARKED_Y=-20000.0`, off
+camera (defect 2026-10-30, fix `m18_apply_surface`). A probe that believes
+itself cannot distinguish "the data says menu" from "the window shows the menu".
 
-Este gate mide **píxeles de la ventana real**, capturada por su X id con
-`import -display <dpy> -window <id>`, y exige además la evidencia estructural del
-log del producto (panel activo en `y=0.0` y los demás aparcados). Una captura que
-no se pudo tomar **nunca** es verde: el veredicto es `NOT-RUN` con causa nombrada.
+This gate measures **pixels of the real window**, captured by its X id with
+`import -display <dpy> -window <id>`, and additionally requires the structural
+evidence of the product log (active panel at `y=0.0` and the rest parked). A capture that
+could not be taken is **never** green: the verdict is `NOT-RUN` with a named cause.
 
-Qué mide (filas estables MW1..MW8)
----------------------------------
-    MW1-bin         binario de producto presente y construido con `--features window`
-                    (si `crates/**` es más nuevo: build bajo `flock`; `--skip-build` lo declara rancio)
-    MW2-title       aparece una ventana titulada `SHELL MENU` dentro del plazo (>= 60 s)
-    MW3-capture     `import -window <id>` escribió un PNG **de esta corrida** (fresco, decodificable,
-                    no menor que el rect medido) — 0 PNG = 0 medición
-    MW4-pixels      la métrica falsable sobre el rect central (640x400): arte de menú
-                    (`distinct` bajo + filas planas + centro no negro), NO un mundo 3D
-    MW5-surface     `M18 VE: surface → index I on screen at y=0.0 · N panel(s) parked at y=-20000.0`
-                    con `I` en pantalla (`y == 0.0`), `N == 5` y el aparcamiento lejos (> 1000 px)
-    MW6-panel       `M18 VE: UI surface MENU → panel "..." (index I, O opaque px) · HUD hidden`
-                    con `O > 0`, `HUD hidden` y el **mismo** `I` que MW5
-    MW7-title-now   el título sigue siendo `SHELL MENU` en el instante de la captura
-                    (no se capturó un estado posterior, p.ej. `SHELL PLAYING`)
-    MW8-field-frame el marco exterior es el CAMPO del menú, no mundo: 8 franjas del borde
-                    (4 esquinas + 4 tramos de borde) `distinct == 1` y color `PAL[221]`
-                    = `(23,23,23)` — el campo plano del menú a sangre
+What it measures (stable rows MW1..MW8)
+--------------------------------------
+        MW1-bin         product binary present and built with `--features window`
+                                        (if `crates/**` is newer: build under `flock`; `--skip-build` declares it stale)
+        MW2-title       a window titled `SHELL MENU` appears within the deadline (>= 60 s)
+        MW3-capture     `import -window <id>` wrote a PNG **of this run** (fresh, decodable,
+                                        not smaller than the measured rect) — 0 PNG = 0 measurement
+        MW4-pixels      the falsifiable metric over the central rect (640x400): menu art
+                                        (`distinct` low + flat rows + non-black centre), NOT a 3D world
+        MW5-surface     `M18 VE: surface -> index I on screen at y=0.0 . N panel(s) parked at y=-20000.0`
+                                        with `I` on screen (`y == 0.0`), `N == 5` and the parking far away (> 1000 px)
+        MW6-panel       `M18 VE: UI surface MENU -> panel "..." (index I, O opaque px) . HUD hidden`
+                                        with `O > 0`, `HUD hidden` and the **same** `I` as MW5
+        MW7-title-now   the title is still `SHELL MENU` at the instant of the capture
+                                        (a later state was not captured, e.g. `SHELL PLAYING`)
+        MW8-field-frame the outer frame is the menu's FIELD, not world: 8 edge strips
+                                        (4 corners + 4 edge spans) `distinct == 1` and colour `PAL[221]`
+                                        = `(23,23,23)` — the flat field of the full-bleed menu
 
-Métrica MW4 (falsable, A/B medido con ESTE mismo código)
+MW4 metric (falsifiable, A/B measured with THIS same code)
 -------------------------------------------------------
-Rect central 640x400 de la ventana 1280x720 (centro exacto, `PARKED_Y` fuera de cámara),
-las dos columnas capturadas por ESTE fichero (`import -window <id>`) el 2026-10-30:
+Central 640x400 rect of the 1280x720 window (exact centre, `PARKED_Y` off camera),
+both columns captured by THIS file (`import -window <id>`) on 2026-10-30:
 
-    | árbol        | capture sha256 (16) | bytes  | distinct | flat_rows | nonblack | MW4   |
+    | tree         | capture sha256 (16) | bytes  | distinct | flat_rows | nonblack | MW4   |
     |--------------|---------------------|-------:|---------:|----------:|---------:|-------|
     | PRE  52575e8 | ec9df6235a0280b4    | 726820 |     1887 |         0 |    1.000 | FAIL  |
     | POST 970bdb3 | 4d90434e17112bd8    | 600236 |      387 |       172 |    1.000 | PASS  |
 
-Los dos PNG del A/B son **los mismos artefactos** que midió el dueño del producto
-(PRE 726820 B / `ec9df623…`, POST 600236 B / `4d90434e…`): la captura es determinista
-byte a byte, así que el A/B se puede repetir.
+The two PNGs of the A/B are **the same artifacts** the product owner measured
+(PRE 726820 B / `ec9df623...`, POST 600236 B / `4d90434e...`): the capture is deterministic
+byte for byte, so the A/B can be repeated.
 
-El criterio es un **conjunto** (los tres a la vez): `distinct <= DISTINCT_MAX` (arte
-plano de panel, no textura de mundo) `and flat_rows >= FLAT_ROWS_MIN` (filas
-idénticas consecutivas: los grandes planos del panel retail) `and nonblack >=
-NONBLACK_MIN` (el centro no es una pantalla negra). Los dos primeros son los que
-**separan** PRE de POST (`1887 > 700` y `0 < 60`); `nonblack` no separa (los dos
-1.000) y su papel es falsar el tercer modo de fallo: la ventana que existe y no pinta
-nada. Los umbrales son constantes declaradas y sobreescribibles (`--distinct-max`,
-`--flat-rows-min`, `--nonblack-min`) para que el A/B se reproduzca sin editar el
+The criterion is a **set** (all three at once): `distinct <= DISTINCT_MAX` (flat
+panel art, not world texture) `and flat_rows >= FLAT_ROWS_MIN` (identical
+consecutive rows: the large planes of the retail panel) `and nonblack >=
+NONBLACK_MIN` (the centre is not a black screen). The first two are the ones that
+**separate** PRE from POST (`1887 > 700` and `0 < 60`); `nonblack` separates nothing (both
+1.000) and its role is to falsify the third failure mode: the window that exists and paints
+nothing. The thresholds are declared constants and overridable (`--distinct-max`,
+`--flat-rows-min`, `--nonblack-min`) so the A/B reproduces without editing the file.
 fichero.
 
-Métrica MW8 (marco exterior = campo del menú) — REDEFINIDA con el menú a sangre
+MW8 metric (outer frame = menu field) — REDEFINED with the full-bleed menu
 -------------------------------------------------------------------------------
-El menú moderno se compone a sangre sobre 320x180 escalado x4: no hay margen negro
-exterior. La definición retail («fuera del panel no hay píxeles no negros») ya no
-distingue nada — el campo del menú, `PAL[221] = (23,23,23)`, ES no negro, y el
-letterbox negro del menú x2 anterior se colaba como verde. MW8 mide ahora lo que de
-verdad separa «campo del menú» de «mundo»: las 8 franjas del borde de la ventana
-tienen que ser **campo plano del menú** —`distinct == 1` y color `PAL[221]`—, que es
-lo que el arte sellado deja en el marco (las franjas retail de 320/160 px incluían
-placas y filetes, así que ya no son uniformes por construcción):
+The modern menu is composed full-bleed over 320x180 scaled x4: there is no outer black
+margin. The retail definition ("outside the panel there are no non-black pixels") no longer
+distinguishes anything — the menu field, `PAL[221] = (23,23,23)`, IS non-black, and the
+black letterbox of the previous x2 menu slipped through as green. MW8 now measures what
+really separates "menu field" from "world": the 8 strips of the window edge
+must be **the menu's flat field** —`distinct == 1` and colour `PAL[221]`—, which is
+what the sealed art leaves in the frame (the 320/160 px retail strips included
+plates and fillets, so they are no longer uniform by construction):
 
-    region         caja (ventana 1280x720)          qué es en el menú a sangre
+    region         box (1280x720 window)           what it is in the full-bleed menu
     -------------  -------------------------------  ----------------------------------
-    corner_tl/tr   (0,0,40,40) · (w-40,0,w,40)      campo, por fuera del lintel
-    corner_bl/br   (0,h-40,40,h) · (w-40,h-40,w,h)  campo, por fuera del pie
-    frame_top      (w/2-40,0,w/2+40,20)             campo entre rótulo y run derecho
-    frame_bottom   (w/2-40,h-20,w/2+40,h)           campo bajo el pie
-    frame_left     (0,h/2-20,20,h/2+20)             campo a la izquierda de la placa
-    frame_right    (w-20,h/2-20,w,h/2+20)           campo a la derecha de la ficha
+    corner_tl/tr   (0,0,40,40) . (w-40,0,w,40)      field, outside the lintel
+    corner_bl/br   (0,h-40,40,h) . (w-40,h-40,w,h)  field, outside the foot
+    frame_top      (w/2-40,0,w/2+40,20)             field between sign and right run
+    frame_bottom   (w/2-40,h-20,w/2+40,h)           field under the foot
+    frame_left     (0,h/2-20,20,h/2+20)             field left of the plate
+    frame_right    (w-20,h/2-20,w,h/2+20)           field right of the card
 
-Criterio (constantes declaradas, sobreescribibles por `--frame-*`): cada una de las 8
-franjas `distinct <= FRAME_DISTINCT_MAX (1)` **y** color modal `== PAL[221]`. Las dos
-condiciones NO son redundantes: un plano de UN solo color que no sea el campo (cielo,
-niebla, agua del mundo) satisface `distinct == 1` y solo la igualdad de color lo caza
-— falsificador `margins-flat-not-field`; una textura de mundo cae por las dos vías —
-falsificador `world-in-margins` (que deja MW4 en PASS: el centro sigue intacto).
+Criterion (declared constants, overridable with `--frame-*`): each of the 8
+strips `distinct <= FRAME_DISTINCT_MAX (1)` **and** modal colour `== PAL[221]`. The two
+conditions are NOT redundant: a plane of a SINGLE colour that is not the field (sky,
+fog, world water) satisfies `distinct == 1` and only the colour equality catches it
+— falsifier `margins-flat-not-field`; a world texture falls by both paths —
+falsifier `world-in-margins` (which leaves MW4 at PASS: the centre is untouched).
 
-Alcance declarado: MW8 muestrea el marco, no lo compara píxel a píxel contra la
-maqueta; la igualdad TOTAL de la pantalla es de `scripts/menu-selection-capture.py`
-(diff estático = 0 contra la maqueta sellada). MW8 es la sonda barata que no necesita
-la referencia y que MW4 no cubría.
+Declared scope: MW8 samples the frame, it does not compare it pixel by pixel against the
+mock-up; TOTAL screen equality belongs to `scripts/menu-selection-capture.py`
+(static diff = 0 against the sealed mock-up). MW8 is the cheap probe that needs no
+reference and that MW4 did not cover.
 
-A/B histórico (capturas 1280x720 del defecto retail, con la definición anterior):
+Historical A/B (1280x720 captures of the retail defect, with the previous definition):
 
-    | captura         | sha256 (16)  | world-outside-center  | strip_left/right                    | MW4  | MW8  |
+    | capture         | sha256 (16)  | world-outside-center  | strip_left/right                    | MW4  | MW8  |
     |-----------------|--------------|-----------------------|-------------------------------------|------|------|
-    | PRE  970bdb3    | 4d90434e1711 | 665600 px (100.0000 %) | distinct 894 / 1029 · nonblack 1.0000 | PASS | FAIL |
-    | POST HEAD (fix) | (de la corrida) | 0 px (0.0000 %)     | distinct 1 / 1 · nonblack 0.0000      | PASS | PASS |
+    | PRE  970bdb3    | 4d90434e1711 | 665600 px (100.0000 %) | distinct 894 / 1029 . nonblack 1.0000 | PASS | FAIL |
+    | POST HEAD (fix) | (from the run) | 0 px (0.0000 %)     | distinct 1 / 1 . nonblack 0.0000      | PASS | PASS |
 
-Esa tabla es el hueco: con el menú pintado y el mundo detrás, MW4 da PASS en las dos y
-solo MW8 separa. Con el menú a sangre, la fila mide el campo del marco.
+That table is the gap: with the menu painted and the world behind, MW4 passes in both and
+only MW8 separates. With the full-bleed menu, the row measures the field of the frame.
 
-Anti-Pantalla (UBIQUITOUS §A-24) — lo que este gate NO ve
+Anti-Screen (UBIQUITOUS §A-24) — what this gate does NOT see
 --------------------------------------------------------
-- **No ve el contenido semántico**: que el logo diga «DaggerFall», que la placa diga
-  «The Elder Scrolls / Chapter 2» o que los botones sean ACCEPT/REJECT/CANCEL no se
-  comprueba aquí (eso pide OCR/template-matching, otra lane). Mide que **hay un panel
-  de UI pintado** en el centro, no qué dice.
-- **No ve interacción**: no pulsa teclas; mide el estado `SHELL MENU` de arranque. La
-  navegación del menú es de `shell-002.py` / `mplay-001.py`.
-- **No ve el compositor**: `import -window <id>` pide el contenido al servidor X. Una
-  ventana ocluida en un escritorio sin Composite podría devolver contenido obsoleto;
-  el gate eleva la ventana (`_NET_ACTIVE_WINDOW`, best-effort) y declara el resultado
-  de la elevación en `ENV` (`raise=1|0`), pero no puede garantizarlo.
-- **No ve fps ni fluidez**: una sola captura estática; 1 frame pintado es suficiente.
-- **No ve quién pulsa las teclas**: si otra lane (o el dueño) escribe en el mismo
-  `DISPLAY`, un `Enter` sintético puede avanzar `MENU → CREATE` mientras se mide. Por
-  eso la ventana NO se eleva a foco por defecto (`--raise` lo pide explícitamente) y
-  MW7 lee el título antes **y** después de la captura: una transición a media medida
-  da `FAIL` con el título culpable, nunca un verde sobre otro estado.
-- **No ve otras resoluciones**: exige que la ventana sea >= 640x400 y centra el rect;
-  un cambio de resolución no rompe la medición, un cambio de **composición** sí
-  (los umbrales se recalibran con el A/B documentado).
+- **It does not see semantic content**: that the logo says "DaggerFall", that the plate says
+    the retail title of the plate or that the buttons are ACCEPT/REJECT/CANCEL is not
+    checked here (that asks for OCR/template-matching, another lane). It measures that **there is a UI
+    panel painted** in the centre, not what it says.
+- **It does not see interaction**: it presses no keys; it measures the startup `SHELL MENU`
+    state. Menu navigation belongs to `shell-002.py` / `mplay-001.py`.
+- **It does not see the compositor**: `import -window <id>` asks the X server for the
+    content. An occluded window on a desktop without Composite could return stale content;
+    the gate raises the window (`_NET_ACTIVE_WINDOW`, best-effort) and declares the result
+    of the raise in `ENV` (`raise=1|0`), but it cannot guarantee it.
+- **It does not see fps or smoothness**: a single static capture; 1 painted frame is enough.
+- **It does not see who presses the keys**: if another lane (or the owner) writes to the same
+    `DISPLAY`, a synthetic `Enter` can advance `MENU -> CREATE` while the measurement runs. That
+    is why the window is NOT raised to focus by default (`--raise` asks for it explicitly) and
+    MW7 reads the title before **and** after the capture: a transition mid-measurement
+    gives `FAIL` with the offending title, never a green over another state.
+- **It does not see other resolutions**: it requires the window to be >= 640x400 and centres the rect;
+    a resolution change does not break the measurement, a **composition** change does
+    (the thresholds are recalibrated with the documented A/B).
 
-Uso
+Usage
 ---
-    python3 scripts/menu-window-001.py                      # corrida real (build + ventana + captura)
-    python3 scripts/menu-window-001.py --skip-build         # no construye (exit 3 si el binario está rancio)
-    python3 scripts/menu-window-001.py --binary /ruta/bin --skip-build   # control negativo (PRE)
-    python3 scripts/menu-window-001.py --self-test          # falsificadores con PNGs sintéticos (sin X)
-    python3 scripts/menu-window-001.py --falsify world-injected parked-active blank-screen
-    python3 scripts/menu-window-001.py --falsify world-in-margins margins-flat-not-field
-    python3 scripts/menu-window-001.py --list
-    python3 scripts/menu-window-001.py --json --keep /tmp/menu-window-keep
+        python3 scripts/menu-window-001.py                      # real run (build + window + capture)
+        python3 scripts/menu-window-001.py --skip-build         # does not build (exit 3 if the binary is stale)
+        python3 scripts/menu-window-001.py --binary /path/bin --skip-build   # negative control (PRE)
+        python3 scripts/menu-window-001.py --self-test          # falsifiers with synthetic PNGs (no X)
+        python3 scripts/menu-window-001.py --falsify world-injected parked-active blank-screen
+        python3 scripts/menu-window-001.py --falsify world-in-margins margins-flat-not-field
+        python3 scripts/menu-window-001.py --list
+        python3 scripts/menu-window-001.py --json --keep /tmp/menu-window-keep
 
-Exit: 0 PASS · 1 FAIL · 2 NC (build/binario/datos) · 3 NOT-RUN (sin DISPLAY, sin
-captura posible, binario rancio con `--skip-build`).
+Exit: 0 PASS . 1 FAIL . 2 NC (build/binary/data) . 3 NOT-RUN (no DISPLAY, no
+capture possible, stale binary with `--skip-build`).
 
-Control negativo reproducido (PRE) — el árbol del defecto, sin tocar este HEAD:
+Negative control reproduced (PRE) — the defect tree, without touching this HEAD:
 
-    git worktree add /tmp/menu-prefix 52575e8
-    (cd /tmp/menu-prefix && CARGO_TARGET_DIR=/var/tmp/menu-prefix-target \\
-        flock .sintergic/locks/cargo-build.lock cargo build -p daggerfall-app --features window)
-    python3 scripts/menu-window-001.py --binary /var/tmp/menu-prefix-target/debug/daggerfall-app \\
-        --skip-build --out /tmp/menu-window-pre
+        git worktree add /tmp/menu-prefix 52575e8
+        (cd /tmp/menu-prefix && CARGO_TARGET_DIR=/var/tmp/menu-prefix-target \
+                flock .sintergic/locks/cargo-build.lock cargo build -p daggerfall-app --features window)
+        python3 scripts/menu-window-001.py --binary /var/tmp/menu-prefix-target/debug/daggerfall-app \
+                --skip-build --out /tmp/menu-window-pre
 
-El fix del producto ya está firmado por otra lane: este instrumento **no** toca
-`crates/**`, no empuja, no etiqueta y no escribe bytes retail.
+The product fix is already signed off by another lane: this instrument does **not** touch
+`crates/**`, does not push, does not tag and does not write retail bytes.
 """
 
 from __future__ import annotations
@@ -183,24 +183,24 @@ DEFAULT_SETTLE = 2.0                # margen de pintado tras el título, antes d
 PARKED_EXPECTED = 5                 # paneles aparcados en la composición MENU
 PARK_DISTANCE_MIN = 1000.0          # «aparcado» = fuera de cámara, no `y=0`
 
-# Umbrales MW4 (A/B medido con `measure_image` de ESTE fichero; ver docstring).
+# MW4 thresholds (A/B measured with `measure_image` of THIS file; see docstring).
 DISTINCT_MAX = 700                  # POST 387 · PRE 1887
 FLAT_ROWS_MIN = 60                  # POST 172/399 · PRE (ver HH)
 NONBLACK_MIN = 0.50                 # POST 1.000 · pantalla negra 0.000
 
-# ── MW8: marco exterior = CAMPO del menú (redefinido con el menú a sangre) ─
-# El menú moderno se compone a sangre: el marco ya NO es negro, es su campo plano
-# `PAL[221]`. Tres definiciones coexistían en el árbol retail; aquí hay una sola, la
-# que el arte sellado satisface en las 8 franjas que mide `_frame_metrics`.
+# -- MW8: outer frame = menu FIELD (redefined with the full-bleed menu) --
+# The modern menu is composed full-bleed: the frame is NO LONGER black, it is its flat field
+# `PAL[221]`. Three definitions coexisted in the retail tree; here there is only one, the
+# one the sealed art satisfies in the 8 strips `_frame_metrics` measures.
 MENU_FIELD_RGB = (23, 23, 23)       # PAL[221] — campo del menú a sangre (misma que render.py)
 FRAME_CORNER_PX = 40                # esquina: cuadrada, fuera del lintel y del pie
 FRAME_EDGE_LEN = 80                 # tramo de borde (centrado en cada lado)
 FRAME_EDGE_THICK = 20               # grosor del tramo (5 px de canvas x4)
 MARGIN_FLAT_RGB = (40, 32, 40)      # fixture: franja de UN color plano que NO es el campo
 
-# Umbrales MW8 (constantes declaradas, sobreescribibles por `--frame-*`). Ningún
-# número enterrado. Las dos condiciones no son redundantes: `distinct == 1` caza el
-# mundo texturizado, la igualdad de color caza un plano uniforme que no sea el campo.
+# MW8 thresholds (declared constants, overridable with `--frame-*`). No
+# buried number. The two conditions are not redundant: `distinct == 1` catches the
+# textured world, colour equality catches a uniform plane that is not the field.
 FRAME_DISTINCT_MAX = 1              # un solo color por franja...
 FRAME_OFF_FIELD_MAX = 0             # ...y ese color tiene que ser PAL[221] (0 franjas fuera)
 
@@ -209,7 +209,7 @@ FRAME_REGIONS = (
     "frame_top", "frame_bottom", "frame_left", "frame_right",
 )
 
-# ── contrato de evidencia del producto (verbatim de `m18_window.rs`) ───────
+# -- product evidence contract (verbatim from `m18_window.rs`) --
 RE_SURFACE = re.compile(
     r"^M18 VE: surface → index (\d+) on screen at y=(-?[\d.]+) · (\d+) panel\(s\) parked at y=(-?[\d.]+)$"
 )
@@ -250,12 +250,12 @@ ANTIPANTALLA = (
 
 
 class Measurement(Exception):
-    """MEDICIÓN NO POSIBLE: no hay veredicto verde sin este dato."""
+    """MEASUREMENT NOT POSSIBLE: there is no green verdict without this datum."""
 
 
 # ── utilidades ────────────────────────────────────────────────────────────
 def short(text, limit: int = 64) -> str:
-    """Título de ventana recortado: el real lleva HUD y escena y no cabe en la fila."""
+    """Truncated window title: the real one carries HUD and scene and does not fit the row."""
     if text is None:
         return "-"
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -282,7 +282,7 @@ def head_commit() -> str:
 
 
 def tree_dirty() -> int:
-    """Escrituras ajenas bajo `crates/` (medición provisional, no la rompe)."""
+    """Foreign writes under `crates/` (provisional measurement, does not break it)."""
     try:
         out = subprocess.check_output(
             ["git", "-C", str(ROOT), "status", "--porcelain", "--", "crates"],
@@ -304,7 +304,7 @@ def newest_source_mtime() -> float:
 
 
 def emit(lines: list[str], out_path: Path | None) -> None:
-    """Imprime, sella con DIGEST y archiva (el DIGEST cubre todo lo anterior)."""
+    """Prints, seals with DIGEST and archives (the DIGEST covers everything above)."""
     text = "\n".join(lines) + "\n"
     sealed = text + "DIGEST sha256:%s\n" % hashlib.sha256(text.encode("utf-8")).hexdigest()
     if out_path is not None:
@@ -393,10 +393,10 @@ def window_owner_pid(d, win):
 
 
 def find_window(d, proc, deadline: float):
-    """Ventana propia del proceso cuyo título lleva la etiqueta pedida.
+    """Own window of the process whose title carries the requested label.
 
-    Prioridad `_NET_WM_PID` == pid del hijo; si el toolkit no publica el PID, el
-    título `DAGGERFALL`/`SHELL ...` basta (misma regla que `shell-001.py`).
+    Priority `_NET_WM_PID` == child pid; if the toolkit does not publish the PID, the
+    `DAGGERFALL`/`SHELL ...` title is enough (same rule as `shell-001.py`).
     """
     fallback = None
     while True:
@@ -461,12 +461,12 @@ def capture_window(display: str, win, png: Path) -> tuple[int, str]:
 
 # ── MW4: la métrica falsable ──────────────────────────────────────────────
 def measure_image(path: Path, rect: tuple[int, int] = DEFAULT_RECT) -> dict:
-    """Mide el rect central: distinct, filas planas, centro no negro.
+    """Measures the central rect: distinct, flat rows, non-black centre.
 
-    Todo sale del PNG (no del JSON de la sonda): un mundo 3D texturado da miles de
-    colores y ninguna fila repetida; el arte del panel retail da cientos de colores
-    y decenas de filas idénticas. Devuelve además `margins` (MW8): el rect central es
-    solo el 27.8 % de la ventana y el resto también es medible.
+    Everything comes from the PNG (not the probe JSON): a textured 3D world gives thousands of
+    colours and no repeated row; retail panel art gives hundreds of colours
+    and tens of identical rows. It also returns `margins` (MW8): the central rect is
+    only 27.8 % of the window and the rest is measurable too.
     """
     try:
         from PIL import Image
@@ -512,7 +512,7 @@ def measure_image(path: Path, rect: tuple[int, int] = DEFAULT_RECT) -> dict:
 
 
 def pixel_verdict(metrics: dict, distinct_max: int, flat_rows_min: int, nonblack_min: float) -> tuple[str, str]:
-    """Decisión MW4 — tres condiciones simultáneas, con la causa roja nombrada."""
+    """MW4 decision — three simultaneous conditions, with the red cause named."""
     reasons = []
     if metrics["distinct"] > distinct_max:
         reasons.append("distinct=%d>%d" % (metrics["distinct"], distinct_max))
@@ -529,13 +529,13 @@ def pixel_verdict(metrics: dict, distinct_max: int, flat_rows_min: int, nonblack
     return "PASS", detail
 
 
-# ── MW8: marco exterior = campo del menú (la MISMA captura, sin segundo lanzamiento) ─
+# -- MW8: outer frame = menu field (the SAME capture, no second launch) --
 def _frame_metrics(rgb) -> dict:
-    """Las 8 franjas del borde: `distinct` y si son el campo plano `PAL[221]`.
+    """The 8 edge strips: `distinct` and whether they are the flat field `PAL[221]`.
 
-    El menú a sangre convierte el marco en su propio campo (23,23,23); el mundo, en
-    cambio, es textura (miles de colores) o, como mucho, un plano de OTRO color. Se
-    mide `distinct` y la igualdad con el campo, sin referencia sellada en mano.
+    The full-bleed menu turns the frame into its own field (23,23,23); the world, on the
+    other hand, is texture (thousands of colours) or, at most, a plane of ANOTHER colour. It
+    measures `distinct` and equality with the field, with no sealed reference in hand.
     """
     width, height = rgb.size
     mid_x, mid_y = width // 2, height // 2
@@ -575,11 +575,11 @@ def _frame_metrics(rgb) -> dict:
 
 
 def frame_verdict(frames: dict, distinct_max: int, off_field_max: int) -> tuple[str, str]:
-    """Decisión MW8 — las 8 franjas son el campo plano del menú, no mundo.
+    """MW8 decision — the 8 strips are the menu's flat field, not world.
 
-    Dos condiciones por franja, y ninguna es redundante: `distinct <= 1` caza la
-    textura de mundo (miles de colores) y la igualdad con `PAL[221]` caza el plano
-    uniforme que NO es el campo (cielo, niebla, agua, letterbox negro del menú x2).
+    Two conditions per strip, and none is redundant: `distinct <= 1` catches the
+    world texture (thousands of colours) and equality with `PAL[221]` catches the uniform
+    plane that is NOT the field (sky, fog, water, the x2 menu's black letterbox).
     """
     reasons = []
     for name in FRAME_REGIONS:
@@ -645,7 +645,7 @@ def evaluate(obs: dict, limits: dict) -> dict[str, tuple[str, str]]:
             "bin=%s sha256=%s fresh=%s" % (binary["label"], binary["sha256"][:16], binary["fresh"]),
         )
 
-    # MW2 — ventana con el título de la fase MENU
+    # MW2 — window with the MENU phase title
     if title["seen_at"] is None:
         rows["MW2-title"] = (
             "FAIL",
@@ -658,7 +658,7 @@ def evaluate(obs: dict, limits: dict) -> dict[str, tuple[str, str]]:
             'title=%r at=%.1fs deadline=%.0fs' % (TITLE_TOKEN, title["seen_at"], title["deadline"]),
         )
 
-    # MW3 — captura real de esta corrida (fresca: un PNG heredado no mide nada)
+    # MW3 — real capture of this run (fresh: an inherited PNG measures nothing)
     if not capture["ok"]:
         rows["MW3-capture"] = ("FAIL", "capture=%s" % capture["reason"])
     elif not capture.get("fresh"):
@@ -687,7 +687,7 @@ def evaluate(obs: dict, limits: dict) -> dict[str, tuple[str, str]]:
             capture["metrics"], limits["distinct_max"], limits["flat_rows_min"], limits["nonblack_min"]
         )
 
-    # MW5 — el panel activo está EN pantalla, no aparcado
+    # MW5 — the active panel is ON screen, not parked
     surfaces = parse_surface(log_text)
     panels = parse_panel(log_text)
     if not surfaces:
@@ -708,7 +708,7 @@ def evaluate(obs: dict, limits: dict) -> dict[str, tuple[str, str]]:
         )
         rows["MW5-surface"] = ("FAIL", detail + " cause=" + ",".join(reasons)) if reasons else ("PASS", detail)
 
-    # MW6 — el panel del MENU tiene sprite (no es un dato sin imagen) y el HUD está oculto
+    # MW6 — the MENU panel has a sprite (it is not data without an image) and the HUD is hidden
     if not panels:
         no_sprite = RE_PANEL_NO_SPRITE.search(log_text)
         rows["MW6-panel"] = (
@@ -729,7 +729,7 @@ def evaluate(obs: dict, limits: dict) -> dict[str, tuple[str, str]]:
         detail = 'panel="%s" index=%d opaque=%d hud=%s' % (panel_id, index, opaque, hud)
         rows["MW6-panel"] = ("FAIL", detail + " cause=" + ",".join(reasons)) if reasons else ("PASS", detail)
 
-    # MW7 — la captura es del estado MENU (el título no avanzó antes ni después del `import`)
+    # MW7 — the capture is of the MENU state (the title did not advance before or after the `import`)
     before = title.get("at_capture")
     after = title.get("at_capture_after")
     if before is None or after is None:
@@ -743,8 +743,8 @@ def evaluate(obs: dict, limits: dict) -> dict[str, tuple[str, str]]:
     else:
         rows["MW7-title-now"] = ("PASS", "title-at-capture=%r before/after" % short(before))
 
-    # MW8 — marco: con el menú a sangre el exterior no es negro, es el campo del menú.
-    # Esta fila mide lo que MW4 (solo el rect central) no puede ver: marco = campo.
+    # MW8 — frame: with the full-bleed menu the outside is not black, it is the menu field.
+    # This row measures what MW4 (central rect only) cannot see: frame = field.
     if not capture["ok"]:
         rows["MW8-world-margins"] = ("FAIL", "unmeasured (0 captura: sin marco que medir)")
     elif not capture.get("metrics"):
@@ -762,7 +762,7 @@ def evaluate(obs: dict, limits: dict) -> dict[str, tuple[str, str]]:
 
 # ── corrida real ──────────────────────────────────────────────────────────
 def nin(cause: str, out: Path | None) -> int:
-    """NOT-RUN: sin dato no hay veredicto (nunca verde sin captura)."""
+    """NOT-RUN: without a datum there is no verdict (never green without a capture)."""
     lines = ["gate=%s cr=%s mode=run" % (GATE, CR), "CAUSE environment %s" % cause, "VERDICT: NOT-RUN"]
     emit(lines, None if out is None else out / "stdout.txt")
     sys.stderr.write("NOT-RUN: %s\n" % cause)
@@ -777,7 +777,7 @@ def nc(cause: str, out: Path | None) -> int:
 
 
 def observe(args, out: Path, fresh: str = "yes") -> dict:
-    """Una corrida: ventana real -> título -> captura -> métricas + log."""
+    """One run: real window -> title -> capture -> metrics + log."""
     display = args.display or os.environ.get("DISPLAY") or ""
     wayland = os.environ.get("WAYLAND_DISPLAY") or ""
     binary = Path(args.binary).resolve()
@@ -839,11 +839,11 @@ def observe(args, out: Path, fresh: str = "yes") -> dict:
                 if args.raise_window:
                     obs["env"]["raise"] = raise_window(d, win, X)
                 time.sleep(args.settle)
-                # MW7 se mide ANTES de capturar: el frame capturado es el de ese título.
+                # MW7 is measured BEFORE capturing: the captured frame is the one of that title.
                 obs["title"]["at_capture"] = name_of(d, win)
                 rc, err = capture_window(display, win, png)
-                # Se vuelve a leer el título tras la captura: MW7 exige MENU antes Y después,
-                # así una transición a PLAYING durante el `import` no pasa por buena.
+                # The title is read again after the capture: MW7 requires MENU before AND after,
+                # so a transition to PLAYING during the `import` does not pass as good.
                 obs["title"]["at_capture_after"] = name_of(d, win)
                 obs["capture"]["rc"] = rc
                 if rc != 0 or not png.is_file():
@@ -886,7 +886,7 @@ def run(args) -> int:
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
 
-    # 1) entorno: sin X no hay captura, y sin captura no hay veredicto verde.
+    # 1) environment: without X there is no capture, and without a capture there is no green verdict.
     if not display:
         return nin(
             "display=absent (DISPLAY unset; WAYLAND_DISPLAY=%s -> `import -window` sin servidor X)"
@@ -908,7 +908,7 @@ def run(args) -> int:
     if not (data_root / "ARENA2").is_dir():
         return nc("data=absent (sin %s/ARENA2)" % data_root, out)
 
-    # 3) binario: build bajo flock si `crates/**` es más nuevo, salvo --skip-build
+    # 3) binary: build under flock if `crates/**` is newer, unless --skip-build
     binary = Path(args.binary).resolve()
     internal = str(binary).startswith(str(ROOT))
     fresh = "external"
@@ -964,8 +964,8 @@ def run(args) -> int:
         "CHECKS total=%d green=%d red=%d failed=%d" % (len(ROW_IDS), green, red, 0)
     )
     lines.extend(ANTIPANTALLA)
-    # Un binario externo se identifica por su sha256: el árbol de trabajo no participa en la
-    # medida, así que las escrituras de otras lanes bajo `crates/` no la vuelven provisional.
+    # An external binary is identified by its sha256: the working tree does not take part in the
+    # measurement, so other lanes' writes under `crates/` do not make it provisional.
     if obs["bin"]["fresh"] == "external":
         measurement = "FINAL bin-externo sha256=%s (arbol de trabajo fuera de la medida)" % obs["bin"]["sha256"][:16]
     elif tree_dirty():
@@ -999,10 +999,10 @@ def run(args) -> int:
 
 # ── fixtures sintéticas (--self-test / --falsify: sin X, sin producto) ─────
 def _menu_image():
-    """Arte de menú a sangre: campo PAL[221] + planos grandes y filas idénticas.
+    """Full-bleed menu art: PAL[221] field + large planes and identical rows.
 
-    El fondo es el campo del menú (no negro): con el menú a sangre el marco de la
-    ventana ES ese campo, y así la fixture verde satisface MW8 sin trampa.
+    The background is the menu field (not black): with the full-bleed menu the window's
+    frame IS that field, and so the green fixture satisfies MW8 without cheating.
     """
     from PIL import Image, ImageDraw
 
@@ -1045,13 +1045,13 @@ def _world_like_png(path: Path) -> None:
 
 
 def _margins_png(path: Path, fill: str) -> None:
-    """Menú a sangre con el marco sustituido: el caso que MW4 NO puede ver.
+    """Full-bleed menu with the frame replaced: the case MW4 CANNOT see.
 
-    El centro es el arte EXACTO de `_menu_like_png` (el arte vive entero dentro del
-    rect 640x400), así que MW4 mide lo mismo que en la fixture verde y da PASS: el
-    menú está pintado. El marco es `fill`: "world" = textura de mundo (lo que había
-    detrás en 970bdb3) o "flat" = UN solo color plano que NO es el campo (cielo,
-    niebla: `distinct == 1` pero `PAL[221]` no).
+    The centre is the EXACT art of `_menu_like_png` (the art lives entirely inside the
+    640x400 rect), so MW4 measures the same as in the green fixture and passes: the
+    menu is painted. The frame is `fill`: "world" = world texture (what was there
+    behind in 970bdb3) or "flat" = a SINGLE flat colour that is NOT the field (sky,
+    fog: `distinct == 1` but not `PAL[221]`).
     """
     from PIL import Image
 
@@ -1069,7 +1069,7 @@ def _margins_png(path: Path, fill: str) -> None:
 
 
 def _blank_png(path: Path) -> None:
-    """Pantalla negra: la ventana existe pero no pinta nada."""
+    """Black screen: the window exists but paints nothing."""
     from PIL import Image
 
     Image.new("RGB", (1280, 720), (0, 0, 0)).save(path)
@@ -1080,7 +1080,7 @@ POST_PANEL_LINE = 'M18 VE: UI surface MENU → panel "main-menu" (index 3, 63878
 
 
 def fixture_observation(tmp: Path, limits: dict) -> dict:
-    """Observación VERDE sintética: mide un PNG de panel con el medidor real."""
+    """Synthetic GREEN observation: measures a panel PNG with the real meter."""
     menu = tmp / "fixture-menu.png"
     _menu_like_png(menu)
     metrics = measure_image(menu, DEFAULT_RECT)
@@ -1106,7 +1106,7 @@ def fixture_observation(tmp: Path, limits: dict) -> dict:
     }
 
 
-# ── mutadores de los falsificadores (mismo molde que `mplay-001.py`) ───────
+# -- falsifier mutators (same mould as `mplay-001.py`) --
 def _inject_png(obs: dict, tmp: Path, maker, name: str) -> None:
     png = tmp / name
     maker(png)
@@ -1235,10 +1235,10 @@ FALSIFIERS = {
     "margins-flat-not-field": ("MW8-world-margins", _mut_margins_flat_not_field, "frame"),
 }
 
-# Guardas por falsificador: además de morder SU fila, la mutación debe dejar las otras
-# donde dice. Es lo que demuestra que (a) el caso «menú pintado con el mundo detrás» no
-# es un falso verde de MW4 y (b) MW8 NO sustituye a MW4/MW6: una ventana negra cae por
-# las tres vías (MW4 sin arte, MW6 sin panel, MW8 con un marco que no es el campo).
+# Guards per falsifier: besides biting ITS row, the mutation must leave the others
+# where it says. That is what proves (a) the case "menu painted with the world behind" is not
+# a false green of MW4 and (b) MW8 does NOT replace MW4/MW6: a black window falls by
+# all three paths (MW4 without art, MW6 without panel, MW8 with a frame that is not the field).
 FALSIFIER_GUARDS = {
     "world-in-margins": {"must_pass": ("MW4-pixels",)},
     "frame-black-panel-absent": {"must_fail": ("MW6-panel", "MW8-world-margins")},
@@ -1247,7 +1247,7 @@ FALSIFIER_GUARDS = {
 
 
 def _guard_violations(name: str, rows: dict) -> list[str]:
-    """Filas donde la mutación NO dejó el veredicto que su guarda exige."""
+    """Rows where the mutation did NOT leave the verdict its guard requires."""
     guard = FALSIFIER_GUARDS.get(name)
     if not guard:
         return []
@@ -1310,7 +1310,7 @@ def mode_list() -> int:
 
 
 def run_falsifiers(base_obs: dict, names: list[str], limits: dict, tmp: Path, header: str) -> int:
-    """Limpio -> mutado -> restaurado, sobre la observación base (real o sintética)."""
+    """Clean -> mutated -> restored, over the base observation (real or synthetic)."""
     base_rows = evaluate(base_obs, limits)
     print(header)
     failed = 0
@@ -1322,7 +1322,7 @@ def run_falsifiers(base_obs: dict, names: list[str], limits: dict, tmp: Path, he
         after_all = evaluate(target, limits)
         after = after_all[row]
         restored = evaluate(copy.deepcopy(base_obs), limits)[row]
-        # cascada = filas cuyo VEREDICTO cambia (que cambie sólo el detalle no es cascada)
+        # cascade = rows whose VERDICT changes (only the detail changing is not cascade)
         cascade = sorted(rid for rid in ROW_IDS if rid != row and after_all[rid][0] != base_rows[rid][0])
         guard_bad = _guard_violations(name, after_all)
         ok = after[0] == "FAIL" and restored == clean and clean[0] == "PASS" and not guard_bad
@@ -1340,7 +1340,7 @@ def run_falsifiers(base_obs: dict, names: list[str], limits: dict, tmp: Path, he
 
 
 def mode_self_test(args) -> int:
-    """Falsificadores con PNGs sintéticos: no necesita X, ni el producto, ni ARENA2."""
+    """Falsifiers with synthetic PNGs: it needs neither X, nor the product, nor ARENA2."""
     limits = _limits_of(args)
     failures: list[str] = []
     print("MENU-WINDOW 001 · SELF-TEST (fixtures sintéticas; prueban la DECISIÓN, no el producto)")
@@ -1356,7 +1356,7 @@ def mode_self_test(args) -> int:
         print("SELFTEST fixture-clean green=%d/%d distinct=%d flat_rows=%d nonblack=%.3f"
               % (green, len(ROW_IDS), metrics["distinct"], metrics["flat_rows"], metrics["nonblack"]))
 
-        # El medidor separa de verdad: el mismo código sobre un mundo 3D y sobre negro.
+        # The meter really separates: the same code over a 3D world and over black.
         world = tmp / "probe-world.png"
         _world_like_png(world)
         blank = tmp / "probe-blank.png"
@@ -1377,8 +1377,8 @@ def mode_self_test(args) -> int:
             target = copy.deepcopy(obs)
             description = mutator(target, tmp, limits)
             after_all = evaluate(target, limits)
-            # firma = veredicto **y detalle** de cada fila: dos mutaciones que rompen la misma
-            # fila por causas distintas son mutaciones distintas (no una copia del mismo falsificador).
+            # signature = **verdict and detail** of each row: two mutations that break the same
+            # row for different causes are different mutations (not a copy of the same falsifier).
             signature = hashlib.sha256(
                 json.dumps({rid: list(after_all[rid]) for rid in ROW_IDS}, sort_keys=True).encode()
             ).hexdigest()
@@ -1411,7 +1411,7 @@ def mode_self_test(args) -> int:
 
 
 def mode_falsify(args) -> int:
-    """Falsificadores sobre una corrida REAL: muta la observación ya medida."""
+    """Falsifiers over a REAL run: mutates the observation already measured."""
     limits = _limits_of(args)
     display = args.display or os.environ.get("DISPLAY") or ""
     if not display:
@@ -1469,7 +1469,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.title_deadline < 60.0:
-        # el tope del enunciado es >= 60 s: por debajo se declararia NOT-RUN por reloj, no por producto
+        # the statement's ceiling is >= 60 s: below that it would be declared NOT-RUN by clock, not by product
         args.title_deadline = 60.0
     if args.list:
         return mode_list()

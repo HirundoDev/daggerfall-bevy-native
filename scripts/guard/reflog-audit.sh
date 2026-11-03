@@ -1,56 +1,56 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-01e3aebf — auditoría del reflog: qué commits tocaron un instrumento
-# protegido (CAPA DE DETECCIÓN).
+#  GUARD-KIT:CR-01e3aebf — reflog audit: which commits touched a protected
+#  instrument (DETECTION LAYER).
 #
-# Qué es: recorre las entradas del reflog de un ref y, para cada commit, dice si
-# tocó algún path protegido. No instala hooks, no lee `GUARD_ACTIVE`, no depende de
-# que ningún hook haya corrido: la detección es por HISTORIA. Por eso ve también los
-# commits hechos con `git commit --no-verify` (son commits normales; lo único que
-# no ocurrió es el hook) y los commits que ya no están en ninguna rama pero siguen
-# en el reflog (un reset no borra el rastro).
+#  What it is: walks the reflog entries of one ref and, for each commit, says whether it
+#  touched any protected path. It installs no hooks, reads no `GUARD_ACTIVE`, does not depend on
+#  any hook having run: detection is by HISTORY. That is why it also sees commits
+#  made with `git commit --no-verify` (they are normal commits; the only thing that
+#  did not happen is the hook) and commits that are no longer on any branch but remain
+#  in the reflog (a reset does not erase the trace).
 #
-# Uso:
-#   reflog-audit.sh [--limit N] [--since <fecha>] [--ref <ref>]
-#   reflog-audit.sh --help
+#  Usage:
+#    reflog-audit.sh [--limit N] [--since <date>] [--ref <ref>]
+#    reflog-audit.sh --help
 #
-#   --limit N        recorre las últimas N entradas del reflog (default 50).
-#   --since <fecha>  lo que acepte `git log --since` (`2026-10-29`, `2 days ago`, …).
-#                    SI SE PASA, MANDA SOBRE --limit: se recorren todas las entradas
-#                    del reflog cuya fecha caiga en la ventana (el filtro se aplica
-#                    con la misma semántica de fecha que `git log --since`).
-#   --ref <ref>      ref cuyo reflog se audita (default HEAD).
-#   Ningún argumento posicional: un path o un sha suelto es error de uso (2).
+#    --limit N        walks the last N reflog entries (default 50).
+#    --since <date>   whatever `git log --since` accepts (`2026-10-29`, `2 days ago`, …).
+#                     IF PASSED, IT OVERRIDES --limit: every reflog entry
+#                     whose date falls in the window is walked (the filter applies
+#                     with the same date semantics as `git log --since`).
+#    --ref <ref>      ref whose reflog is audited (default HEAD).
+#    No positional argument: a loose path or sha is a usage error (2).
 #
-# Fuente única de patrones: sourcea `guard-paths.sh` (hermano, por BASH_SOURCE).
-# Este script NO contiene ni un patrón.
+#  Single source of patterns: it sources `guard-paths.sh` (sibling, via BASH_SOURCE).
+#  This script contains not a single pattern.
 #
-# Paths de un commit — decisión declarada (commits de merge incluidos):
-#   · se resuelve el PRIMER PADRE con `git rev-list --parents -n1 <commit>` y se
-#     compara contra él con `git diff-tree -r --no-renames <padre> <commit>`. Es
-#     decir: el diff del merge contra su primera rama (equivalente a
-#     `--diff-merges=first-parent` / `git show --first-parent`), aplicado a mano
-#     para no depender de la versión de git ni del modo por defecto de `git show`.
-#   · commit raíz (sin padres): `git diff-tree -r --no-renames --root <commit>`.
-#   · `--no-renames` en los dos casos: un rename aparece como borrado + creación,
-#     así que tocar (renombrar) un instrumento no se escapa.
+#  Paths of a commit — declared decision (merge commits included):
+#    · the FIRST PARENT is resolved with `git rev-list --parents -n1 <commit>` and
+#      compared against with `git diff-tree -r --no-renames <parent> <commit>`. That is,
+#      the merge diff against its first branch (equivalent to
+#      `--diff-merges=first-parent` / `git show --first-parent`), applied by hand
+#      so as not to depend on the git version or on `git show`'s default mode.
+#    · root commit (no parents): `git diff-tree -r --no-renames --root <commit>`.
+#    · `--no-renames` in both cases: a rename shows up as delete + create,
+#      so touching (renaming) an instrument does not escape.
 #
-# Salida: encabezado con la ventana auditada, una línea por commit infractor
-#   `<sha-corto> | <fecha ISO> | <autor %ae> | <path1>,<path2>`
-# (más reciente primero) y un pie con el total de commits infractores y los paths
-# protegidos diferentes. Sin infractores imprime `0 toques a instrumentos`.
+#  Output: a header with the audited window, one line per offending commit
+#    `<short-sha> | <ISO date> | <author %ae> | <path1>,<path2>`
+#  (most recent first) and a footer with the total offending commits and the distinct
+#  protected paths. With no offenders it prints `0 toques a instrumentos`.
 #
-# Exit codes: 0 = ningún commit de la ventana medida toca paths protegidos · 1 = al
-# menos uno · 2 = error de uso o de git (ref inexistente, reflog ilegible, --limit no
-# numérico) o SIN EVIDENCIA (0 entradas auditables).
+#  Exit codes: 0 = no commit in the measured window touches protected paths · 1 = at
+#  least one · 2 = usage or git error (missing ref, unreadable reflog, non-numeric --limit)
+#  or SIN EVIDENCIA (0 auditable entries).
 #
-# Ausencia de evidencia ≠ absolución (regla de esta cabecera): si el reflog no tiene
-# entradas auditables — p.ej. tras `git reflog expire --expire=now --all` +
-# `git gc --prune=now`, o con un `--since` que no cae sobre ninguna entrada — este
-# script NO imprime `0 toques`: imprime `SIN EVIDENCIA` por stderr y sale 2. Un
-# `0 toques` solo se emite sobre una ventana con `entradas medidas > 0`.
+#  Absence of evidence != absolution (rule of this header): if the reflog has no
+#  auditable entries — e.g. after `git reflog expire --expire=now --all` +
+#  `git gc --prune=now`, or with a `--since` that falls on no entry — this
+#  script does NOT print `0 toques`: it prints `SIN EVIDENCIA` on stderr and exits 2. A
+#  `0 toques` is only emitted over a window with `measured entries > 0`.
 #
-# Propiedades: `set -u` y NO `set -e`; portable en bash 5; paths con espacios
-# soportados (arrays + `IFS= read -r`); orden determinista.
+#  Properties: `set -u` and NOT `set -e`; portable on bash 5; paths with spaces
+#  supported (arrays + `IFS= read -r`); deterministic order.
 
 set -u
 
@@ -84,7 +84,7 @@ err() {
   printf 'reflog-audit: %s\n' "$*" >&2
 }
 
-# reflog__top: raíz del repo; rc 1 si no estamos dentro de un repositorio git.
+#  reflog__top: repo root; rc 1 if we are not inside a git repository.
 reflog__top() {
   local top
   top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1
@@ -92,8 +92,8 @@ reflog__top() {
   printf '%s' "$top"
 }
 
-# reflog__paths_del_commit <commit>: imprime un path por línea (los del diff del
-# commit contra su primer padre; raíz = diff contra el árbol vacío).
+#  reflog__paths_del_commit <commit>: prints one path per line (the diff of the
+#  commit against its first parent; root = diff against the empty tree).
 reflog__paths_del_commit() {
   local c="${1-}" linea padres resto primer
   linea="$(git rev-list --parents -n1 "$c" 2>/dev/null)" || return 1
@@ -147,9 +147,9 @@ esac
 top="$(reflog__top)" || { err "no estamos dentro de un repositorio git"; exit 2; }
 cd -- "$top" || { err "no se pudo entrar a $top"; exit 2; }
 
-# ── entradas del reflog (más reciente primero) ───────────────────────────────
+#  ── reflog entries (most recent first) ──────────────────────────────────────
 if [ -n "$ventana" ]; then
-  # --since manda sobre --limit: se enumeran TODAS las entradas del reflog
+  #  --since overrides --limit: EVERY reflog entry is enumerated
   if ! entradas_raw="$(git reflog show --format=%H "$ref" 2>&1)"; then
     err "no se pudo leer el reflog de '$ref': $entradas_raw"
     exit 2
@@ -175,7 +175,7 @@ while IFS= read -r c; do
   [ -n "$c" ] && n_entradas=$((n_entradas + 1))
 done <<< "$entradas_raw"
 
-# ventana: filtro por fecha con la MISMA semántica que `git log --since`
+#  window: date filter with the SAME semantics as `git log --since`
 if [ -n "$ventana" ] && [ "${#commits[@]}" -gt 0 ]; then
   if ! filtrados="$(printf '%s\n' "${commits[@]}" | git rev-list --no-walk=unsorted --since="$ventana" --stdin 2>&1)"; then
     err "ventana inválida o git falló con --since '$ventana': $filtrados"
@@ -187,10 +187,10 @@ if [ -n "$ventana" ] && [ "${#commits[@]}" -gt 0 ]; then
   done <<< "$filtrados"
 fi
 
-# entradas medidas = las del reflog que caen DENTRO de la ventana declarada.
-# Con --since la ventana es de fecha (no basta con contar lo leído: una entrada
-# vieja fuera de la ventana no se audita); con --limit la ventana SON las N
-# entradas leídas. Este número es el que decide si hay evidencia o no.
+#  measured entries = the reflog ones falling INSIDE the declared window.
+#  With --since the window is by date (counting what was read is not enough: an old
+#  entry outside the window is not audited); with --limit the window IS the N
+#  entries read. This number is what decides whether there is evidence or not.
 if [ -n "$ventana" ]; then
   entradas_medidas=0
   if [ "${#commits[@]}" -gt 0 ]; then
@@ -214,8 +214,8 @@ else
 fi
 printf 'entradas medidas: %d · commits distintos auditados: %d\n' "$entradas_medidas" "${#commits[@]}"
 
-# Ausencia de evidencia ≠ absolución: sin entradas auditables NO se emite
-# «0 toques» (sería un falso negativo en verde). Se declara y se sale 2.
+#  Absence of evidence != absolution: without auditable entries nothing is emitted
+#  ('0 toques' would be a green false negative). It is declared and it exits 2.
 if [ "$entradas_medidas" -eq 0 ]; then
   printf -- '--\n'
   err "SIN EVIDENCIA: el reflog de $ref no tiene entradas auditables (¿git reflog expire / git gc --prune?) — NO se puede atestiguar «0 toques»"

@@ -116,12 +116,12 @@ ROUND_VECTORS: tuple[tuple[str, int, int, int, int], ...] = (
 
 CITE = re.compile(r"^[\w./+-]+\.(?:rs|md|py|json|toml):\d+$")
 
-# ── cita resuelta contra el árbol (CR-4171fb19 · GAP-M41-02) ────────────────
-# `CITE` sólo probaba la FORMA `path:line`: hoy la cita se resuelve contra el
-# árbol — el fichero existe, el rango citado existe, el texto citado lleva
-# declaración (ni blanco, ni comentario, ni llave suelta) y el símbolo que la
-# fila declara aparece en la declaración resuelta. La cita puede apuntar a la
-# línea que ABRE el bloque (`EffectProperties::new(`) y se resuelve el bloque.
+#  ── citation resolved against the tree (CR-4171fb19 · GAP-M41-02) ───────────
+#  `CITE` only proved the FORM `path:line`: today the citation is resolved against the
+#  tree — the file exists, the cited range exists, the cited text carries a
+#  declaration (not blank, not a comment, not a bare brace) and the symbol the
+#  row declares appears in the resolved declaration. The citation may point at the
+#  line that OPENS the block (`EffectProperties::new(`) and the block is resolved.
 CITE_SPEC = re.compile(
     r"^(?P<path>[\w./+-]+\.(?:rs|md|py|json|toml|cs)):(?P<start>\d+)(?:-(?P<end>\d+))?$"
 )

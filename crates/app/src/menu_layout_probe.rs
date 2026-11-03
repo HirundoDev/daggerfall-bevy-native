@@ -1,50 +1,50 @@
-//! **PROBE-MENU-LAYOUT-001** — el menú principal **que se embarca** medido como
-//! pantalla: `menu_spec::main_menu(row, true)` compuesto a `320×180` y
-//! presentado **a sangre** a `×4` (`1280×720`, 0 bandas).
+//! **PROBE-MENU-LAYOUT-001** — the main menu **that ships** measured as a
+//! screen: `menu_spec::main_menu(row, true)` composed at `320×180` and
+//! presented **full-bleed** at `×4` (`1280×720`, 0 bands).
 //!
-//! El probe anterior medía `ui_spec::build_main_menu_panel` — el plato retail
-//! `320×200` que ya **no** está en la ruta de producción (`MENU-MODERN-DESIGN.md`
-//! §9.4: sólo sobrevive como fixture de `UI-001`). Sus métricas morían con la
-//! pantalla vieja: la banda `212,35,108,125` y la franja `MENU_GUTTER` no
-//! existen en el diseño nuevo, y un menú a sangre hace que "fuera del panel" sea
-//! también menú. Lo que se mide ahora es lo que el jugador ve:
+//! The previous probe measured `ui_spec::build_main_menu_panel` — the retail
+//! `320×200` plate that is no longer on the production route (`MENU-MODERN-DESIGN.md`
+//! §9.4: it survives only as a `UI-001` fixture). Its metrics died with the old
+//! screen: the `212,35,108,125` band and the `MENU_GUTTER` strip do not
+//! exist in the new design, and a full-bleed menu makes "outside the panel"
+//! menu as well. What is measured now is what the player sees:
 //!
-//! - **content** — el rect de contenido de un plato es **derivado**
-//!   (`chrome + INSET`, `INSET = STROKE + PAD = 9`), nunca el rect que declara el
-//!   nodo. Cada nodo de una zona se mide contra `plate.rect + INSET` y su margen
-//!   al cromo del plato debe ser `>= MIN_MARGIN`. `out_of_content` cuenta los que
-//!   no lo cumplen; el probe imprime los dos rects para que la medida sea
-//!   reproducible a mano.
-//! - **rows** — las cinco filas de `MENU_ROW_IDS` en `y = 55 + 17i`, alto `14`,
-//!   `x 25..203` (a `×4`: `y = 220 + 68i`, alto `56`, barra `x 100..812`), y los
-//!   nodos pintados (barra de foco, rótulo, marca) en su fila.
+//! - **content** — a plate's content rect is **derived**
+//!   (`chrome + INSET`, `INSET = STROKE + PAD = 9`), never the rect the node
+//!   declares. Every node of a zone is measured against `plate.rect + INSET` and its margin
+//!   to the plate chrome must be `>= MIN_MARGIN`. `out_of_content` counts the ones
+//!   that do not comply; the probe prints both rects so the measurement is
+//!   reproducible by hand.
+//! - **rows** — the five rows of `MENU_ROW_IDS` at `y = 55 + 17i`, height `14`,
+//!   `x 25..203` (at `×4`: `y = 220 + 68i`, height `56`, bar `x 100..812`), and the
+//!   painted nodes (focus bar, label, marker) on their row.
 //! - **present** — `present_fullscreen(fb, 4)`: `1280×720`, `letterbox 0/0`,
-//!   `Fullscreen`, upscale nearest exacto (`mismatch_px = 0`) y **cero** píxel
-//!   negro en los bordes (una banda negra delata que la pantalla no es a sangre).
-//! - **labels** — los rótulos pintados son `MENU_ROW_LABELS`, en orden.
-//! - **selection** — la fila activa **se pinta**: dos filas distintas dan dos
-//!   buffers distintos y el chevron se mueve `17` px por fila.
-//! - **clips** — contenido recortado (un `Sprite` cuyo `src` excede su ventana,
-//!   un `GlyphRun` que no cabe en su caja o que sale del canvas).
-//! - **outside** — nodos fuera del canvas `320×180`.
-//! - **dialogs** — platos de diálogo (`BUTN00…`) en el menú principal: cero.
-//! - **row_overlap** — dos filas del `Nav` no pueden solaparse.
+//!   `Fullscreen`, exact nearest upscale (`mismatch_px = 0`) and **zero** black
+//!   pixels on the edges (a black band betrays that the screen is not full-bleed).
+//! - **labels** — the painted labels are `MENU_ROW_LABELS`, in order.
+//! - **selection** — the active row **is painted**: two different rows give two
+//!   different buffers and the chevron moves `17` px per row.
+//! - **clips** — clipped content (a `Sprite` whose `src` exceeds its window,
+//!   a `GlyphRun` that does not fit its box or leaves the canvas).
+//! - **outside** — nodes outside the `320×180` canvas.
+//! - **dialogs** — dialogue plates (`BUTN00...`) in the main menu: zero.
+//! - **row_overlap** — two `Nav` rows cannot overlap.
 //!
-//! `EXIT=0` ⟺ todo en 0; `EXIT=1` en FAIL; `EXIT=2` si los assets retail no son
-//! legibles.
+//! `EXIT=0` ⟺ everything at 0; `EXIT=1` on FAIL; `EXIT=2` if the retail assets are not
+//! readable.
 //!
-//! Falsificadores (uno por defecto real):
-//! `--force-margin` inyecta un nodo con **margen 8** al cromo del `nav_plate`
-//! (1 px fuera del contenido derivado) — el mismo defecto que el assert
-//! tautológico dejó pasar el 2026-10-31; `--force-frozen-row` compone dos veces
-//! la **misma** fila (la pintura de `eb2aece`) y `diff_px` debe colapsar a 0.
+//! Falsifiers (one per real defect):
+//! `--force-margin` injects a node with **margin 8** to the `nav_plate` chrome
+//! (1 px outside the derived content) — the same defect the tautological assert
+//! let through on 2026-10-31; `--force-frozen-row` composes the **same** row twice
+//! (`eb2aece`'s painting) and `diff_px` must collapse to 0.
 //!
-//! Las patas `--force-bad`, `--force-crop`, `--force-dialog` y `--force-gutter`
-//! se retiran: inyectaban platos `BUTN00`/`MENU.IMG` **sobre el plato retail**.
-//! El plato que las hacía posibles ya no se compone, así que la pata no podía
-//! fallar por el defecto que decía medir (falsificador muerto = mentira). La
-//! guarda semántica que queda es `dialogs == 0`: el menú moderno no lleva
-//! ningún widget de diálogo.
+//! The `--force-bad`, `--force-crop`, `--force-dialog` and `--force-gutter` legs
+//! are withdrawn: they injected `BUTN00`/`MENU.IMG` plates **over the retail plate**.
+//! The plate that made them possible is no longer composed, so the leg could not
+//! fail for the defect it claimed to measure (dead falsifier = lie). The
+//! semantic guard that remains is `dialogs == 0`: the modern menu carries
+//! no dialogue widget.
 
 use daggerfall_parser_bevy_bridge::menu_spec::{
     ink, main_menu, MenuScreen, DEFAULT_ACTIVE_ROW, INSET, MENU_HEIGHT, MENU_ROW_IDS,
@@ -56,28 +56,28 @@ use daggerfall_parser_bevy_bridge::ui_spec::{
 };
 use daggerfall_parser_rs::image::PaletteFamily;
 
-/// Escala de presentación de la pantalla del menú (`320×180 ×4 = 1280×720`).
+/// Presentation scale of the menu screen (`320×180 ×4 = 1280×720`).
 const PANEL_SCALE: u8 = 4;
-/// Ventana del demo (`WindowPlugin` de `m18_window::build_app`).
+/// Demo window (`WindowPlugin` of `m18_window::build_app`).
 const WINDOW_WIDTH: u16 = 1280;
 /// Ventana del demo.
 const WINDOW_HEIGHT: u16 = 720;
 
-/// Primera fila del `Nav` en el canvas: `content.y (41) + eyebrow (14)`.
+/// First `Nav` row on the canvas: `content.y (41) + eyebrow (14)`.
 const ROW_FIRST_Y: i16 = 55;
 /// Paso vertical entre filas (`y = 55 + 17i`).
 const ROW_STRIDE: i16 = 17;
-/// Alto de fila en el canvas (`×4` = 56).
+/// Row height on the canvas (`×4` = 56).
 const ROW_HEIGHT: u16 = 14;
-/// `x` del contenido del `nav_plate` (`×4` = 100).
+/// `x` of the `nav_plate` content (`×4` = 100).
 const ROW_X: i16 = 25;
-/// Ancho del contenido del `nav_plate` (`25..203`, `×4` = `100..812`).
+/// Width of the `nav_plate` content (`25..203`, `×4` = `100..812`).
 const ROW_WIDTH: u16 = 178;
 
-/// Familia de assets de los botones de diálogo: nunca un widget del menú.
+/// Asset family of the dialogue buttons: never a menu widget.
 const DIALOG_BUTTON_PREFIX: &str = "BUTN00";
 
-/// Margen, en px, entre `inner` y `outer` (negativo cuando se sale).
+/// Margin, in px, between `inner` and `outer` (negative when it overflows).
 fn margin(outer: &UiRect, inner: &UiRect) -> i16 {
     let left = inner.x - outer.x;
     let top = inner.y - outer.y;
@@ -91,7 +91,7 @@ fn contains(outer: &UiRect, inner: &UiRect) -> bool {
     margin(outer, inner) >= 0
 }
 
-/// Área de intersección de dos rects (`0` si sólo se tocan).
+/// Intersection area of two rects (`0` if they only touch).
 fn overlap_area(left: &UiRect, right: &UiRect) -> u32 {
     let width = left.right().min(right.right()) - left.x.max(right.x);
     let height = left.bottom().min(right.bottom()) - left.y.max(right.y);
@@ -102,7 +102,7 @@ fn overlap_area(left: &UiRect, right: &UiRect) -> u32 {
     }
 }
 
-/// FNV-1a 64 sobre los índices del framebuffer: un número por pintura.
+/// FNV-1a 64 over the framebuffer indices: one number per painting.
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for byte in bytes {
@@ -112,11 +112,11 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     hash
 }
 
-/// Píxeles del `frame` que **no** son el upscale nearest `×scale` del canvas.
+/// Pixels of the `frame` that are **not** the `×scale` nearest upscale of the canvas.
 ///
-/// `ui_spec::present_delta`/`present_interpolated_pixels` están cableados al
-/// canvas retail (`320×200`, `×2`); el menú es `320×180` a `×4`, así que la
-/// comprobación se hace aquí sobre el frame real, sin tocar el compositor.
+/// `ui_spec::present_delta`/`present_interpolated_pixels` are wired to the
+/// retail canvas (`320×200`, `×2`); the menu is `320×180` at `×4`, so the
+/// check is done here over the real frame, without touching the compositor.
 fn present_mismatch(framebuffer: &Framebuffer, frame: &PresentFrame) -> usize {
     let canvas = canvas_rgba(framebuffer);
     let scale = usize::from(frame.scale.max(1));
@@ -140,8 +140,8 @@ fn present_mismatch(framebuffer: &Framebuffer, frame: &PresentFrame) -> usize {
     mismatch
 }
 
-/// Píxeles negros en la primera y la última fila del frame: una banda negra
-/// significa que la pantalla **no** está a sangre.
+/// Black pixels in the first and last row of the frame: a black band
+/// means the screen is **not** full-bleed.
 fn edge_black(frame: &PresentFrame) -> usize {
     let width = usize::from(frame.width);
     let mut black = 0usize;
@@ -173,12 +173,12 @@ fn print_node(node: &UiNode) {
     );
 }
 
-/// `--force-margin`: un nodo de contenido con **margen 8** al cromo del
-/// `nav_plate` — 1 px dentro del cromo, 1 px fuera del contenido derivado.
+/// `--force-margin`: a content node with **margin 8** to the
+/// `nav_plate` chrome — 1 px inside the chrome, 1 px outside the derived content.
 ///
-/// Es el defecto del 2026-10-31 (`MENU-MODERN-DESIGN.md` §9.3): el assert
-/// comparaba el nodo contra el rect que el propio nodo declaraba y el desborde
-/// pasó. Aquí el límite es `plate.rect + INSET`, así que 8 tiene que fallar.
+/// It is the defect of 2026-10-31 (`MENU-MODERN-DESIGN.md` §9.3): the assert
+/// compared the node against the rect the node itself declared and the overflow
+/// passed. Here the limit is `plate.rect + INSET`, so 8 must fail.
 fn insert_margin_violation(panel: &mut UiPanel, screen: &MenuScreen, assets: &UiAssets) {
     let Some(plate) = screen.plates.first() else {
         return;
@@ -227,7 +227,7 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
         }
     };
 
-    // ── la pantalla que se embarca ─────────────────────────────────────────
+    // ── the screen that ships ─────────────────────────────────────────────
     let screen = main_menu(DEFAULT_ACTIVE_ROW, true);
     let mut panel = match screen.compose(&assets) {
         Ok(panel) => panel,
@@ -252,7 +252,7 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
         print_node(node);
     }
 
-    // ── content · el límite es `plate.rect + INSET`, no el rect del nodo ───
+    // ── content · the limit is `plate.rect + INSET`, not the node's rect ───
     let mut out_of_content = 0usize;
     let mut attributable = 0usize;
     let mut unattributed = 0usize;
@@ -310,8 +310,8 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
             if zone_min == i16::MAX { 0 } else { zone_min },
         );
     }
-    // Todo nodo es cromo declarado o contenido de una zona: si no, el modelo
-    // mental del probe y la pantalla ya no coinciden.
+    // Every node is declared chrome or a zone's content: otherwise the probe's
+    // mental model and the screen no longer agree.
     let chrome_prefixes = [
         "menu-field",
         "lintel",
@@ -361,7 +361,7 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
                 rect
             );
         }
-        // La fila pintada: barra de foco (sólo la activa), rótulo y marca.
+        // The painted row: focus bar (only the active one), label and marker.
         let label_id = format!("nav-{id}-label");
         match panel.nodes.iter().find(|node| node.id == label_id) {
             Some(label) => {
@@ -479,7 +479,7 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
         frame.mode,
     );
 
-    // ── labels · la pantalla dice exactamente lo que declara el componente ─
+    // ── labels · the screen says exactly what the component declares ─
     let actual: Vec<String> = panel
         .nodes
         .iter()
@@ -517,7 +517,7 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
         expected.len()
     );
 
-    // ── dialogs · el menú principal no lleva widgets de diálogo ────────────
+    // ── dialogs · the main menu carries no dialogue widgets ────────────
     let dialogs = panel
         .nodes
         .iter()
@@ -579,7 +579,7 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
                     );
                 }
             }
-            // Un `Fill` escribe su propio rect: no hay fuente que recortar.
+            // A `Fill` writes its own rect: there is no source to clip.
             UiNodeKind::Fill => {}
         }
     }
@@ -588,7 +588,7 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
         if clips == 0 { "OK" } else { "FAIL" }
     );
 
-    // ── outside · todo dentro del canvas 320×180 ───────────────────────────
+    // ── outside · everything inside the 320×180 canvas ───────────────────
     let canvas = UiRect::new(0, 0, MENU_WIDTH, MENU_HEIGHT);
     let mut outside = 0usize;
     for node in &panel.nodes {
@@ -602,10 +602,10 @@ pub fn run_menu_layout_001(force_margin: bool, force_frozen_row: bool) -> i32 {
         if outside == 0 { "OK" } else { "FAIL" }
     );
 
-    // ── selection · la fila activa SE PINTA ────────────────────────────────
-    // Dos filas distintas ⇒ dos buffers distintos y el chevron `17` px más
-    // abajo por fila; `--force-frozen-row` compone dos veces la misma fila (la
-    // pintura horneada de `eb2aece`) y el falsificador debe colapsar a 0.
+    // ── selection · the active row IS PAINTED ────────────────────────────────
+    // Two different rows ⇒ two different buffers and the chevron `17` px further
+    // down per row; `--force-frozen-row` composes the same row twice (the
+    // baked painting of `eb2aece`) and the falsifier must collapse to 0.
     const SELECTION_ROW_A: usize = DEFAULT_ACTIVE_ROW;
     const SELECTION_ROW_B: usize = 3;
     let mut selection_pictures: Vec<(u64, i16, Framebuffer)> = Vec::new();

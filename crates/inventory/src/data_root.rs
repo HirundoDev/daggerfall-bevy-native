@@ -23,8 +23,8 @@
 //!
 //! **Deviation (declared, §4.1 rank 2).** The contract fixes a *hard error*
 //! with a reset instruction when the remembered root fails. The owner's order
-//! for this lane falsifies the opposite behaviour (`d`: "raíz recordada
-//! inválida ⇒ se ignora y NO se reescribe otra vez sin pasar L2"), so an
+//! for this lane falsifies the opposite behaviour (`d`: "remembered root
+//! invalid ⇒ it is ignored and NOT rewritten again without passing L2"), so an
 //! invalid remembered root is **ignored with `W-DATA-002`**, the config file is
 //! left byte-for-byte untouched, and the next rank decides. Rationale: a
 //! remembered root is a convenience, not a per-run request; a stale mount must

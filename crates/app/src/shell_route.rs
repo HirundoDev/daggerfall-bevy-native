@@ -1,33 +1,33 @@
-//! **M-SHELL · rutas de sesión sin ventana** (`CR-a602cafc`): el tramo
-//! `menú → creación → mundo → guardar → menú` del shell como funciones que
-//! **no** dependen de la ventana, para que el gate pueda medirlo.
+//! **M-SHELL · windowless session routes** (`CR-a602cafc`): the
+//! `menu → creation → world → save → menu` stretch of the shell as functions that
+//! do **not** depend on the window, so the gate can measure it.
 //!
-//! ## Por qué existe este módulo
+//! ## Why this module exists
 //!
-//! Fase 2 dejó estas transiciones dentro de `m18_window` (los sistemas Bevy que
-//! reciben las teclas y los recursos del mundo compuesto). El resultado medido
-//! fue `P4 NOT-RUN` y `P9 NOT-RUN` en `scripts/mplay-001.py`: el instrumento
-//! conduce el binario real **sin ventana**, así que las dos filas no tenían
-//! quien las produjera — la ruta existía y no era medible.
+//! Phase 2 left these transitions inside `m18_window` (the Bevy systems that
+//! receive the keys and the composed world's resources). The measured result
+//! was `P4 NOT-RUN` and `P9 NOT-RUN` in `scripts/mplay-001.py`: the instrument
+//! drives the real binary **without a window**, so the two rows had nobody to
+//! produce them — the route existed and was not measurable.
 //!
-//! Aquí vive la ruta, con el mismo texto de evidencia que la ventana
-//! (`M18 VE:`) y las mismas líneas de contrato (`SHELL VE:`), sin ECS: las
-//! funciones reciben `&mut Shell` (+ la fase, la escena y el directorio de
-//! slots) y devuelven los hechos que el consumidor imprime. `m18_window`
-//! **llama** a estas funciones (un solo dueño de la ruta) y el probe de
-//! creación las ejercita en un pase headless ([`headless_session_pass`]).
+//! Here lives the route, with the same evidence text as the window
+//! (`M18 VE:`) and the same contract lines (`SHELL VE:`), without ECS: the
+//! functions receive `&mut Shell` (+ the phase, the scene and the slot directory)
+//! and return the facts the consumer prints. `m18_window` **calls** these
+//! functions (a single owner of the route) and the creation probe exercises them
+//! in a headless pass ([`headless_session_pass`]).
 //!
-//! ## Fronteras (lo que este módulo NO hace)
+//! ## Boundaries (what this module does NOT do)
 //!
-//! - **Escena ausente ⇒ 0 world/hud.** [`enter_playing`] recibe
-//!   `Option<&SessionScene>`: sin mundo compuesto (el probe headless no lo
-//!   tiene) NO se publican `world` ni `hud` — un HUD inventado sería una
-//!   captura que afirma un hecho que el producto no produjo.
-//! - **Sin rutas en stdout.** [`headless_session_pass`] trabaja en
-//!   `temp/dfl-session-pass-<pid>` y borra el directorio al terminar: el
-//!   nombre temporal no entra en la evidencia (y el gate normaliza `/tmp`).
-//! - **Cero decisión nueva.** Los textos, el token del personaje y el orden de
-//!   las líneas son los de `shell`/`shell_slots`; este módulo solo compone.
+//! - **Missing scene ⇒ 0 world/hud.** [`enter_playing`] receives
+//!   `Option<&SessionScene>`: without a composed world (the headless probe has
+//!   none) `world` and `hud` are NOT published — an invented HUD would be a
+//!   capture claiming a fact the product did not produce.
+//! - **No paths on stdout.** [`headless_session_pass`] works in
+//!   `temp/dfl-session-pass-<pid>` and deletes the directory at the end: the
+//!   temporary name never enters the evidence (and the gate normalizes `/tmp`).
+//! - **Zero new decisions.** The texts, the character token and the order of
+//!   the lines are `shell`/`shell_slots`'; this module only composes.
 
 use std::path::{Path, PathBuf};
 
@@ -35,35 +35,35 @@ use crate::m18_phase::AppPhase;
 use crate::shell::{self, HudFacts, Shell, ShellState};
 use crate::shell_slots::{self, SaveStore};
 
-/// Superficies del wizard retail que `create done` declara (16).
+/// Retail wizard surfaces that `create done` declares (16).
 pub const CREATE_SURFACES: usize = daggerfall_app::m38_surfaces::CREATE_SURFACE_COUNT;
 
-/// Hechos del mundo compuesto que la línea `world` publica.
+/// Facts of the composed world that the `world` line publishes.
 ///
-/// Los tres contadores son los del `DemoScene` real (`city.buildings`, `npcs`,
-/// `panels`) y la etiqueta es la de `DoorWorld::scene_label`: la misma fuente
-/// que usa el título de la ventana, así que la línea no puede divergir de lo
-/// que hay en pantalla. La ubicación retail NO viaja aquí: es del [`Shell`]
-/// (`shell.location`), que es donde la midió el `Startup`.
+/// The three counters are the real `DemoScene`'s (`city.buildings`, `npcs`,
+///   `panels`) and the label is `DoorWorld::scene_label`'s: the same source
+///   the window title uses, so the line cannot diverge from what is on screen.
+///   The retail location does NOT travel here: it belongs to [`Shell`]
+///   (`shell.location`), which is where `Startup` measured it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionScene {
-    /// Etiqueta de la escena compuesta (`Exterior`, `Interior(<block>)`).
+    /// Label of the composed scene (`Exterior`, `Interior(<block>)`).
     pub label: String,
     /// Edificios compuestos del asentamiento.
     pub buildings: usize,
     /// NPCs del censo compuesto.
     pub npcs: usize,
-    /// Paneles de la capa 2D compuesta.
+    /// Panels of the composed 2D layer.
     pub panels: usize,
 }
 
-// ── creación de personaje (wizard del canon) ────────────────────────────────
+// ── character creation (canon wizard) ──────────────────────────────────────
 
-/// `Right`/`Left` sobre el wizard: cara siguiente/anterior del anillo
-/// (`shell::CREATE_FACES`) y repintado del paso en curso.
+/// `Right`/`Left` over the wizard: next/previous face of the ring
+/// (`shell::CREATE_FACES`) and repaint of the step in progress.
 ///
-/// Devuelve la cara resultante. Fuera de `Create` no hace nada y devuelve la
-/// cara guardada en el shell: la tecla no inventa un estado.
+/// Returns the resulting face. Outside `Create` it does nothing and returns the
+/// face stored in the shell: the key does not invent a state.
 pub fn create_face(shell: &mut Shell, right: bool) -> usize {
     let ShellState::Create { step, face } = shell.state else {
         return shell.face;
@@ -78,8 +78,8 @@ pub fn create_face(shell: &mut Shell, right: bool) -> usize {
         face: next_face,
     };
     shell.face = next_face;
-    // Un cambio de cara repinta el paso en curso: la línea es consecuencia
-    // causal de la tecla, no evidencia de entrada.
+    // A face change repaints the step in progress: the line is a causal
+    // consequence of the key, not input evidence.
     shell.say(
         0.0,
         shell::create_step_line(step, shell::CREATE_STEPS, shell::CREATE_FIELDS[step - 1]),
@@ -87,9 +87,9 @@ pub fn create_face(shell: &mut Shell, right: bool) -> usize {
     next_face
 }
 
-/// `Down` sobre el wizard: paso siguiente del canon (se detiene en el último).
+/// `Down` over the wizard: next canon step (it stops at the last one).
 ///
-/// Devuelve el paso en curso. Fuera de `Create` devuelve 0 y no toca nada.
+/// Returns the step in progress. Outside `Create` it returns 0 and touches nothing.
 pub fn create_next_step(shell: &mut Shell) -> usize {
     let ShellState::Create { step, face } = shell.state else {
         return 0;
@@ -108,7 +108,7 @@ pub fn create_next_step(shell: &mut Shell) -> usize {
     next
 }
 
-/// Abre el wizard en el paso 1 con la cara 0 (el `Return` sobre `new-game`).
+/// Opens the wizard at step 1 with face 0 (the `Return` over `new-game`).
 pub fn create_begin(shell: &mut Shell) {
     shell.state = ShellState::Create { step: 1, face: 0 };
     shell.face = 0;
@@ -124,16 +124,16 @@ pub fn create_begin(shell: &mut Shell) {
     );
 }
 
-/// `Return` sobre el wizard: confirma el personaje y entra en el mundo.
+/// `Return` over the wizard: confirms the character and enters the world.
 ///
-/// Publica `create done`, la línea `session` de la primera sesión (sin slots en
-/// el perfil) y delega en [`enter_playing`] con `new_game = true`, así que
-/// frase y estado no pueden divergir. Devuelve el token del personaje; `None`
-/// si la tecla llega fuera de `Create` (nada que confirmar).
+/// Publishes `create done`, the `session` line of the first session (no slots in
+/// the profile) and delegates to [`enter_playing`] with `new_game = true`, so
+/// phrase and state cannot diverge. Returns the character token; `None`
+/// if the key arrives outside `Create` (nothing to confirm).
 ///
-/// `slots_present` es el número de slots ocupados del perfil: lo cuenta el
-/// consumidor (`shell_slots::scan`), no este módulo — el directorio es del
-/// proceso y aquí no se adivina.
+/// `slots_present` is the number of occupied slots in the profile: the
+/// consumer counts it (`shell_slots::scan`), not this module — the directory
+/// belongs to the process and is not guessed here.
 pub fn confirm_create(
     shell: &mut Shell,
     phase: &mut AppPhase,
@@ -147,17 +147,17 @@ pub fn confirm_create(
     shell.character = Some(character.clone());
     shell.face = face;
     shell.panel = shell::ShellPanel::None;
-    // M-QST: una partida nueva es una sesión nueva — la quest vuelve a
-    // `Unstarted` para que el disparador de `enter_playing` pueda ofrecerla.
-    // (Cargar/continuar NO pasa por aquí: rehidrata del documento.)
+    // M-QST: a new game is a new session — the quest returns to
+    // `Unstarted` so that `enter_playing`'s trigger can offer it.
+    // (Load/continue does NOT go through here: it rehydrates from the document.)
     shell.mainquest = crate::mainquest_route::MainQuest::new();
-    // M-NEW (CR-178183d7): una partida nueva empieza de cero. El reloj de
-    // sesión vuelve al arranque (`SESSION_CLOCK_SEED`; solo lo mueven el viaje
-    // rápido y la carga), la pausa no arrastra minutos y el slot cargado deja
-    // de estar atado a la sesión: si se sigue jugando, el siguiente guardado
-    // elige el primer slot libre en vez de reescribir el que se había cargado.
-    // `continue`/`load` NO pasan por aquí — [`apply_load`] es la única ruta que
-    // conserva, y esa es la diferencia entre las dos entradas del menú.
+    // M-NEW (CR-178183d7): a new game starts from zero. The session
+    // clock returns to the seed (`SESSION_CLOCK_SEED`; only fast travel and
+    // load move it), the pause carries no minutes over and the loaded slot
+    // stops being tied to the session: if play continues, the next save
+    // chooses the first free slot instead of rewriting the one that was loaded.
+    // `continue`/`load` do NOT go through here — [`apply_load`] is the only route
+    // that preserves, and that is the difference between the two menu entries.
     shell.clock_minutes = shell::SESSION_CLOCK_SEED;
     shell.paused_ticks = shell::SESSION_CLOCK_SEED;
     shell.session_slot = None;
@@ -175,17 +175,17 @@ pub fn confirm_create(
 
 // ── entrada al mundo ────────────────────────────────────────────────────────
 
-/// Entra en `Playing` (creación, `continue` o carga): fase, mundo y HUD de una
-/// sola vez, para que frase y estado no puedan divergir.
+/// Enters `Playing` (creation, `continue` or load): phase, world and HUD at
+/// once, so phrase and state cannot diverge.
 ///
-/// **Sin escena NO se publican `world` ni `hud`** — el consumidor headless no
-/// tiene mundo compuesto y el HUD es un hecho medido, no un relleno. La línea
-/// `new_game` sí se publica: la entrada al mundo es un hecho del shell.
+/// **Without a scene `world` and `hud` are NOT published** — the headless
+/// consumer has no composed world and the HUD is a measured fact, not filler.
+/// The `new_game` line IS published: entering the world is a shell fact.
 ///
-/// La línea de fase incluye `phase=<LABEL>` (`phase=PLAYING`) y se imprime
-/// **después** de drenar la cola: la evidencia del estado que la causó
-/// (`create done`, `session`) queda antes de la frase, y el regreso al menú
-/// (`back_to_menu`) siempre publica `menu state=Menu` después de esa frase.
+/// The phase line includes `phase=<LABEL>` (`phase=PLAYING`) and is printed
+/// **after** draining the queue: the evidence of the state that caused it
+/// (`create done`, `session`) comes before the phrase, and the return to the menu
+/// (`back_to_menu`) always publishes `menu state=Menu` after that phrase.
 pub fn enter_playing(
     shell: &mut Shell,
     phase: &mut AppPhase,
@@ -212,10 +212,10 @@ pub fn enter_playing(
     if new_game {
         shell.say(0.0, shell::new_game_line(ticks));
     }
-    // M-QST: el disparador entra DESPUÉS de `state = Playing` y ANTES del
-    // early-return de la escena ausente — con `scene = None` el pase headless
-    // (y por tanto la medida) también ve la oferta. `offer` solo emite desde
-    // `Unstarted`, así que `continue`/carga no re-ofrecen lo ya decidido.
+    // M-QST: the trigger enters AFTER `state = Playing` and BEFORE the
+    // missing-scene early return — with `scene = None` the headless pass
+    // (and therefore the measurement) sees the offer too. `offer` only emits from
+    // `Unstarted`, so `continue`/load do not re-offer what is already decided.
     crate::mainquest_route::offer(shell);
     let Some(scene) = scene else {
         return;
@@ -236,10 +236,10 @@ pub fn enter_playing(
 
 // ── slots: abrir el browser y escribir ──────────────────────────────────────
 
-/// Abre el browser de guardado sobre el store ya barrido por el consumidor.
+/// Opens the save browser over the store already swept by the consumer.
 ///
-/// Devuelve los slots ocupados (el `slots.len()` que la ventana publica en su
-/// línea `M18 VE:`), de modo que el llamante no recalcula el censo.
+/// Returns the occupied slots (the `slots.len()` the window publishes in its
+/// `M18 VE:` line), so the caller does not recompute the census.
 pub fn open_save(shell: &mut Shell, store: SaveStore) -> usize {
     let occupied = store.count();
     shell.slots = store.slots;
@@ -253,12 +253,12 @@ pub fn open_save(shell: &mut Shell, store: SaveStore) -> usize {
     occupied
 }
 
-/// Escribe el slot elegido (el primero libre, o el del cursor si no queda
-/// ninguno) con el reloj de sesión real y refresca el censo del browser.
+/// Writes the chosen slot (the first free one, or the cursor's if none is
+/// left) with the real session clock and refreshes the browser census.
 ///
-/// `dir` es el directorio de slots que resuelve el consumidor
-/// (`shell_slots::save_dir()`): aquí no se adivina un directorio implícito.
-/// Devuelve `(slot, bytes, digest)` del documento v3 escrito.
+/// `dir` is the slot directory the consumer resolves
+/// (`shell_slots::save_dir()`): an implicit directory is not guessed here.
+/// Returns `(slot, bytes, digest)` of the written v3 document.
 pub fn write_slot(shell: &mut Shell, dir: &Path) -> Result<(usize, usize, u64), String> {
     let Some(character) = shell.character.clone() else {
         return Err("no session character: nothing to write".to_string());
@@ -267,10 +267,10 @@ pub fn write_slot(shell: &mut Shell, dir: &Path) -> Result<(usize, usize, u64), 
     let index = (0..shell_slots::SLOT_COUNT)
         .find(|at| !occupied.contains(at))
         .unwrap_or(shell.browser_slot);
-    // `CR-7a3e9c14`: si la sesión midió mundo, el slot lo declara (generación
-    // 4, misma gramática v3); si no lo midió, el slot sigue siendo el de
-    // generación 3 y la evidencia dice `fidelity=3` con su razón — la puerta
-    // no inventa posición ni reloj de mundo.
+    // `CR-7a3e9c14`: if the session measured a world, the slot declares it
+    // (generation 4, same v3 grammar); if it did not, the slot stays the
+    // generation 3 one and the evidence says `fidelity=3` with its reason — the
+    // door invents neither position nor world clock.
     let written = match shell.snapshot {
         Some(world) => shell_slots::write_in_with_world(
             dir,
@@ -312,13 +312,13 @@ pub fn write_slot(shell: &mut Shell, dir: &Path) -> Result<(usize, usize, u64), 
 
 // ── regreso al menú ─────────────────────────────────────────────────────────
 
-/// `b` en la pausa: la sesión vuelve al menú con la selección en 0 (el ítem
-/// `new-game`), sin redeclarar el conjunto de ítems (ya se declaró al entrar).
+/// `b` while paused: the session returns to the menu with the selection at 0
+/// (the `new-game` item), without redeclaring the set of items (already declared on entry).
 ///
-/// Publica `session state=Menu from=Playing` y el estado del menú: la frase de
-/// fase que [`enter_playing`] imprimió queda **antes** de estas dos líneas por
-/// construcción (la cola solo avanza hacia adelante), así que la secuencia
-/// `PLAYING → menu` es la misma que la ventana muestra.
+/// Publishes `session state=Menu from=Playing` and the menu state: the phase
+/// phrase [`enter_playing`] printed comes **before** these two lines by
+/// construction (the queue only moves forward), so the
+/// `PLAYING → menu` sequence is the same one the window shows.
 pub fn back_to_menu(shell: &mut Shell) {
     shell.state = ShellState::Menu {
         selection: shell::MENU_NEW_GAME,
@@ -333,24 +333,24 @@ pub fn back_to_menu(shell: &mut Shell) {
     );
 }
 
-// ── pase headless del recorrido de sesión ───────────────────────────────────
+// ── headless pass of the session walkthrough ───────────────────────────────
 
-/// Directorio del pase: `temp/dfl-session-pass-<pid>` (borrado al terminar).
+/// Pass directory: `temp/dfl-session-pass-<pid>` (deleted at the end).
 fn pass_dir() -> PathBuf {
     std::env::temp_dir().join(format!("dfl-session-pass-{}", std::process::id()))
 }
 
-/// Recorre `menú → creación → PLAYING → guardar → menú` sin ventana y publica
-/// la **misma** evidencia que la ventana produce con las mismas teclas.
+/// Walks `menu → creation → PLAYING → save → menu` without a window and publishes
+/// the **same** evidence the window produces with the same keys.
 ///
-/// Es el pase que hace medible `P4` (`create done … state=Playing`) y `P9`
-/// (`phase=PLAYING` antes de `menu state=Menu`) en un binario sin servidor
-/// gráfico: el probe de creación lo llama al final de su medición y el gate
-/// `scripts/mplay-001.py` lee las líneas de stdout.
+/// It is the pass that makes `P4` (`create done … state=Playing`) and `P9`
+/// (`phase=PLAYING` before `menu state=Menu`) measurable in a binary without a
+/// graphics server: the creation probe calls it at the end of its measurement
+/// and the `scripts/mplay-001.py` gate reads the stdout lines.
 ///
-/// Honestidad: el pase **no** inventa escena (0 `world`/`hud` — ver
-/// [`enter_playing`]) ni escribe rutas; el directorio de slots es temporal y se
-/// borra al final incluso si un paso falla.
+/// Honesty: the pass does **not** invent a scene (0 `world`/`hud` — see
+/// [`enter_playing`]) nor writes paths; the slot directory is temporary and is
+/// deleted at the end even if a step fails.
 pub fn headless_session_pass() -> Result<(), String> {
     let dir = pass_dir();
     if dir.exists() {
@@ -364,11 +364,11 @@ pub fn headless_session_pass() -> Result<(), String> {
     result
 }
 
-/// Cuerpo del pase (separado para que el `remove_dir_all` sea incondicional).
+/// Body of the pass (separated so the `remove_dir_all` is unconditional).
 fn session_pass(dir: &Path) -> Result<(), String> {
-    // Sin hechos del mundo: el shell headless no compone escena. Los campos que
-    // NO se publican (hud/ubicación/asentamientos) quedan declarados como
-    // ausentes, nunca rellenados con ceros que parezcan medidos.
+    // No world facts: the headless shell composes no scene. The fields that
+    // are NOT published (hud/location/settlements) stay declared absent, never
+    // filled with zeros that look measured.
     let mut shell = Shell::new(
         Vec::new(),
         HudFacts {
@@ -385,9 +385,9 @@ fn session_pass(dir: &Path) -> Result<(), String> {
     shell.state = ShellState::Menu {
         selection: shell::MENU_NEW_GAME,
     };
-    // `Return` sobre `new-game`: abre el wizard.
+    // `Return` over `new-game`: opens the wizard.
     create_begin(&mut shell);
-    // El canon avanza (el driver del gate confirma en el paso 2).
+    // The canon advances (the gate driver confirms at step 2).
     create_next_step(&mut shell);
     let slots_present = shell_slots::scan_in(dir).count();
     let character = confirm_create(&mut shell, &mut phase, None, slots_present)
@@ -404,7 +404,7 @@ fn session_pass(dir: &Path) -> Result<(), String> {
     if shell.session_slot != Some(slot) {
         return Err(format!("save: slot {slot} not recorded in the session"));
     }
-    // `b`: la sesión vuelve al menú.
+    // `b`: the session returns to the menu.
     back_to_menu(&mut shell);
     shell.drain();
     Ok(())
@@ -438,7 +438,7 @@ mod tests {
         shell.say(0.0, "SHELL VE: blocked-behind-late".to_string());
         assert_eq!(shell.drain(), 2);
         assert_eq!(shell.drain(), 0, "the live delay is still live");
-        // Una sola línea por `pump`: el orden estricto no cambia.
+        // One line per `pump`: the strict order does not change.
         shell.pump(5.0);
         assert_eq!(shell.drain(), 1, "the late line became ready");
     }
@@ -475,9 +475,9 @@ mod tests {
         enter_playing(&mut shell, &mut phase, None, true);
         assert_eq!(phase, AppPhase::Playing);
         assert_eq!(shell.state, ShellState::Playing);
-        // Solo `new_game` + la oferta de la quest (M-QST): ningún `world` ni
-        // `hud` inventado. La oferta sale de aquí precisamente porque el
-        // early-return de la escena ausente va DESPUÉS del disparador.
+        // Only `new_game` + the quest offer (M-QST): no invented `world` or
+        // `hud`. The offer comes out of here precisely because the
+        // missing-scene early return goes AFTER the trigger.
         assert_eq!(shell.mainquest.state(), daggerfall_behavior::mainquest::State::Offered);
         assert_eq!(shell.drain(), 2);
     }
@@ -493,13 +493,13 @@ mod tests {
             panels: 4,
         };
         enter_playing(&mut shell, &mut phase, Some(&scene), false);
-        // `world` exige ubicación retail: sin ella se publica solo el HUD,
-        // más la oferta de la quest de la primera entrada (M-QST).
+        // `world` requires a retail location: without it only the HUD is published,
+        // plus the first entry's quest offer (M-QST).
         assert_eq!(shell.drain(), 2);
         shell.location = Some((17, 50026, 0));
         let mut phase = AppPhase::Playing;
         enter_playing(&mut shell, &mut phase, Some(&scene), false);
-        // La oferta no se repite (el estado ya no es `Unstarted`).
+        // The offer does not repeat (the state is no longer `Unstarted`).
         assert_eq!(shell.mainquest.offers(), 1);
         assert_eq!(shell.drain(), 2, "world + hud");
     }

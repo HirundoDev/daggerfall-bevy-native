@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-b367c9dd — instalador idempotente de los 3 hooks del kit.
+#  GUARD-KIT:CR-b367c9dd — idempotent installer of the kit's 3 hooks.
 #
-# Escribe `.git/hooks/{pre-commit,commit-msg,pre-push}` como wrappers SIN lógica:
-# resuelven la raíz del repo y fuentean `scripts/guard/<hook>.sh`. Los bytes del
-# wrapper son deterministas (sin timestamps ni rutas absolutas) ⇒ correrlo dos
-# veces deja los mismos sha256.
+#  It writes `.git/hooks/{pre-commit,commit-msg,pre-push}` as wrappers with NO logic:
+#  they resolve the repo root and source `scripts/guard/<hook>.sh`. The wrapper
+#  bytes are deterministic (no timestamps, no absolute paths) ⇒ running it twice
+#  leaves the same sha256.
 #
-# NUNCA sobreescribe un hook ajeno: si el destino existe y no lleva el marcador
-# del kit, sale 2 sin escribir nada (ni backup). Esta lane no toca hooks de otras.
+#  It NEVER overwrites a foreign hook: if the destination exists and does not carry the
+#  kit marker, it exits 2 writing nothing (not even a backup). This lane touches no other hooks.
 
 set -u
 
@@ -66,7 +66,7 @@ guard_wrapper() {
   printf '. "$top/scripts/guard/%s.sh"\n' "$hook"
 }
 
-# ── pase 1: pre-validar TODOS los destinos antes de escribir ninguno ─────────
+#  ── pass 1: pre-validate ALL destinations before writing any ────────────────
 guard_conflict=0
 for guard_hook in "${GUARD_HOOKS[@]}"; do
   guard_dst="$guard_hooks_dir/$guard_hook"

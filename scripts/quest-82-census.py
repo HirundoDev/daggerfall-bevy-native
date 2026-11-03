@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
-"""CENSUS-82-M42 - censo mecanico de las 82 acciones DFU de questing.
+"""CENSUS-82-M42 - mechanical census of the 82 DFU questing actions.
 
-Fuente A: `reference/dfu-spec/Assets/Scripts/Game/Questing/Actions/*.cs`
-(82 clases, todas `: ActionTemplate`).
-Fuente B: `crates/behavior/src/quests.rs` (`pub enum OpcodeEffect`,
+Source A: `reference/dfu-spec/Assets/Scripts/Game/Questing/Actions/*.cs`
+(82 classes, all `: ActionTemplate`).
+Source B: `crates/behavior/src/quests.rs` (`pub enum OpcodeEffect`,
 `QuestRequest::from_effect`, `Quest::run_action`).
 
-Una fila por clase DFU, con la(s) variante(s) que la cubren, el veredicto
-`executed` (la variante despacha via `QuestRequest::from_effect`, esto es,
-cruza la frontera del organo) o `NEGATIVE-proven` (`from_effect` devuelve
-`None` y el efecto se aplica dentro de `run_action`, citado por linea), y una
-cita `src=crates/behavior/src/quests.rs:<linea>` en cada fila.
+One row per DFU class, with the variant(s) covering it, the verdict
+`executed` (the variant dispatches via `QuestRequest::from_effect`, that is,
+it crosses the organ boundary) or `NEGATIVE-proven` (`from_effect` returns
+`None` and the effect is applied inside `run_action`, cited by line), and a
+citation `src=crates/behavior/src/quests.rs:<line>` on every row.
 
-Determinismo: dos procesos hijo emiten el cuerpo canonico; el padre exige
-stdout byte-identico y cierra con `DIGEST <sha256>` sobre los bytes previos.
-Falla (exit != 0) si el numero de filas != 82, si alguna fila no lleva `src=`,
-si una clase DFU queda sin variante y sin prueba documentada, o si los goldens
-de variantes/veredictos derivan.
+Determinism: two child processes emit the canonical body; the parent requires
+byte-identical stdout and closes with `DIGEST <sha256>` over the preceding bytes.
+Fails (exit != 0) if the row count != 82, if any row lacks `src=`,
+if a DFU class ends up with no variant and no documented proof, or if the variant/
+verdict goldens drift.
 
-Uso:
-  python3 scripts/quest-82-census.py             # censo + 2 procesos + DIGEST
-  python3 scripts/quest-82-census.py --emit      # cuerpo canonico (hijo)
-  python3 scripts/quest-82-census.py --markdown  # tabla del doc (misma fuente)
+Usage:
+    python3 scripts/quest-82-census.py             # census + 2 processes + DIGEST
+    python3 scripts/quest-82-census.py --emit      # canonical body (child)
+    python3 scripts/quest-82-census.py --markdown  # doc table (same source)
   python3 scripts/quest-82-census.py --falsify row-count|src-strip|class-double
 """
 
@@ -48,8 +48,8 @@ CR = "CR-a69444c1-adc6-475f-aea4-f8b1fed8d74d"
 GATE = "M42/W42-5"
 PROBE = "CENSUS-82-M42"
 
-# Goldens medidos en el HEAD de partida (065f3a9): 89 variantes OpcodeEffect,
-# 10 de ellas con `from_effect` -> None (efecto interno), 82 clases DFU.
+#  Goldens measured at the starting HEAD (065f3a9): 89 OpcodeEffect variants,
+#  10 of them with `from_effect` -> None (internal effect), 82 DFU classes.
 EXPECTED_ROWS = 82
 EXPECTED_EXECUTED = 73
 EXPECTED_NEGATIVE = 9
@@ -66,8 +66,8 @@ CENSUS_LINE = re.compile(
     r"variants=(\d+) from-effect-none=(\d+) .*src=(\S+)$"
 )
 
-# Nota por variante interna: donde se aplica el efecto y por que no cruza la
-# frontera del organo. `{arm}` lo rellena el parser con la linea real del arm.
+#  Note per internal variant: where the effect is applied and why it does not cross
+#  the organ boundary. `{arm}` is filled by the parser with the real arm line.
 NEGATIVE_NOTE = {
     "LogMessage": "`run_action` anota el step en el journal (`{arm}`)",
     "JournalNote": "`run_action` anota la nota libre en el journal (`{arm}`)",
@@ -81,10 +81,10 @@ NEGATIVE_NOTE = {
     "StopTimer": "`run_action` para el reloj de la quest (`{arm}`)",
 }
 
-# Clase DFU sin variante propia: solo puede entrar aqui con el efecto externo
-# DOCUMENTADO (criterio 2: cero acciones ignoradas en silencio). Vacio = las 82
-# quedan cubiertas por una variante; si aparece una clase nueva sin variante y
-# sin nota, el censo FALLA.
+#  DFU class with no variant of its own: it can only enter here with the external effect
+#  DOCUMENTED (criterion 2: zero silently ignored actions). Empty = the 82
+#  are covered by a variant; if a new class appears with no variant and no
+#  note, the census FAILS.
 EXTERNAL_EFFECT: dict[str, str] = {}
 
 
@@ -485,7 +485,7 @@ def write_artifacts(bodies: list[bytes], rules: list[Rule], counts: dict[str, in
     return path
 
 
-# ── falsificadores: mutan el cuerpo canonico bajo su propia regla ──────────
+#  ── falsifiers: they mutate the canonical body under its own rule ─────────
 
 
 def mutate_row_drop(body: str) -> tuple[str, str]:

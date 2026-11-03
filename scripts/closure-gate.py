@@ -70,7 +70,7 @@ SOVEREIGN_SIGNER_RE = re.compile(r"^og-[a-z0-9][a-z0-9._-]*")
 # A QA artefact may cite a change request in full or in this repository's short form.
 CR_UUID_RE = re.compile(r"^(CR-[0-9a-fA-F]{8})-")
 
-# CR-359b5d8e: M-SHELL y M-PLAY son filas del bloque maquina, en su posicion de secuencia
+# CR-359b5d8e: M-SHELL and M-PLAY are machine-block rows, in their sequence position
 # (M43 -> M44 -> M-SHELL -> M-PLAY -> M45..M48). 53 ids.
 EXPECTED_IDS = ([f"M{i}" for i in range(0, 14)] + ["M13b"] + [f"M{i}" for i in range(14, 45)]
                 + ["M-SHELL", "M-PLAY"] + [f"M{i}" for i in range(45, 49)] + ["E8"])
@@ -494,13 +494,13 @@ def run_registry_selftest():
         base.update(over)
         return base
 
-    # CR-9f3c17a2 — falsificador con filas REALES, no inventadas. Payload extraido
-    # literalmente de `git show 5597baf^:docs/sintergic/handoffs/INDEX.jsonl`
-    # (5597baf = la remediacion; su PADRE aun tenia L496 y L499 en `DONE`, firmadas
-    # por `og-orquestador (lane SaveV3Cierre)` con autoria `og-l1-checklist (lane
-    # SaveV3Cierre)`). Solo los campos que el gate lee. `path`/`qa_evidence` se
-    # re-anclan a REPO para que el fixture sobreviva a un cambio de ruta: la cola
-    # relativa es la historica, literal.
+    # CR-9f3c17a2 — falsifier with REAL rows, not invented ones. Payload extracted
+    # literally from `git show 5597baf^:docs/sintergic/handoffs/INDEX.jsonl`
+    # (5597baf = the remediation; its PARENT still had L496 and L499 in `DONE`, signed
+    # by `og-orquestador (lane SaveV3Cierre)` with authorship `og-l1-checklist (lane
+    # SaveV3Cierre)`). Only the fields the gate reads. `path`/`qa_evidence` are
+    # re-anchored to REPO so the fixture survives a path change: the relative
+    # tail is the historical one, literal.
     def hist(path, **over):
         base = {"cr": "CR-364c0313-942f-4e89-9cb0-7c8f28be36f8", "date": "2026-10-30",
                 "agent": "og-l1-checklist (lane SaveV3Cierre)", "lane": "SaveV3Cierre",
@@ -531,12 +531,12 @@ def run_registry_selftest():
         sha256="8e784fd1974f25a5a4720fe5472c439d247266905a5b1fc8b1aa4c96be8aefdc",
         signed_by="og-l1-checklist (lane SaveV3Cierre) — registro del cierre")
 
-    # CR-2b6d4f18 — una fila `candidato` real cuyo `path` promete bytes. Payload
-    # extraido literalmente de `git show 5597baf^:docs/sintergic/handoffs/INDEX.jsonl`
-    # (L434), solo los campos que el gate lee; la cola relativa del path es la
-    # historica, literal, y re-anclada a REPO para que el fixture sobreviva a un
-    # cambio de raiz. `candidato` no exige firma, asi que el unico codigo posible es
-    # el del path: el negativo no se contamina.
+    # CR-2b6d4f18 — a real `candidato` row whose `path` promises bytes. Payload
+    # extracted literally from `git show 5597baf^:docs/sintergic/handoffs/INDEX.jsonl`
+    # (L434), only the fields the gate reads; the path's relative tail is the
+    # historical one, literal, and re-anchored to REPO so the fixture survives a
+    # root change. `candidato` requires no signature, so the only possible code is
+    # the path's: the negative does not contaminate itself.
     contrato_sync = {
         "schema": "HH-1", "id": "HH-20261029-contrato-sync",
         "cr": "CR-01e3aebf-b0d1-49f8-af7a-564a57385c06", "date": "2026-10-29",
@@ -580,12 +580,12 @@ def run_registry_selftest():
               signed_at="2026-10-29T10:00:00Z", qa_evidence=short_only)],
          [],
          set()),
-        # Regresion medida por el capitan: esta fila se rebajo hoy, asi que no puede estar exenta.
+        # Regression measured by the captain: this row was lowered today, so it cannot be exempt.
         ("rebajado-hoy-sin-firma",
          [row(id="HH-20261029-gate-m43-lane-a3")],
          ["REGISTRY-DONE-WITHOUT-SIGNATURE"],
          set()),
-        # Una fila creada y autofirmada el mismo dia del corte no es historica: no puede venir exenta.
+        # A row created and self-signed on the cut's own day is not historical: it cannot be exempt.
         ("creado-hoy-sin-firma",
          [row(id="HH-20261030-capa-visible-shell-visible-layer", date="2026-10-30")],
          ["REGISTRY-DONE-WITHOUT-SIGNATURE"],
@@ -611,10 +611,10 @@ def run_registry_selftest():
          [row(id="HH-POS-3", status="candidato")],
          ["REGISTRY-LEGACY-ID-UNKNOWN"],
          {"HH-GHOST"}),
-        # ── CR-9f3c17a2: la lane que se firma a si misma, con las filas reales ──
-        # L496 @ 5597baf^: autora `og-l1-checklist (lane SaveV3Cierre)`, firmante
-        # `og-orquestador (lane SaveV3Cierre) — cierre del ciclo`. El gate de entonces
-        # comparaba solo la base del agente: veia dos autores distintos.
+        # ── CR-9f3c17a2: the lane that signs itself, with the real rows ──
+        # L496 @ 5597baf^: author `og-l1-checklist (lane SaveV3Cierre)`, signer
+        # `og-orquestador (lane SaveV3Cierre) — cycle close`. The gate of that time
+        # compared only the agent base: it saw two different authors.
         ("misma-lane-savev3-desbloqueo",
          [desbloqueo],
          ["REGISTRY-SAME-LANE-SIGNER"],
@@ -624,25 +624,25 @@ def run_registry_selftest():
          [cierre],
          ["REGISTRY-SAME-LANE-SIGNER"],
          set()),
-        # La prosa DESPUES del parentesis no borra la lane: `og-qa (lane X) verificado`
-        # sigue siendo la lane X firmando su propia fila.
+        # Prose AFTER the parenthesis does not erase the lane: `og-qa (lane X) verified`
+        # is still lane X signing its own row.
         ("misma-lane-prosa-final",
          [dict(desbloqueo, signed_by="og-qa (lane SaveV3Cierre) verificado")],
          ["REGISTRY-SAME-LANE-SIGNER"],
          set()),
-        # ...y el chequeo NO dispara siempre: fila DONE real del registro remediado,
-        # autora lane `SaveV3CoreSign` y firmante lane `SaveV3Cierre` (con prosa).
+        # ...and the check does NOT always fire: a real DONE row of the remediated registry,
+        # authored by lane `SaveV3CoreSign` and signed by lane `SaveV3Cierre` (with prose).
         ("firmante-de-otra-lane",
          [coresign],
          [],
          set()),
-        # La firma incompleta sigue mordiendo: la fila real sin `qa_evidence`.
+        # The incomplete signature still bites: the real row without `qa_evidence`.
         ("fila-real-sin-qa-evidence",
          [{k: v for k, v in coresign.items() if k != "qa_evidence"}],
          ["REGISTRY-DONE-WITHOUT-SIGNATURE"],
          set()),
-        # Sin etiqueta de lane en un lado no se presume culpa: cae al chequeo de
-        # agente y no estrena codigo (la incertidumbre no es un hallazgo).
+        # Without a lane tag on one side guilt is not presumed: it falls to the agent
+        # check and mints no new code (uncertainty is not a finding).
         ("firmante-sin-etiqueta-de-lane",
          [dict(coresign, signed_by="og-l1-checklist")],
          [],
@@ -651,16 +651,16 @@ def run_registry_selftest():
          [{k: v for k, v in coresign.items() if k != "lane"}],
          [],
          set()),
-        # ── CR-2b6d4f18: el path que promete bytes que no estan ──
-        # La misma fila real con un `path` inexistente: el digest declarado no se
-        # puede comprobar contra nada, y hasta ahora el gate callaba.
+        # ── CR-2b6d4f18: the path that promises bytes that are not there ──
+        # The same real row with a nonexistent `path`: the declared digest cannot
+        # be checked against anything, and until now the gate kept silent.
         ("candidato-path-inexistente",
          [dict(contrato_sync,
                path=str(REPO / "docs/sintergic/handoffs/hh-1-20261029-contrato-sync-CR-2b6d4f18.md"))],
          ["REGISTRY-PATH-MISSING"],
          set()),
-        # ...y el control negativo: la MISMA fila con su path real no estrena codigo.
-        # Sin esto el chequeo seria vacuidad que dispara siempre.
+        # ...and the negative control: the SAME row with its real path mints no code.
+        # Without this the check would be vacuity that always fires.
         ("candidato-path-real",
          [contrato_sync],
          [],

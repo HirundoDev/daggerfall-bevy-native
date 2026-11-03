@@ -1,530 +1,530 @@
-# Guardarraíles de corrida nocturna (hooks git)
+# Night-run guardrails (git hooks)
 
 CR: `CR-b367c9dd-db42-4465-9b2f-d8a341aa3135` · lane `NIGHT-GUARD-KIT` · target `daggerfall-bevy-native`.
-Corrección de reservas del QA (R2 token · R1/D2b gates · R8 falsificador · R3 límite):
+QA reservations fix (R2 token · R1/D2b gates · R8 falsifier · R3 limit):
 `CR-4b576323-4c49-4607-90e3-59c92cf5c2ea`.
-Coherencia código↔prosa (D3: frontera `_` + censo fechado):
+Code and prose coherence (D3: `_` boundary + dated census):
 `CR-3862257b-fb7e-4eda-9178-e982e3a89ffc`.
-Cierre de los dos huecos previos al encendido (D4: la excepción se decide en `commit-msg`
-sobre el mensaje real + gates por PATRÓN):
+Closing of the two gaps before switching on (D4: the exception is decided in `commit-msg`
+on the real message + PATTERN gates):
 `CR-a58f600a-6b7b-4b48-9c31-716625fce035`.
 
-La prosa falló: se declaró cobertura que no existía y un gate que comparaba sus propios
-literales. Este kit no pide confianza — es un hook de git que devuelve `exit != 0`.
-Lo que no puede demostrarse con un comando que falla, aquí no está declarado.
+The prose failed: coverage was declared that did not exist, and a gate compared its own
+literals. This kit does not ask for trust: it is a git hook that returns `exit != 0`.
+What cannot be demonstrated with a command that fails is not declared here.
 
-Estado al entregar (D4, 2026-10-29): **instalado y APAGADO**. `GUARD_ACTIVE` sin definir ⇒
-los 3 hooks salen 0 antes de leer nada (el kit apagado no estorba a ninguna lane). Se enciende
-al cerrar M43 (ver §2).
+State at delivery (D4, 2026-10-29): **installed and OFF**. `GUARD_ACTIVE` unset means
+the 3 hooks exit 0 before reading anything (the off kit disturbs no lane). It is switched on
+when M43 closes (see §2).
 
 ---
 
-## 1. Qué protege cada hook (tabla hook → path → efecto)
+## 1. What each hook protects (hook → path → effect table)
 
-| Hook | Mira | Paths / condición | Efecto con `GUARD_ACTIVE=1` |
+| Hook | Looks at | Paths / condition | Effect with `GUARD_ACTIVE=1` |
 |---|---|---|---|
-| `pre-commit` | el **índice** git (`git diff --cached`) | cualquiera que case `GUARD_PROTECTED_PATTERNS` o `GUARD_PROTECTED_DERIVED` | rechaza el commit (`exit 1`) e imprime path + patrón + remedio de **todos** los protegidos del índice. **NO evalúa la excepción**: con `GUARD_ALLOW_CR` definido no autoriza nada — imprime `GUARD-DEFERIDO: … pre-commit NO evalúa la excepción …` y sale 0, porque el mensaje del commit en curso todavía no existe |
-| `commit-msg` | el **mensaje** del commit en curso: el fichero que git pasa en **`$1`** (nunca `.git/COMMIT_EDITMSG`) | mismo índice; exige que `GUARD_ALLOW_CR` aparezca como **token delimitado** en ese mensaje (ver §3) | **ÚNICO sitio donde se decide la excepción**. Rechaza si el CR esperado no está en el mensaje como token (`exit 1`, imprime `NO contiene`); concede con `GUARD-EXCEPCION` si está |
-| `pre-push` | las refs que se publican (stdin) | todo push: ramas, tags y deletes | rechaza (`exit 1`) salvo `GUARD_ALLOW_PUSH` |
+| `pre-commit` | the git **index** (`git diff --cached`) | anything matching `GUARD_PROTECTED_PATTERNS` or `GUARD_PROTECTED_DERIVED` | rejects the commit (`exit 1`) and prints path + pattern + remedy for **every** protected path in the index. It does **NOT** evaluate the exception: with `GUARD_ALLOW_CR` set it authorizes nothing, it prints its deferral line and exits 0, because the in-progress commit message does not exist yet |
+| `commit-msg` | the **message** of the in-progress commit: the file git passes in **`$1`** (never `.git/COMMIT_EDITMSG`) | same index; requires `GUARD_ALLOW_CR` to appear as a **delimited token** in that message (see §3) | **THE ONLY place where the exception is decided**. Rejects if the expected CR is not in the message as a token (`exit 1`, prints `NO contiene`); grants with `GUARD-EXCEPCION` if it is |
+| `pre-push` | the refs being published (stdin) | every push: branches, tags and deletes | rejects (`exit 1`) unless `GUARD_ALLOW_PUSH` |
 
-Paths protegidos (fuente única: `scripts/guard/guard-paths.sh`):
+Protected paths (single source: `scripts/guard/guard-paths.sh`):
 
-| Patrón | Origen | Qué es |
+| Pattern | Origin | What it is |
 |---|---|---|
-| `docs/sintergic/validation/closure-register*` | ORDER | registro de cierre |
-| `docs/sintergic/handoffs/INDEX.jsonl` | ORDER | ledger de cierres |
-| `crates/promotion-gate/**` | ORDER | el gate mismo |
-| `crates/side-contract/**` | ORDER | contrato del lateral |
-| `docs/sintergic/promotion-gate/promotion-ledger.jsonl` | ORDER | ledger de promociones |
-| `daggerfall-side-projects/*` | ORDER | side-projects (ver D2: sin sujeto) |
-| `scripts/*-00[0-9]-*.py` | ORDER | fuentes de gate (ver D2: 0 ficheros, re-medido 2026-10-29) |
-| `scripts/*-00[0-9].py` | derivado D2 | los fuentes de gate reales: **23** en la foto de §1.1 (2026-10-29 11:44 MST), no un número fijo |
-| `sides/*` | derivado D2 | el árbol real de side-projects |
-| `scripts/*gate*.py` | derivado D2b/D4 | **gates de cierre, por PATRÓN** (no por nombre suelto): hoy casa 4 ficheros — ver §1.1 |
-| `scripts/handoff-lint.py` | derivado D2b | lint mecánico del cierre HH-1 (no lleva `gate` en el nombre) |
-| `scripts/mission-log.py` | derivado D2b | bitácora de misión (no lleva `gate` en el nombre) |
-| `scripts/validate-lane-registry.py` | derivado D2b | validador del registro de lanes (no lleva `gate` en el nombre) |
+| `docs/sintergic/validation/closure-register*` | ORDER | closure register |
+| `docs/sintergic/handoffs/INDEX.jsonl` | ORDER | closure ledger |
+| `crates/promotion-gate/**` | ORDER | the gate itself |
+| `crates/side-contract/**` | ORDER | the side contract |
+| `docs/sintergic/promotion-gate/promotion-ledger.jsonl` | ORDER | promotion ledger |
+| `daggerfall-side-projects/*` | ORDER | side-projects (see D2: no subject) |
+| `scripts/*-00[0-9]-*.py` | ORDER | gate sources (see D2: 0 files, re-measured 2026-10-29) |
+| `scripts/*-00[0-9].py` | derived D2 | the real gate sources: **23** in the §1.1 snapshot (2026-10-29 11:44 MST), not a fixed number |
+| `sides/*` | derived D2 | the real side-projects tree |
+| `scripts/*gate*.py` | derived D2b/D4 | **closure gates, by PATTERN** (not by loose name): today it matches 4 files, see §1.1 |
+| `scripts/handoff-lint.py` | derived D2b | mechanical lint of the HH-1 closure (its name carries no `gate`) |
+| `scripts/mission-log.py` | derived D2b | mission log (its name carries no `gate`) |
+| `scripts/validate-lane-registry.py` | derived D2b | lane registry validator (its name carries no `gate`) |
 
-Los patrones de directorio (`…/**` y `…/*`) cubren el propio directorio **y cualquier
-profundidad**: `crates/promotion-gate/src/x.rs` es protegido. Los de fichero usan glob
-(`*` cruza `/`, intencional). `./path` se normaliza antes de comparar.
+The directory patterns (`…/**` and `…/*`) cover the directory itself **and any
+depth**: `crates/promotion-gate/src/x.rs` is protected. File patterns use glob
+(`*` crosses `/`, intentional). `./path` is normalized before comparing.
 
-Por qué estos y no otros: son el **instrumento** (gates, ledgers, contratos) y los
-**registros de cierre**. Una corrida nocturna autónoma no puede editar lo que la mide.
+Why these and not others: they are the **instrument** (gates, ledgers, contracts) and the
+**closure records**. An autonomous night run cannot edit what measures it.
 
-### 1.1 Cobertura medida de `scripts/*.py` (D2b · CR-4b576323 · re-medido D4 CR-a58f600a)
+### 1.1 Measured coverage of `scripts/*.py` (D2b · CR-4b576323 · re-measured D4 CR-a58f600a)
 
-**Esto es una foto con fecha, no una propiedad permanente del kit.** Medición:
-**2026-10-29 12:01 MST**, sobre el árbol de trabajo tal como estaba (incluye ficheros aún
-`untracked` de otras lanes: el hook los ve igual). El total es **41** `scripts/*.py`; el
-patrón numérico `scripts/*-00[0-9].py` cubre **25**; el patrón de gates `scripts/*gate*.py`
-cubre **4**; **3** nombres sueltos de D2b (no llevan `gate`) siguen declarados uno a uno; los
-**9** restantes quedan fuera por decisión declarada, no por olvido.
+**This is a dated snapshot, not a permanent property of the kit.** Measurement:
+**2026-10-29 12:01 MST**, over the working tree as it was (it includes files still
+`untracked` from other lanes: the hook sees them all the same). The total is **41** `scripts/*.py`; the
+numeric pattern `scripts/*-00[0-9].py` covers **25**; the gate pattern `scripts/*gate*.py`
+covers **4**; **3** loose D2b names (they carry no `gate`) stay declared one by one; the
+**9** remaining are left out by declared decision, not by oversight.
 
-| Dato | Comando de re-medición | Valor en esa foto (2026-10-29 12:01 MST) |
+| Datum | Re-measurement command | Value in that snapshot (2026-10-29 12:01 MST) |
 |---|---|---|
-| total de fuentes | `printf '%s\n' scripts/*.py \| wc -l` | **41** |
-| cubiertos por el patrón numérico | `printf '%s\n' scripts/*-00[0-9].py \| wc -l` | **25** |
-| cubiertos por el patrón de gates | `ls scripts/*gate*.py` | **4** |
-| fuera de ambos patrones | total − 25 − 4 | **12** |
-| de esos, protegidos por nombre suelto (D2b) | 3 filas del array | **3** |
-| fuera de la guarda | 12 − 3 | **9** |
+| total sources | `printf '%s\n' scripts/*.py \| wc -l` | **41** |
+| covered by the numeric pattern | `printf '%s\n' scripts/*-00[0-9].py \| wc -l` | **25** |
+| covered by the gate pattern | `ls scripts/*gate*.py` | **4** |
+| outside both patterns | total − 25 − 4 | **12** |
+| of those, protected by loose name (D2b) | 3 array rows | **3** |
+| outside the guard | 12 − 3 | **9** |
 
-Los 4 del patrón de gates están medidos, no supuestos:
+The 4 of the gate pattern are measured, not assumed:
 
-| Protegido por `scripts/*gate*.py` | Por qué es instrumento de cierre |
+| Protected by `scripts/*gate*.py` | Why it is a closure instrument |
 |---|---|
-| `scripts/closure-gate.py` | gate de cierre: decide si un cierre vale |
-| `scripts/plan-gate-check.py` | chequeo del plan que el cierre cita |
-| `scripts/m43-gate-contract.py` | contrato de los gates de M43 |
-| `scripts/m43_gate_lib.py` | harness compartido de los gates M43 — el gap que la foto anterior declaraba abierto (untracked entonces y ahora: el patrón no depende de que esté trackeado) |
+| `scripts/closure-gate.py` | closure gate: decides whether a closure counts |
+| `scripts/plan-gate-check.py` | check of the plan the closure cites |
+| `scripts/m43-gate-contract.py` | contract of the M43 gates |
+| `scripts/m43_gate_lib.py` | shared harness of the M43 gates: the gap the previous snapshot declared open (untracked then and now, because the pattern does not depend on it being tracked) |
 
-Los 3 que el patrón no alcanza porque **no llevan `gate` en el nombre**, declarados uno a uno:
+The 3 the pattern does not reach because they carry **no `gate` in the name**, declared one by one:
 
-| Protegido por nombre suelto (D2b) | Por qué es instrumento de cierre |
+| Protected by loose name (D2b) | Why it is a closure instrument |
 |---|---|
-| `scripts/handoff-lint.py` | lint mecánico HH-1/INDEX (AB1-AB13): firma el cierre |
-| `scripts/mission-log.py` | bitácora de misión: registro de cierre |
-| `scripts/validate-lane-registry.py` | validador del registro de lanes |
+| `scripts/handoff-lint.py` | mechanical HH-1/INDEX lint (AB1-AB13): it signs the closure |
+| `scripts/mission-log.py` | mission log: closure record |
+| `scripts/validate-lane-registry.py` | lane registry validator |
 
-Si esos números no coinciden con la foto, **la foto es vieja**: vuelve a correr los tres
-comandos. El comentario de `scripts/guard/guard-paths.sh` conserva cifras de sus fechas
-(«18 ficheros» de D2): son valores de entonces, no mediciones vigentes; este documento es el
-que se re-mide.
+If those numbers do not match the snapshot, **the snapshot is old**: run the three
+commands again. The `scripts/guard/guard-paths.sh` comment keeps figures from its own dates
+('18 files' from D2): they are values from then, not current measurements; this document is
+the one that gets re-measured.
 
-### 1.1.1 Por qué el PATRÓN y no la lista de nombres (D4 · CR-a58f600a)
+### 1.1.1 Why the PATTERN and not the list of names (D4 · CR-a58f600a)
 
-**Cualquier `*gate*.py` / `*_gate_lib.py` bajo `scripts/` entra por patrón, no por nombre
-suelto.** La razón es mecánica: `guard_is_protected` compara el path del índice contra cada
-patrón con un glob (`guard__match`), así que el patrón decide **sin que nadie lo edite**:
+**Any `*gate*.py` / `*_gate_lib.py` under `scripts/` enters by pattern, not by loose
+name.** The reason is mechanical: `guard_is_protected` compares the index path against each
+pattern with a glob (`guard__match`), so the pattern decides **without anyone editing it**:
 
-| Situación | Con lista de nombres | Con `scripts/*gate*.py` |
+| Situation | With a list of names | With `scripts/*gate*.py` |
 |---|---|---|
-| gate ya conocido (`closure-gate.py`) | protegido si alguien escribió su línea | protegido |
-| gate nuevo (`scripts/foo-gate.py`, `scripts/x_gate_lib.py`) | **fuera** hasta que alguien añada su línea — y mientras esté fuera, una corrida nocturna lo edita sin aviso | **protegido el día que existe** |
-| gate `untracked` de otra lane en vuelo (`m43_gate_lib.py`) | fuera: exactamente el gap que este documento declaró medido y abierto | protegido: el glob no mira el índice de git, mira el path |
+| already-known gate (`closure-gate.py`) | protected if someone wrote its line | protected |
+| new gate (`scripts/foo-gate.py`, `scripts/x_gate_lib.py`) | **outside** until someone adds its line, and while it is outside a night run edits it with no warning | **protected the day it exists** |
+| `untracked` gate of another lane in flight (`m43_gate_lib.py`) | outside: exactly the gap this document declared measured and open | protected: the glob does not look at the git index, it looks at the path |
 
-El caso medido que obligó a este cambio es `scripts/m43_gate_lib.py`: la foto anterior
-(2026-10-29 11:44 MST) lo listaba en «fuera de la guarda» y proponía como remedio una línea
-suelta `'scripts/m43_gate_lib.py'`. **Esa línea no se aplicó**: se sustituyó por el patrón,
-que lo incluye y que además cubre al siguiente. Una lista de nombres protege solo lo que ya
-se conocía el día que se escribió; el patrón protege lo que se llama igual mañana.
+The measured case that forced this change is `scripts/m43_gate_lib.py`: the previous snapshot
+(2026-10-29 11:44 MST) listed it as outside the guard and proposed a single loose line
+`'scripts/m43_gate_lib.py'` as the remedy. **That line was not applied**: it was replaced by the pattern,
+which includes it and also covers the next one. A list of names protects only what was already
+known the day it was written; the pattern protects whatever is named the same tomorrow.
 
-Las 2 filas sueltas que el patrón ya cubría (`scripts/closure-gate.py`,
-`scripts/plan-gate-check.py`) se **retiraron** del array: cobertura idéntica, 0 duplicación
-que mienta al censo (una fila que dice «nombre» cuando el patrón ya lo cubre invita a creer
-que borrarla lo desprotege).
+The 2 loose rows the pattern already covered (`scripts/closure-gate.py`,
+`scripts/plan-gate-check.py`) were **withdrawn** from the array: identical coverage, 0 duplication
+that lies to the census (a row that says name when the pattern already covers it invites the belief
+that deleting it unprotects it).
 
-Límite honesto del patrón: depende del **nombre**. Un instrumento de cierre que no lleve
-`gate` (`scripts/closure-check.py`, por ejemplo) sigue necesitando su línea — de ahí los 3
-nombres sueltos de arriba.
+Honest limit of the pattern: it depends on the **name**. A closure instrument that carries no
+`gate` (`scripts/closure-check.py`, for example) still needs its line, hence the 3
+loose names above.
 
-| Fuera de ambos patrones y de D2b (medido, 9) | Rol real (docstring) — por qué NO está en la guarda |
+| Outside both patterns and D2b (measured, 9) | Real role (docstring): why it is NOT in the guard |
 |---|---|
-| `scripts/principal-decision-audit.py` | auditor de decisiones del principal; no decide el cierre de una lane |
-| `scripts/ledger-append.py` | **punto de escritura** de ledgers: protegerlo impediría appendear bitácora |
-| `scripts/cost-ledger.py` | agregador de coste/tokens por lane (lectura) |
-| `scripts/launch.py` | wrapper del launcher de release; editarlo es trabajo normal |
-| `scripts/demo-035.py` | driver de campaña DEMO-035 (evidencia, no cierre) |
-| `scripts/measure-m18-cs.py` | driver de evidencia CS-01..CS-21 de la campaña M18 |
-| `scripts/npc-flats-capture.py` | driver de captura de ventana (evidencia visual) |
-| `scripts/quest-82-census.py` | censo puntual de 82 acciones: informe, no gate |
-| `scripts/verify-m18-owner-pack.py` | cross-check de **un** pack (M18): verificación puntual |
+| `scripts/principal-decision-audit.py` | principal decision auditor; it does not decide a lane closure |
+| `scripts/ledger-append.py` | **write point** for ledgers: protecting it would prevent appending the log |
+| `scripts/cost-ledger.py` | cost/tokens aggregator per lane (read) |
+| `scripts/launch.py` | release launcher wrapper; editing it is normal work |
+| `scripts/demo-035.py` | DEMO-035 campaign driver (evidence, not closure) |
+| `scripts/measure-m18-cs.py` | CS-01..CS-21 evidence driver of the M18 campaign |
+| `scripts/npc-flats-capture.py` | window capture driver (visual evidence) |
+| `scripts/quest-82-census.py` | one-off census of 82 actions: a report, not a gate |
+| `scripts/verify-m18-owner-pack.py` | cross-check of **one** pack (M18): one-off verification |
 
-La lista es **retirable o ampliable línea a línea** de `GUARD_PROTECTED_DERIVED`
-(`scripts/guard/guard-paths.sh`): borrar una línea saca ese path de la guarda sin tocar
-nada más. Qué entra y qué no es **decisión del owner** — aquí solo está medido.
+The list can be **withdrawn or extended line by line** from `GUARD_PROTECTED_DERIVED`
+(`scripts/guard/guard-paths.sh`): deleting a line takes that path out of the guard touching
+nothing else. What goes in and what does not is a **decision of the owner**; here it is only measured.
 
-## 2. Cómo se enciende
+## 2. How it is switched on
 
 ```bash
 export GUARD_ACTIVE=1
 ```
 
-**Estado al entregar esta corrección (D4, CR-a58f600a, 2026-10-29): el kit sigue
-APAGADO.** `GUARD_ACTIVE` no está exportado (`printenv GUARD_ACTIVE` ⇒ rc=1) y
-`core.hooksPath` no está definido (`git config --get core.hooksPath` ⇒ rc=1). Los hooks
-están instalados en `.git/hooks/`, pero su primera línea los apaga.
+**State at delivery of this correction (D4, CR-a58f600a, 2026-10-29): the kit is still
+OFF.** `GUARD_ACTIVE` is not exported (`printenv GUARD_ACTIVE` gives rc=1) and
+`core.hooksPath` is not set (`git config --get core.hooksPath` gives rc=1). The hooks
+are installed in `.git/hooks/`, but their first line turns them off.
 
-El encendido se hace **al cerrar M43**, no antes (decisión del capitán): mientras la lane
-`CR-39d656e1` escribe sus gates, encender el kit convertiría cada escritura suya en un
-rechazo que no mide nada. El comando es el mismo de siempre y no lo toma el kit por su
-cuenta:
+Switching on happens **when M43 closes**, not before (captain's decision): while lane
+`CR-39d656e1` writes its gates, turning the kit on would turn each of its writes into a
+rejection that measures nothing. The command is the usual one and the kit does not take it
+on its own:
 
 ```bash
 export GUARD_ACTIVE=1        # 0 export persistente: cada lane lo pone en su propio comando
 ```
 
-Nada más que exportar: los hooks ya están instalados. Con la variable sin definir o con
-cualquier valor distinto de `1`, los tres hooks salen **0** en su primera línea (sin leer
-el índice, sin ejecutar git). Recomendado en la corrida nocturna: exportarlo en el script
-que lanza al ejecutor, no en el shell del humano.
+Nothing else to export: the hooks are already installed. With the variable unset or with
+any value other than `1`, the three hooks exit **0** on their first line (without reading
+the index, without running git). Recommended for the night run: export it in the script
+that launches the executor, not in the human's shell.
 
-## 3. Cómo se desactiva por CR (escritura legítima)
+## 3. How it is disabled per CR (legitimate write)
 
-La excepción es una **conjunción**, no una bandera — y se decide **en un solo sitio**:
+The exception is a **conjunction**, not a flag, and it is decided **in one place**:
 
-1. `GUARD_ALLOW_CR=<cr>` definido ⇒ `pre-commit` **no evalúa nada**: imprime
-   `GUARD-DEFERIDO: … pre-commit NO evalúa la excepción (el mensaje del commit en curso no
-   existe todavía) …` y sale 0. Pre-commit corre **antes** de que git escriba el mensaje;
-   si decidiera aquí, tendría que leer `.git/COMMIT_EDITMSG`, que en ese momento todavía
-   contiene el mensaje del commit **anterior** — decidiría sobre un mensaje heredado.
-2. El **mismo** CR debe aparecer en el mensaje del commit en curso **como token
-   delimitado** ⇒ lo comprueba `commit-msg`, sobre el fichero que git le pasa en **`$1`**.
-   Es el **único** sitio donde se concede la excepción; `commit-msg.sh` nunca abre
-   `.git/COMMIT_EDITMSG` por su cuenta.
+1. `GUARD_ALLOW_CR=<cr>` set means `pre-commit` **evaluates nothing**: it prints
+   its deferral line (`GUARD-DEFERIDO: pre-commit does not evaluate the exception`) and exits 0.
+   Pre-commit runs **before** git writes the message; if it decided here it would have to read
+   `.git/COMMIT_EDITMSG`, which at that moment still holds the **previous** commit message,
+   so it would decide on an inherited message.
+2. The **same** CR must appear in the in-progress commit message **as a delimited
+   token**: `commit-msg` checks it, on the file git passes in **`$1`**.
+   It is the **only** place where the exception is granted; `commit-msg.sh` never opens
+   `.git/COMMIT_EDITMSG` on its own.
 
 ```bash
 GUARD_ALLOW_CR=CR-b367c9dd-db42-4465-9b2f-d8a341aa3135 \
   git commit -m "docs(closure): registrar cierre CR-b367c9dd-db42-4465-9b2f-d8a341aa3135" -- docs/sintergic/handoffs/INDEX.jsonl
 ```
 
-Falsificado en los dos sentidos (`scripts/guard/verify-guard.sh`): **J** prueba que el
-mensaje llega por `git commit -F <fichero>` y el hook lo lee igual (`$1`, no una ruta
-fija); **K** prueba que sin el CR en ese mensaje el commit cae; **L** reproduce el defecto
-del mensaje heredado — dos pasos, el primero deja `.git/COMMIT_EDITMSG` con el CR, el
-segundo trae un mensaje sin él y **debe** fallar.
+Falsified in both directions (`scripts/guard/verify-guard.sh`): **J** proves that the
+message arrives via `git commit -F <file>` and the hook reads it the same way (`$1`, not a fixed
+path); **K** proves that without the CR in that message the commit falls; **L** reproduces the
+inherited-message defect: two steps, the first leaves `.git/COMMIT_EDITMSG` with the CR, the
+second brings a message without it and **must** fail.
 
-### Token, no subcadena (R2 · CR-4b576323 · frontera `_` D3 CR-3862257b)
+### Token, not substring (R2 · CR-4b576323 · boundary `_` D3 CR-3862257b)
 
-El CR es un identificador **delimitado**: a su izquierda y a su derecha debe haber
-**cualquier carácter fuera de `[A-Za-z0-9_-]`** (inicio/fin de mensaje, espacio,
-puntuación). El guion bajo cuenta como carácter de identificador, igual que las letras:
-`CR-TEST-1_suffix` es **un** identificador, no el token `CR-TEST-1` seguido de un sufijo.
-Se comprueba con la frontera `(^|[^A-Za-z0-9_-])<CR>([^A-Za-z0-9_-]|$)`, construida
-escapando todo lo no alfanumérico del CR esperado (`commit-msg.sh`).
+The CR is a **delimited** identifier: to its left and right there must be
+**any character outside `[A-Za-z0-9_-]`** (start/end of message, space,
+punctuation). The underscore counts as an identifier character, just like letters:
+`CR-TEST-1_suffix` is **one** identifier, not the token `CR-TEST-1` followed by a suffix.
+It is checked with the boundary `(^|[^A-Za-z0-9_-])<CR>([^A-Za-z0-9_-]|$)`, built
+by escaping everything non-alphanumeric in the expected CR (`commit-msg.sh`).
 
-Esto no recorta ningún caso legítimo: los CR son del tipo `CR-<uuid>` y **no contienen
-`_`**, así que toda forma real de citarlos (`CR-…`, `(CR-…)`, `CR-…, motivo`, `CR-…:`,
-fin de línea) sigue pasando.
+This cuts no legitimate case: CRs are of the form `CR-<uuid>` and **contain no
+`_`**, so every real way of citing them (`CR-…`, `(CR-…)`, `CR-…, motivo`, `CR-…:`,
+end of line) keeps passing.
 
-Antes la comparación era de subcadena, y eso convertía el permiso en un comodín: cualquier
-mensaje que mencionara un CR **más largo que empezaba igual** autorizaba el commit.
+The comparison used to be a substring one, and that turned the permission into a wildcard: any
+message that mentioned a CR **longer than and starting the same** authorized the commit.
 
-| `GUARD_ALLOW_CR` | mensaje del commit | resultado |
+| `GUARD_ALLOW_CR` | commit message | result |
 |---|---|---|
-| `CR-TEST` | `… ver CR-TEST-9999 …` | **RECHAZADO** — `CR-TEST` está dentro de otro identificador |
-| `CR-TEST` | `… XCR-TEST …` o `… CR-TEST-9 …` | **RECHAZADO** — pegado por la izquierda o por la derecha |
-| `CR-TEST` | `… CR-TEST_suffix …` o `… CR-TEST_suf …` | **RECHAZADO** — el `_` es carácter de identificador, no frontera |
-| `CR-TEST` | `… ver CR-TEST …` / `(CR-TEST)` / `CR-TEST, motivo` / `CR-TEST:` / fin de línea | **PASA** — token delimitado |
+| `CR-TEST` | `… ver CR-TEST-9999 …` | **REJECTED** because `CR-TEST` sits inside another identifier |
+| `CR-TEST` | `… XCR-TEST …` or `… CR-TEST-9 …` | **REJECTED** because it is glued on the left or on the right |
+| `CR-TEST` | `… CR-TEST_suffix …` or `… CR-TEST_suf …` | **REJECTED** because `_` is an identifier character, not a boundary |
+| `CR-TEST` | `… ver CR-TEST …` / `(CR-TEST)` / `CR-TEST, motivo` / `CR-TEST:` / end of line | **PASSES** as a delimited token |
 
-Con (1) sin (2) el commit se rechaza: `GUARD_ALLOW_CR=… pero el mensaje NO contiene ese CR
-como token delimitado`. Es el control negativo del falsificador (casos F, H e I) — el pase no
-es libre, y el motivo queda escrito en el historial git para siempre.
+With (1) without (2) the commit is rejected with `GUARD_ALLOW_CR=… pero el mensaje NO contiene ese CR como token delimitado`.
+It is the falsifier's negative control (cases F, H and I): the pass is not
+free, and the reason stays written in the git history forever.
 
-Si no hace falta escribir el instrumento: `git restore --staged -- <path>` (remedio i).
+If the instrument does not need writing: `git restore --staged -- <path>` (remedy i).
 
-## 4. Excepción de publicación
+## 4. Publication exception
 
 ```bash
 GUARD_ALLOW_PUSH="motivo explícito del owner" git push origin <rama>
 ```
 
-`pre-push` imprime `GUARD_ALLOW_PUSH: <motivo>` y deja pasar. Sin la variable, todo push
-—rama, tag o delete— se rechaza. Publicar no es un efecto secundario de una corrida
-nocturna: es un acto firmado.
+`pre-push` prints `GUARD_ALLOW_PUSH: <motivo>` and lets it through. Without the variable, every push
+—branch, tag or delete— is rejected. Publishing is not a side effect of a night
+run: it is a signed act.
 
-## 5. Instalación e idempotencia
+## 5. Installation and idempotency
 
 ```bash
 bash scripts/guard/install-hooks.sh --dry-run   # plan, 0 escrituras
 bash scripts/guard/install-hooks.sh             # instala los 3 wrappers
 ```
 
-- Escribe `.git/hooks/{pre-commit,commit-msg,pre-push}`: wrappers **sin lógica** que
-  resuelven `git rev-parse --show-toplevel` y fuentean `scripts/guard/<hook>.sh`.
-- Bytes deterministas (sin timestamps ni rutas absolutas) ⇒ correrlo N veces deja los
-  **mismos sha256**. Medido: 2 corridas consecutivas, 3/3 hashes idénticos.
-- Hook ajeno (existe y **no** lleva el marcador `# GUARD-KIT:CR-b367c9dd`) ⇒ `exit 2`,
-  sin backup y sin escribir nada: esta lane no toca hooks de otras.
-- El kit se actualiza solo: el wrapper es estable y el cuerpo vive versionado en
+- Writes `.git/hooks/{pre-commit,commit-msg,pre-push}`: wrappers with **no logic** that
+  resolve `git rev-parse --show-toplevel` and source `scripts/guard/<hook>.sh`.
+- Deterministic bytes (no timestamps, no absolute paths): running it N times leaves the
+  **same sha256**. Measured: 2 consecutive runs, 3/3 identical hashes.
+- Foreign hook (it exists and does **not** carry the `# GUARD-KIT:CR-b367c9dd` marker) gives `exit 2`,
+  with no backup and writing nothing: this lane touches no other hooks.
+- The kit updates itself: the wrapper is stable and the body lives versioned in
   `scripts/guard/`.
 
-## 6. Cómo se prueba
+## 6. How it is tested
 
 ```bash
 bash scripts/guard/verify-guard.sh    # exit 0 solo si las 12 filas coinciden
 ```
 
-Crea un repo temporal (`mktemp -d`): un bare `remote.git` + un `repo` con stubs de todos
-los paths protegidos, instala los hooks con el instalador real y ejecuta A..L. Imprime la
-matriz y una línea por caso con el mensaje real del hook. Además comprueba: remote local
-con **0 refs** (nada se publicó), repo temporal **limpio**, y huella del target (hooks +
-`scripts/guard` + este doc + `core.hooksPath`) **idéntica** antes/después.
+Creates a temporary repo (`mktemp -d`): a bare `remote.git` + a `repo` with stubs of every
+protected path, installs the hooks with the real installer and runs A..L. It prints the
+matrix and one line per case with the hook's real message. It also checks: local remote
+with **0 refs** (nothing was published), temporary repo **clean**, and target fingerprint (hooks +
+`scripts/guard` + this doc + `core.hooksPath`) **identical** before/after.
 
-**No basta `rc != 0` (R8).** Cada caso de rechazo declara el **marcador** que debe imprimir
-el hook que tiene que morder, y el veredicto lo exige en la salida real:
+**`rc != 0` is not enough (R8).** Every rejection case declares the **marker** the
+matching hook must print, and the verdict requires it in the real output:
 
-- `GUARD: commit RECHAZADO` → `pre-commit` / `commit-msg` (caso A)
-- `NO contiene` → `commit-msg`, CR ausente o no delimitado (casos F, H, I, K y L)
-- `GUARD: push RECHAZADO` → `pre-push` (casos D y G)
+- `GUARD: commit RECHAZADO` goes to `pre-commit` / `commit-msg` (case A)
+- `NO contiene` goes to `commit-msg`, CR missing or not delimited (cases F, H, I, K and L)
+- `GUARD: push RECHAZADO` goes to `pre-push` (cases D and G)
 
-Si el comando sale `rc != 0` pero el marcador no aparece (typo, repo roto, dependencia
-ausente), la fila sale **`FALLA (motivo equivocado)`** y el script termina `exit 1`. El
-falsificador también se falsificó: con un marcador imposible en el caso A, la matriz da
-`FALLA (motivo equivocado)` y exit 1 — medido.
+If the command exits `rc != 0` but the marker does not appear (typo, broken repo, missing
+dependency), the row comes out **`FALLA (motivo equivocado)`** and the script ends `exit 1`. The
+falsifier was falsified too: with an impossible marker in case A, the matrix gives
+`FALLA (motivo equivocado)` and exit 1, as measured.
 
-**Bit `+x`.** Antes de los casos, el script mide el bit ejecutable de los 3 hooks: en el
-temporal es **bloqueante** (si falta, aborta: git ignoraría el hook y la guarda
-desaparecería en silencio); en el `.git/hooks/` del target real es **informativo** y, si
-falta alguno, imprime `AVISO R3` con el remedio. Ver §7.6.
+**Bit `+x`.** Before the cases, the script measures the executable bit of the 3 hooks: in the
+temporary repo it is **blocking** (if missing it aborts: git would ignore the hook and the guard
+would vanish in silence); in the real target's `.git/hooks/` it is **informational** and, if one
+is missing, it prints `AVISO R3` with the remedy. See §7.6.
 
-| caso | qué demuestra |
+| case | what it proves |
 |---|---|
-| A | commit a `INDEX.jsonl` con el kit encendido **falla** |
-| B | misma escritura con `GUARD_ALLOW_CR` + CR delimitado en el mensaje **pasa** |
-| C | commit a path libre **pasa** (no bloquea trabajo normal) |
-| D | push de rama **falla** |
-| E | kit apagado, commit a path protegido **pasa** (no estorba) |
-| F | `GUARD_ALLOW_CR` con mensaje sin el CR **falla** (el pase no es libre) |
-| G | push de tag **falla** |
-| H | `GUARD_ALLOW_CR=CR-TEST-1` con un mensaje que solo trae `CR-TEST-1999` **falla** (token, no subcadena) |
-| I | `GUARD_ALLOW_CR=CR-TEST-1` con un mensaje que trae el identificador `CR-TEST-1_suffix` **falla** (el `_` no delimita: sigue siendo otro identificador) |
-| J | mensaje entregado con `git commit -F <fichero>` que sí contiene `CR-TEST-1` **pasa** — el hook lee el fichero que git le pasa en `$1`, no una ruta fija |
-| K | mismo path protegido y misma excepción, mensaje nuevo **sin** el CR **falla** con `NO contiene` |
-| L | **regresión del mensaje heredado**, en dos pasos: el paso 1 (con CR) deja `.git/COMMIT_EDITMSG` con ese CR y el paso 2 (mensaje sin CR) **falla**. Si el paso 1 no deja el CR en `COMMIT_EDITMSG`, el caso se declara **vacuo** y sale FALLA — nunca pasa por accidente. Un hook que leyera el mensaje heredado PASARÍA el paso 2: medido con un mutante de `commit-msg` que lee `git log -1 --format=%B` (paso 2 `rc=0`, es decir, el defecto reproducido), mientras el hook real lo rechaza |
+| A | commit to `INDEX.jsonl` with the kit on **fails** |
+| B | same write with `GUARD_ALLOW_CR` + delimited CR in the message **passes** |
+| C | commit to a free path **passes** (it does not block normal work) |
+| D | branch push **fails** |
+| E | kit off, commit to a protected path **passes** (it does not disturb) |
+| F | `GUARD_ALLOW_CR` with a message lacking the CR **fails** (the pass is not free) |
+| G | tag push **fails** |
+| H | `GUARD_ALLOW_CR=CR-TEST-1` with a message that only carries `CR-TEST-1999` **fails** (token, not substring) |
+| I | `GUARD_ALLOW_CR=CR-TEST-1` with a message carrying the identifier `CR-TEST-1_suffix` **fails** (`_` does not delimit: it is still another identifier) |
+| J | message delivered with `git commit -F <file>` that does contain `CR-TEST-1` **passes**: the hook reads the file git passes in `$1`, not a fixed path |
+| K | same protected path and same exception, new message **without** the CR **fails** with `NO contiene` |
+| L | **inherited-message regression**, in two steps: step 1 (with CR) leaves `.git/COMMIT_EDITMSG` with that CR and step 2 (message without CR) **fails**. If step 1 does not leave the CR in `COMMIT_EDITMSG`, the case is declared **empty** and comes out FALLA, so it never passes by accident. A hook that read the inherited message would PASS step 2: measured with a `commit-msg` mutant that reads `git log -1 --format=%B` (step 2 `rc=0`, that is, the defect reproduced), while the real hook rejects it |
 
-Total medido: **12/12** (D4, CR-a58f600a, 2026-10-29). Antes de J/K/L eran 9/9 (D3,
-CR-3862257b: el `_` contaba como frontera en el código y la prosa lo llamaba «nunca dentro
-de otro identificador» — dos afirmaciones que no podían ser verdad a la vez; el caso I
-impide que vuelvan a separarse). J/K/L cierran el otro par que podía separarse: la prosa
-decía que la excepción se decidía «sobre el mensaje real» y el hook podía estar leyendo el
-heredado sin que nada lo delatara.
+Total measured: **12/12** (D4, CR-a58f600a, 2026-10-29). Before J/K/L it was 9/9 (D3,
+CR-3862257b: `_` counted as a boundary in the code and the prose called it never inside
+another identifier: two claims that could not be true at once; case I
+keeps them from drifting apart again). J/K/L close the other pair that could drift: the prose
+said the exception was decided on the real message and the hook could be reading the
+inherited one with nothing to reveal it.
 
-## 7. Límites declarados (lo que este kit NO hace)
+## 7. Declared limits (what this kit does NOT do)
 
-1. **No valida contenido ni veracidad.** Solo propiedad (qué ficheros) y publicación (si
-   sale del repo). Una cifra falsa en un documento no la caza el hook: la caza el gate.
-   Si un cierre miente sobre cobertura, el hook lo deja pasar — y eso está escrito aquí
-   para que nadie lo confunda con una garantía.
-2. **`--no-verify` salta los hooks.** Es un límite real de git, no se oculta. No hay
-   defensa técnica dentro del repo contra quien puede ejecutar git con esa bandera; sí hay
-   rastro: el commit queda sin el CR en el mensaje y sin la línea `GUARD-EXCEPCION` (la que
-   solo concede `commit-msg`) — con `--no-verify` `pre-commit` tampoco imprime su
-   `GUARD-DEFERIDO`, así que la ausencia de **ambas** marcas es la señal.
-3. **La excepción se decide SOLO en `commit-msg`, sobre el mensaje REAL; `pre-commit` no
-   autoriza nada** (D1 + D4). `pre-commit` corre antes de que git escriba el mensaje, así
-   que no puede decidir: con `GUARD_ALLOW_CR` definido imprime `GUARD-DEFERIDO` y sale 0.
-   El límite residual D1: **si alguien borra `.git/hooks/commit-msg`, `GUARD_ALLOW_CR`
-   queda como pase libre** (el otro brazo de la conjunción desaparece y `pre-commit` ya no
-   autorizaba nada que perder). Cómo se detecta, sin daemon:
-   - `bash scripts/guard/install-hooks.sh --dry-run` ⇒ dice `crea` para `commit-msg` (con
-     el hook del kit puesto diría `sobreescribe wrapper del kit`);
-   - `ls -l .git/hooks/commit-msg` ⇒ ausente (y `stat -c '%A %n'` ⇒ sin `+x` si perdió el bit);
-   - `bash scripts/guard/verify-guard.sh` ⇒ mide los 3 hooks ejecutables en su temporal y
-     reporta `AVISO R3` si en el `.git/hooks/` del target falta alguno;
-   - el commit autorizado por CR en ese estado queda **sin** la línea `GUARD-EXCEPCION`, que
-     es la firma de que `commit-msg` concedió: su ausencia en un commit con CR en el mensaje
-     es la evidencia de que el hook no corrió.
-   Mitigación: `install-hooks.sh` reinstala los 3 (idempotente) — pero no vigila el
-   `.git/hooks/` real en cada corrida.
-4. **Dos literales del ORDER no tienen sujeto real en este árbol.** Se midió antes de
-   escribir el kit; los derivados cubren la intención. Retirar la parte derivada es
-   limpiar una línea por patrón del array `GUARD_PROTECTED_DERIVED` (§1.1 mide también los
-   gates de cierre, que desde D4 entran **por patrón** —`scripts/*gate*.py`, 4 ficheros
-   hoy— más 3 nombres sueltos que no llevan `gate`):
+1. **It validates no content and no truthfulness.** Only ownership (which files) and publication (whether it
+   leaves the repo). A false figure in a document is not caught by the hook: the gate catches it.
+   If a closure lies about coverage, the hook lets it through, and that is written here
+   so nobody mistakes it for a guarantee.
+2. **`--no-verify` skips the hooks.** It is a real git limit, not hidden. There is no
+   technical defence inside the repo against whoever can run git with that flag; there is a
+   trace: the commit is left without the CR in the message and without the `GUARD-EXCEPCION` line (the one
+   only `commit-msg` grants), and with `--no-verify` `pre-commit` does not print its
+   `GUARD-DEFERIDO` either, so the absence of **both** marks is the signal.
+3. **The exception is decided ONLY in `commit-msg`, on the REAL message; `pre-commit`
+   authorizes nothing** (D1 + D4). `pre-commit` runs before git writes the message, so
+   it cannot decide: with `GUARD_ALLOW_CR` set it prints `GUARD-DEFERIDO` and exits 0.
+   The residual limit D1: **if someone deletes `.git/hooks/commit-msg`, `GUARD_ALLOW_CR`
+   stays as a free pass** (the other arm of the conjunction disappears and `pre-commit` no longer
+   authorized anything to lose). How it is detected, without a daemon:
+   - `bash scripts/guard/install-hooks.sh --dry-run` says `crea` for `commit-msg` (with
+     the kit hook in place it would say `sobreescribe wrapper del kit`);
+   - `ls -l .git/hooks/commit-msg` shows it absent (and `stat -c '%A %n'` shows no `+x` if it lost the bit);
+   - `bash scripts/guard/verify-guard.sh` measures the 3 executable hooks in its temporary repo and
+     reports `AVISO R3` if any is missing in the target's `.git/hooks/`;
+   - the CR-authorized commit in that state is left **without** the `GUARD-EXCEPCION` line, which
+     is the signature that `commit-msg` granted: its absence in a commit with the CR in the message
+     is the evidence that the hook did not run.
+   Mitigation: `install-hooks.sh` reinstalls the 3 (idempotent), but it does not watch the
+   real `.git/hooks/` on every run.
+4. **Two ORDER literals have no real subject in this tree.** It was measured before
+   writing the kit; the derivatives cover the intent. Withdrawing the derived part means
+   cleaning one line per pattern from the `GUARD_PROTECTED_DERIVED` array (§1.1 also measures the
+   closure gates, which since D4 enter **by pattern** (`scripts/*gate*.py`, 4 files
+   today) plus 3 loose names that carry no `gate`):
 
-| literal del ORDER | medición | derivado declarado | por qué |
+| ORDER literal | measurement | declared derivative | why |
 |---|---|---|---|
-| `daggerfall-side-projects/*` | directorio **ausente** | `sides/*` | el árbol real de side-projects es `sides/` (p.ej. `sides/i1-minimal-side/`) |
-| `scripts/*-00[0-9]-*.py` | **0** ficheros | `scripts/*-00[0-9].py` | los fuentes de gate reales son `scripts/<familia>-00[0-9].py` → **25** en la foto de §1.1 (2026-10-29 12:01 MST); el patrón es estable, la cuenta no |
+| `daggerfall-side-projects/*` | directory **absent** | `sides/*` | the real side-projects tree is `sides/` (e.g. `sides/i1-minimal-side/`) |
+| `scripts/*-00[0-9]-*.py` | **0** files | `scripts/*-00[0-9].py` | the real gate sources are `scripts/<family>-00[0-9].py`, **25** in the §1.1 snapshot (2026-10-29 12:01 MST); the pattern is stable, the count is not |
 
-   Consecuencia declarada: mientras existan los derivados, protección ligeramente más
-   ancha que el ORDER (todo `sides/*` y todo `scripts/*-00[0-9].py`, no solo "fuentes de
-   gate"). Preferible a un patrón que no protege nada.
+   Declared consequence: while the derivatives exist, protection is slightly wider
+   than the ORDER (all `sides/*` and all `scripts/*-00[0-9].py`, not just gate
+   sources). Preferable to a pattern that protects nothing.
 
-   **Límite del límite por patrón (D4):** `scripts/*gate*.py` cubre por **nombre**, no por
-   rol. Queda **dentro** todo instrumento cuyo fichero contenga `gate`
+   **Limit of the pattern limit (D4):** `scripts/*gate*.py` covers by **name**, not by
+   role. Every instrument whose file contains `gate` stays **inside**
    (`*gate*.py`: `closure-gate.py`, `plan-gate-check.py`, `m43-gate-contract.py`,
-   `m43_gate_lib.py`) y queda **fuera** cualquier instrumento de cierre que no lo lleve
-   (`handoff-lint.py`, `mission-log.py`, `validate-lane-registry.py`: declarados uno a uno
-   por eso). Un gate futuro con nombre sin `gate` (`scripts/closure-check.py`) seguiría
-   necesitando su línea: el patrón cierra el hueco del «tercer gate con nombre de gate»,
-   no el de cualquier instrumento con cualquier nombre.
+   `m43_gate_lib.py`) and any closure instrument that does not carry it stays **outside**
+   (`handoff-lint.py`, `mission-log.py`, `validate-lane-registry.py`: declared one by one
+   for that reason). A future gate whose name has no `gate` (`scripts/closure-check.py`) would still
+   need its line: the pattern closes the hole of the third gate named like a gate,
+   not the one of any instrument with any name.
 
-5. **El instalador escribe en `.git/hooks/`, no en el repo versionado.** Un `git clone`
-   nuevo no trae el kit activo: hay que correr `install-hooks.sh` (una línea).
+5. **The installer writes to `.git/hooks/`, not to the versioned repo.** A new `git clone`
+   does not bring the kit active: you have to run `install-hooks.sh` (one line).
 
-6. **Modo de fallo silencioso: la guarda puede desaparecer sin que nada avise (R3).** Git
-   solo ejecuta hooks que son ficheros **ejecutables** en el directorio de hooks. Si se
-   pierde el bit `+x`, si el fichero no está, o si `core.hooksPath` apunta a otro sitio,
-   git **ignora los hooks y no imprime nada**: los commits salen 0 y parece que el kit no
-   tenía nada que decir. Cuatro formas del mismo agujero:
+6. **Silent failure mode: the guard can vanish with nothing to warn (R3).** Git
+   only runs hooks that are **executable** files in the hooks directory. If the
+   `+x` bit is lost, if the file is missing, or if `core.hooksPath` points elsewhere,
+   git **ignores the hooks and prints nothing**: commits exit 0 and it looks like the kit had
+   nothing to say. Four forms of the same hole:
 
-   | Modo | Qué se ve en el commit | Cómo lo delata el operador |
+   | Mode | What is seen in the commit | How the operator catches it |
    |---|---|---|
-   | bit `+x` perdido (chmod, copia, extracción rara) | nada; el hook no corre | `stat -c '%A %n' .git/hooks/pre-commit .git/hooks/commit-msg .git/hooks/pre-push` → alguna terna sin `x` (esperado `-rwxr-xr-x`) |
-   | hook ausente, o instalación nunca corrida (clon nuevo) | nada | `bash scripts/guard/install-hooks.sh --dry-run` → dice `crea`; con el hook del kit ya puesto diría `sobreescribe wrapper del kit` |
-   | `core.hooksPath` apuntando a otro directorio | nada; git usa ese otro | `git config --get core.hooksPath` → rc=0 con valor (esperado **rc=1**: sin definir) |
-   | trabajo en otro clon/worktree sin el kit | nada | los dos comandos de arriba, en ese clon |
+   | `+x` bit lost (chmod, copy, odd extraction) | nothing; the hook does not run | `stat -c '%A %n' .git/hooks/pre-commit .git/hooks/commit-msg .git/hooks/pre-push` shows some trio without `x` (expected `-rwxr-xr-x`) |
+   | hook missing, or installation never run (new clone) | nothing | `bash scripts/guard/install-hooks.sh --dry-run` says `crea`; with the kit hook already in place it would say `sobreescribe wrapper del kit` |
+   | `core.hooksPath` pointing at another directory | nothing; git uses that other one | `git config --get core.hooksPath` gives rc=0 with a value (expected **rc=1**: unset) |
+   | work in another clone/worktree without the kit | nothing | the two commands above, in that clone |
 
-   **Este kit NO avisa solo.** No hay daemon, ni chequeo de arranque, ni latido: la única
-   red es `verify-guard.sh`, que mide el bit `+x` de los tres hooks (bloqueante en su repo
-   temporal; en el `.git/hooks/` del target imprime `AVISO R3` con el remedio) — y hay que
-   **correrlo**. Si nadie lo corre, la guarda puede estar ausente y el árbol no lo dice.
-   Reinstalar es una línea (`bash scripts/guard/install-hooks.sh`, idempotente) y el
-   `--dry-run` no escribe nada. Esta declaración es el límite: no se afirma vigilancia que
-   no existe.
+   **This kit does NOT warn on its own.** There is no daemon, no start-up check, no heartbeat: the only
+   net is `verify-guard.sh`, which measures the `+x` bit of the three hooks (blocking in its temporary
+   repo; in the target's `.git/hooks/` it prints `AVISO R3` with the remedy), and it must be
+   **run**. If nobody runs it, the guard may be absent and the tree does not say so.
+   Reinstalling is one line (`bash scripts/guard/install-hooks.sh`, idempotent) and the
+   `--dry-run` writes nothing. This declaration is the limit: no vigilance is claimed that
+   does not exist.
 
-## 8. Capa de detección (manifiesto + reflog) — CR-01e3aebf
+## 8. Detection layer (manifest + reflog) — CR-01e3aebf
 
-Los hooks de §1–§6 son **fricción**: si están encendidos, rechazan el commit que toca un
-instrumento. Esta sección es **detección**: no interviene en el commit, y sirve exactamente en
-los casos en que la fricción no ocurrió — kit apagado (§2), `--no-verify` (§7.2), hook ausente
-o sin bit `+x` o `core.hooksPath` desviado (§7.6), o el propio instrumento editado por otra vía
-(`chmod +w`, edición directa, otro clon). Nada de esto **impide** escribir un instrumento:
-**detecta, no impide**. Lo que garantiza es que el rastro queda y se puede nombrar después.
+The hooks of §1–§6 are **friction**: when on, they reject the commit that touches an
+instrument. This section is **detection**: it does not take part in the commit, and it serves exactly in
+the cases where friction did not happen: kit off (§2), `--no-verify` (§7.2), hook missing
+or without the `+x` bit or `core.hooksPath` diverted (§7.6), or the instrument edited another way
+(`chmod +w`, direct edit, another clone). None of this **prevents** writing an instrument:
+**it detects, it does not prevent**. What it guarantees is that the trace stays and can be named later.
 
-### 8.1 Los tres scripts y su interfaz literal
+### 8.1 The three scripts and their literal interface
 
-| Script | Interfaz | Exit codes | Qué hace |
+| Script | Interface | Exit codes | What it does |
 |---|---|---|---|
-| `scripts/guard/manifest-protected.sh` | `--write <fichero>` · `--check <fichero>` · `--help` | `--write`: 0 escrito / 2 error · `--check`: 0 todo `OK` / 1 hay `AUSENTE`·`CAMBIADO`·`NUEVO` / 2 uso o manifiesto ilegible-inexistente-vacío | Toma/verifica la huella **sha256 de todos los paths protegidos** |
-| `scripts/guard/reflog-audit.sh` | `[--limit N] [--since <fecha>] [--ref <ref>]` | 0 = 0 toques medidos / 1 = hay toques / 2 = uso o git **o `SIN EVIDENCIA`** (0 entradas auditables) | Lista los commits del **reflog** que tocan algún path protegido |
-| `scripts/guard/verify-manifest.sh` | (sin argumentos) | 0 = matriz 5/5 `OK` / 1 = alguna casilla o precondición falla / 2 = montaje imposible | Falsificador: prueba las 5 casillas (a)–(e) en un repo temporal |
+| `scripts/guard/manifest-protected.sh` | `--write <file>` · `--check <file>` · `--help` | `--write`: 0 written / 2 error · `--check`: 0 all `OK` / 1 there is `AUSENTE`·`CAMBIADO`·`NUEVO` / 2 usage or manifest unreadable-missing-empty | Takes and verifies the **sha256 fingerprint of every protected path** |
+| `scripts/guard/reflog-audit.sh` | `[--limit N] [--since <date>] [--ref <ref>]` | 0 = 0 touches measured / 1 = there are touches / 2 = usage or git **or `SIN EVIDENCIA`** (0 auditable entries) | Lists the **reflog** commits that touch any protected path |
+| `scripts/guard/verify-manifest.sh` | (no arguments) | 0 = matrix 5/5 `OK` / 1 = some box or precondition fails / 2 = impossible setup | Falsifier: exercises the 5 boxes (a)-(e) in a temporary repo |
 
-Ninguno de los tres contiene patrones de paths, pero **no los reparten igual** (medido):
+None of the three contains path patterns, but they **do not distribute them the same way** (measured):
 
-- `manifest-protected.sh` y `reflog-audit.sh` **sourcean** `scripts/guard/guard-paths.sh`
-  (hermano, resuelto por `BASH_SOURCE`) y la propiedad de un path la decide
-  `guard_is_protected` ⇒ **cero duplicación de patrones**: cambiar la lista protegida se hace
-  en un solo sitio, como en los hooks.
-- `verify-manifest.sh` **NO sourcea nada** (0 `source`): copia el kit a un repo temporal
-  (`mktemp -d`) y **siembra dos paths protegidos como stubs** (`scripts/closure-gate.py`,
-  `docs/sintergic/handoffs/INDEX.jsonl`) para que la matriz tenga sujeto. **No es fuente de
-  verdad de patrones y no debe citarse como tal**: si se amplía la lista protegida, este
-  script no cambia — sus stubs siguen siendo dos.
+- `manifest-protected.sh` and `reflog-audit.sh` **source** `scripts/guard/guard-paths.sh`
+  (sibling, resolved via `BASH_SOURCE`) and a path's ownership is decided by
+  `guard_is_protected`, so there is **zero pattern duplication**: changing the protected list is done
+  in one place, as in the hooks.
+- `verify-manifest.sh` **sources NOTHING** (0 `source`): it copies the kit into a temporary repo
+  (`mktemp -d`) and **seeds two protected paths as stubs** (`scripts/closure-gate.py`,
+  `docs/sintergic/handoffs/INDEX.jsonl`) so the matrix has a subject. **It is not a source of
+  truth for patterns and must not be cited as one**: if the protected list grows, this
+  script does not change, because its stubs are still two.
 
-`manifest-protected.sh --write <fichero>` escribe `sha256  <path-rel>` (dos espacios), una línea
-por path, ordenado con `LC_ALL=C sort` sobre la **lista de paths** (no sobre la línea: así los
-paths con espacios no descolocan el orden). Sin timestamps ni rutas absolutas ⇒ **dos corridas
-seguidas dejan bytes idénticos** (medido en este árbol el 2026-10-29: 475 paths protegidos,
-sha256 del manifiesto idéntico en las dos corridas). El universo de paths es `git ls-files -z`
-más `git ls-files -z --others --exclude-standard`: el segundo término es lo que hace literal la
-definición de `NUEVO` («protegido **en disco**»), y cubre el instrumento `untracked` de otra
-lane (el mismo caso que §1.1.1 midió con `m43_gate_lib.py`).
+`manifest-protected.sh --write <file>` writes `sha256  <rel-path>` (two spaces), one line
+per path, sorted with `LC_ALL=C sort` over the **list of paths** (not over the line, so that
+paths with spaces do not disturb the order). No timestamps, no absolute paths, so **two consecutive
+runs leave identical bytes** (measured in this tree on 2026-10-29: 475 protected paths,
+manifest sha256 identical in both runs). The path universe is `git ls-files -z`
+plus `git ls-files -z --others --exclude-standard`: the second term is what makes the
+definition of `NUEVO` literal (protected **on disk**), and it covers the `untracked` instrument of another
+lane (the same case §1.1.1 measured with `m43_gate_lib.py`).
 
-`manifest-protected.sh --check <fichero>` imprime **una línea por path**, sin adorno y por
-stdout, con exactamente uno de los cuatro estados de §8.2, y una última línea
-`RESUMEN OK=<n> AUSENTE=<n> CAMBIADO=<n> NUEVO=<n> TOTAL=<n>`. El recorrido es la **unión**
-manifiesto ∪ protegidos-en-disco, ordenada `LC_ALL=C`: un path del manifiesto que ya no case
-ningún patrón se sigue comparando (el manifiesto manda para su ciclo), y un path protegido que
-esté en disco y no en el manifiesto sale `NUEVO` aunque nunca se haya commiteado.
+`manifest-protected.sh --check <file>` prints **one line per path**, undecorated, on
+stdout, with exactly one of the four states of §8.2, and a final line
+`RESUMEN OK=<n> AUSENTE=<n> CAMBIADO=<n> NUEVO=<n> TOTAL=<n>`. The walk is the **union**
+manifest ∪ protected-on-disk, sorted `LC_ALL=C`: a manifest path that no longer matches
+any pattern is still compared (the manifest rules for its cycle), and a protected path that
+is on disk and not in the manifest comes out `NUEVO` even if it was never committed.
 
-`reflog-audit.sh` recorre las entradas **del reflog** del ref (default `HEAD`, más reciente
-primero) y, por cada commit distinto, imprime:
+`reflog-audit.sh` walks the **reflog** entries of the ref (default `HEAD`, most recent
+first) and, for each distinct commit, prints:
 
 ```
 <sha-corto> | <fecha ISO> | <autor %ae> | <path1>,<path2>
 ```
 
-`--limit N` (default **50**) acota a las últimas N entradas del reflog: es cobertura
-**PARCIAL**. Una ventana corta **no** equivale a «no hubo toques», y el cierre debe
-**declarar la ventana usada** — el encabezado la imprime siempre, como `ventana medida:
-últimas N entradas de <ref>` con `--limit` y `ventana medida: desde <fecha>` con `--since`.
-`--since <fecha>` acepta lo que acepte `git log --since` (`2026-10-29`, `2 days ago`, …) y
-**manda sobre `--limit`**: se recorren todas las entradas del reflog dentro de la ventana. La
-segunda línea del encabezado dice lo que de verdad se audita: `entradas medidas: <n> · commits
-distintos auditados: <m>` (con `--since`, n = entradas del reflog que caen dentro de la
-ventana; con `--limit`, n = entradas leídas). Un pie cierra con
-`commits infractores: N · paths protegidos diferentes: M`; con 0 infractores **y
-`entradas medidas > 0`** imprime literalmente **`0 toques a instrumentos`** y sale 0. Si
-`entradas medidas = 0` (reflog vacío, o un `--since` que no cae sobre ninguna entrada) imprime
-por **stderr** `SIN EVIDENCIA: el reflog de <ref> no tiene entradas auditables (¿git reflog
-expire / git gc --prune?) — NO se puede atestiguar «0 toques»` y sale **2**, nunca 0: la
-ausencia de evidencia no es una absolución. No admite argumentos posicionales (un sha o un
-path suelto es error de uso, exit 2).
+`--limit N` (default **50**) bounds to the last N reflog entries, which is **PARTIAL**
+coverage. A short window **does not** equal no touches, and the closure must
+**declare the window used**: the header always prints it, as `ventana medida:
+last N entries of <ref>` with `--limit` and `ventana medida: desde <date>` with `--since`.
+`--since <date>` accepts whatever `git log --since` accepts (`2026-10-29`, `2 days ago`, …) and
+**takes precedence over `--limit`**: every reflog entry inside the window is walked. The
+second header line says what is actually audited: `entradas medidas: <n> · commits
+distintos auditados: <m>` (with `--since`, n = reflog entries falling inside the
+window; with `--limit`, n = entries read). A footer closes with
+`commits infractores: N · paths protegidos diferentes: M`; with 0 offenders **and
+`entradas medidas > 0`** it prints literally **`0 toques a instrumentos`** and exits 0. If
+`entradas medidas = 0` (empty reflog, or a `--since` that matches no entry) it prints
+on **stderr** `SIN EVIDENCIA: el reflog de <ref> no tiene entradas auditables (¿git reflog
+expire / git gc --prune?) — NO se puede atestiguar «0 toques»` and exits **2**, never 0: the
+absence of evidence is not an acquittal. It accepts no positional arguments (a bare sha or
+path is a usage error, exit 2).
 
-Paths de un commit — decisión declarada, commits de merge incluidos: se resuelve el **primer
-padre** con `git rev-list --parents -n1` y se compara contra él con
-`git diff-tree -r --no-renames <padre> <commit>` (equivalente a
-`--diff-merges=first-parent` / `git show --first-parent`, aplicado a mano para no depender de la
-versión de git ni del modo por defecto de `git show`); un commit raíz se mide con
-`git diff-tree -r --no-renames --root`. `--no-renames` hace que un rename aparezca como borrado
-+ creación: renombrar un instrumento también se ve. Medido en un repo temporal con un merge cuyo
-lado sí tocaba el ledger: la auditoría nombra **el merge**
+Paths of a commit: declared decision, merge commits included: the **first
+parent** is resolved with `git rev-list --parents -n1` and compared against it with
+`git diff-tree -r --no-renames <parent> <commit>` (equivalent to
+`--diff-merges=first-parent` / `git show --first-parent`, applied by hand so as not to depend on the
+git version or on `git show`'s default mode); a root commit is measured with
+`git diff-tree -r --no-renames --root`. `--no-renames` makes a rename show up as a delete
++ create: renaming an instrument is seen too. Measured in a temporary repo with a merge whose
+side did touch the ledger: the audit names **the merge**
 (`b1d5a3f | … | docs/sintergic/handoffs/INDEX.jsonl`).
 
-**Detecta `--no-verify` por diseño.** Un commit con `--no-verify` es un commit normal: lo único
-que no ocurrió es el hook. La evidencia de esta capa es la **historia**, no el hook, así que el
-commit aparece en el reflog como cualquier otro y `reflog-audit.sh` lo nombra. Medido en la
-casilla (c) de `verify-manifest.sh`: con un hook `pre-commit` marcador que deja marca y sale 0,
-el commit con `--no-verify` sale **sin marca** (el hook no corrió) y la auditoría lo nombra
-igual, con su sha y su path.
+**It detects `--no-verify` by design.** A commit with `--no-verify` is a normal commit: the only
+thing that did not happen is the hook. This layer's evidence is **history**, not the hook, so the
+commit appears in the reflog like any other and `reflog-audit.sh` names it. Measured in
+box (c) of `verify-manifest.sh`: with a marker `pre-commit` hook that leaves a mark and exits 0,
+the commit with `--no-verify` comes out **without a mark** (the hook did not run) and the audit names it
+all the same, with its sha and its path.
 
-`verify-manifest.sh` es la prueba falsable de la capa. Monta un repo temporal (`mktemp -d`),
-copia `guard-paths.sh`, `manifest-protected.sh` y `reflog-audit.sh`, siembra dos paths protegidos
-(`scripts/closure-gate.py`, `docs/sintergic/handoffs/INDEX.jsonl`) más uno libre (`src/foo.rs`),
-instala el hook marcador y ejecuta la matriz:
+`verify-manifest.sh` is the falsifiable proof of the layer. It sets up a temporary repo (`mktemp -d`),
+copies `guard-paths.sh`, `manifest-protected.sh` and `reflog-audit.sh`, seeds two protected paths
+(`scripts/closure-gate.py`, `docs/sintergic/handoffs/INDEX.jsonl`) plus one free one (`src/foo.rs`),
+installs the marker hook and runs the matrix:
 
-| Casilla | Escenario | Esperado |
+| Box | Scenario | Expected |
 |---|---|---|
-| (a) | manifiesto recién escrito ⇒ `--check` | rc 0 · todas las líneas `OK` · `AUSENTE=0 CAMBIADO=0 NUEVO=0` |
-| (b) | editar `scripts/closure-gate.py` + commit ⇒ `--check` | rc 1 · imprime `CAMBIADO scripts/closure-gate.py` |
-| (c) | `git commit --no-verify` tocando `INDEX.jsonl` ⇒ `reflog-audit.sh` | rc 1 · nombra el path y el sha · **el hook no dejó marca** |
-| (d) | revert declarado (restaurar **bytes** y recommitear) ⇒ `--check` + `reflog-audit.sh` | `--check` rc 0 · `reflog-audit` rc 1 y sigue viendo los commits infractores (incluido el sha de (c)) |
-| (e) | commit infractor y después `git reflog expire --expire=now --all && git gc --prune=now` ⇒ `reflog-audit.sh` | rc **2** · imprime `SIN EVIDENCIA` · **nunca** rc 0 con «0 toques» |
+| (a) | manifest just written ⇒ `--check` | rc 0 · all lines `OK` · `AUSENTE=0 CAMBIADO=0 NUEVO=0` |
+| (b) | edit `scripts/closure-gate.py` + commit ⇒ `--check` | rc 1 · prints `CAMBIADO scripts/closure-gate.py` |
+| (c) | `git commit --no-verify` touching `INDEX.jsonl` ⇒ `reflog-audit.sh` | rc 1 · names the path and the sha · **the hook left no mark** |
+| (d) | declared revert (restore **bytes** and recommit) ⇒ `--check` + `reflog-audit.sh` | `--check` rc 0 · `reflog-audit` rc 1 and still sees the offending commits (including the sha of (c)) |
+| (e) | offending commit then `git reflog expire --expire=now --all && git gc --prune=now` ⇒ `reflog-audit.sh` | rc **2** · prints `SIN EVIDENCIA` · **never** rc 0 with «0 toques» |
 
-Exit 0 **solo** con las 5 casillas en lo esperado y 3 precondiciones medidas: `--write`
-determinista (dos corridas, `cmp` idéntico), repositorio de partida **sin toques**
-(`reflog-audit` rc 0 con `0 toques a instrumentos`) y **control positivo** del hook marcador
-(un commit normal sí deja marca; sin ese control, la ausencia de marca en (c) no demostraría
-nada). Diferencia deliberada con la casilla (b) de `verify-guard.sh`: aquí (b) commitea de
-verdad, porque lo que se mide es la huella en disco, no el rechazo del hook. Decisión de (d):
-se usa **restauración de bytes + commit** en lugar de `git revert` porque el stub nace
-`untracked`, y un `git revert` del commit que lo añadió lo **borraría** (estado `AUSENTE`, no
-`OK`); con la restauración el estado vuelve a `OK` y los commits infractores siguen en la
-historia, que es justo lo que (d) debe demostrar. La casilla (e) va **última a propósito**
-(destruye el reflog que (c) y (d) necesitan) y es la que hace falsable el falso negativo en
-verde: un `reflog-audit.sh` que devolviera 0 sin evidencia pondría (e) en `FALLA` y el
-falsificador en exit 1.
+Exit 0 **only** with the 5 boxes as expected and 3 measured preconditions: `--write`
+deterministic (two runs, `cmp` identical), starting repository **without touches**
+(`reflog-audit` rc 0 with `0 toques a instrumentos`) and a **positive control** of the marker hook
+(a normal commit does leave a mark; without that control, the absence of a mark in (c) would prove
+nothing). Deliberate difference from box (b) of `verify-guard.sh`: here (b) really commits,
+because what is measured is the on-disk fingerprint, not the hook's rejection. Decision for (d):
+it uses **byte restore + commit** instead of `git revert` because the stub is born
+`untracked`, and a `git revert` of the commit that added it would **delete** it (state `AUSENTE`, not
+`OK`); with the restore the state goes back to `OK` and the offending commits stay in the
+history, which is exactly what (d) must prove. Box (e) goes **last on purpose**
+(it destroys the reflog that (c) and (d) need) and it is the one that makes the green
+false negative falsifiable: a `reflog-audit.sh` that returned 0 with no evidence would put (e) in `FALLA` and the
+falsifier at exit 1.
 
-### 8.2 Los cuatro estados del manifiesto
+### 8.2 The four manifest states
 
-| Estado | Significado | Qué implica |
+| State | Meaning | What it implies |
 |---|---|---|
-| `OK <path>` | en el manifiesto **y** en disco, sha256 idéntico | el instrumento está byte a byte como al abrir el ciclo |
-| `AUSENTE <path>` | en el manifiesto, **ya no en disco** | alguien lo borró o lo movió (incluye paths que además salieron de `git ls-files`) |
-| `CAMBIADO <path>` | en ambos, **sha distinto** | alguien lo editó — el caso que esta capa nombra |
-| `NUEVO <path>` | protegido **en disco** y ausente del manifiesto | instrumento que apareció después de sembrar: o es legítimo y se re-siembra, o nadie lo declaró |
+| `OK <path>` | in the manifest **and** on disk, identical sha256 | the instrument is byte for byte as it was when the cycle opened |
+| `AUSENTE <path>` | in the manifest, **no longer on disk** | someone deleted or moved it (includes paths that also left `git ls-files`) |
+| `CAMBIADO <path>` | in both, **different sha** | someone edited it, the case this layer names |
+| `NUEVO <path>` | protected **on disk** and absent from the manifest | an instrument that appeared after seeding: either it is legitimate and gets re-seeded, or nobody declared it |
 
-Los cuatro estados son de **bytes en disco**, no de propiedad: un path del manifiesto que ya no
-case ningún patrón se sigue comparando (el manifiesto manda para su ciclo), y la lista de
-propiedad la sigue decidiendo `guard-paths.sh` para lo que entra como `NUEVO`.
+The four states are about **bytes on disk**, not ownership: a manifest path that no longer
+matches any pattern is still compared (the manifest rules for its cycle), and the ownership
+list is still decided by `guard-paths.sh` for whatever enters as `NUEVO`.
 
-### 8.3 El límite real: **detecta, no impide**
+### 8.3 The real limit: **it detects, it does not prevent**
 
-Sin adornos: el mismo uid que corre la corrida nocturna puede `chmod +w` los instrumentos,
-editar `guard-paths.sh` para quitar un patrón, borrar `.git/hooks/*`, poner
-`core.hooksPath` en otro sitio y `git commit --no-verify` para saltarse los hooks. **Nada de
-eso se impide técnicamente** desde dentro del repo — los hooks (§7.2, §7.6) y esta capa
-comparten ese techo, porque no hay defensa posible contra quien ya tiene escritura sobre el
-árbol y el `.git`.
+No decoration: the same uid that runs the night run can `chmod +w` the instruments,
+edit `guard-paths.sh` to drop a pattern, delete `.git/hooks/*`, point
+`core.hooksPath` elsewhere and `git commit --no-verify` to skip the hooks. **None of
+that is technically prevented** from inside the repo: the hooks (§7.2, §7.6) and this layer
+share that ceiling, because no defence is possible against whoever already has write access to the
+tree and to `.git`.
 
-Lo que sí se garantiza, y su tamaño exacto:
+What is guaranteed, and its exact size:
 
-- los **bytes** de los instrumentos están anclados: `manifest-protected.sh --check` nombra el
-  path concreto que cambió (`CAMBIADO`), el que falta (`AUSENTE`) y el que apareció sin
-  declarar (`NUEVO`);
-- la **historia** está anclada, con su tamaño exacto: `reflog-audit.sh` nombra el commit
-  exacto que tocó un instrumento — con su sha, su fecha, su autor y los paths — **aunque el
-  hook se haya saltado** y aunque el commit ya no esté en ninguna rama: un `reset --hard`
-  conserva el sha abandonado como entrada de su propio reflog, así que **se sigue detectando**.
-  Lo que **no** sobrevive es la expiración del reflog seguida de `git gc --prune=now`: eso
-  borra las entradas y con ellas la evidencia.
+- the **bytes** of the instruments are anchored: `manifest-protected.sh --check` names the
+  specific path that changed (`CAMBIADO`), the one that is missing (`AUSENTE`) and the one that appeared
+  undeclared (`NUEVO`);
+- the **history** is anchored, with its exact size: `reflog-audit.sh` names the exact
+  commit that touched an instrument, with its sha, its date, its author and the paths, **even if the
+  hook was skipped** and even if the commit is no longer on any branch: a `reset --hard`
+  keeps the abandoned sha as an entry of its own reflog, so **it is still detected**.
+  What does **not** survive is reflog expiry followed by `git gc --prune=now`: that
+  deletes the entries and the evidence with them.
 
-El techo del reflog, sin adornos: **`git reflog expire --expire=now --all` +
-`git gc --prune=now` destruye la evidencia y el instrumento ya no puede atestiguar nada**. En
-ese estado `reflog-audit.sh` sale **2 `SIN EVIDENCIA`** y no `0 toques` — ausencia de evidencia
-≠ absolución: el hueco deja de ser silencioso, pero **destruir sigue siendo posible**, y
-destruir el reflog **es en sí mismo** el acto que un cierre debe mirar. Detecta, no impide,
-también aquí.
+The reflog ceiling, no decoration: **`git reflog expire --expire=now --all` +
+`git gc --prune=now` destroys the evidence and the instrument can no longer attest anything**. In
+that state `reflog-audit.sh` exits **2 `SIN EVIDENCIA`** and not `0 toques`: absence of evidence
+≠ acquittal: the hole stops being silent, but **destroying is still possible**, and
+destroying the reflog **is in itself** the act a closure must look at. It detects, it does not prevent,
+here too.
 
-Eso es todo, y es suficiente para un cierre honesto: no hay prevención, hay **constancia**. Si
-un cierre dice «no se tocó ningún instrumento», esta capa convierte esa frase en algo que se
-puede comprobar en dos comandos — o desmentir nombrando el path y el commit.
+That is all, and it is enough for an honest closure: there is no prevention, there is **constancy**. If
+a closure says no instrument was touched, this layer turns that sentence into something that can
+be checked in two commands, or refuted by naming the path and the commit.
 
-### 8.4 Cómo se usa en un cierre
+### 8.4 How it is used in a closure
 
 ```bash
 # 1. SEMBRAR (primera vez en este repo, y tras cada cambio legítimo del kit)
@@ -541,71 +541,71 @@ bash scripts/guard/reflog-audit.sh --since "<inicio del ciclo>"
 #    (¿expire/gc?) o una ventana vacía. El cierre declara la ventana que usó.
 ```
 
-Notas de uso, sin letra pequeña:
+Usage notes, no fine print:
 
-- **El manifiesto hay que sembrarlo**: no viaja en el repo y ningún hook lo crea. La **ruta la
-  elige quien cierra el ciclo** (recomendada `docs/sintergic/guard/protected.sha256`, que es
-  relativa al directorio del invocante). Si se quiere que viaje, se commitea — decisión del
-  cierre, no de estos scripts.
-- **El propio fichero del manifiesto NO es un instrumento protegido**: no casa ningún patrón de
-  `guard-paths.sh`, así que `--write` puede reescribirlo libremente (si lo fuera, cada
-  re-siembra aparecería como `CAMBIADO` de sí misma). Añadirlo a la lista es **decisión del
-  owner**, no un efecto de este documento; hoy no está.
-- **Re-sembrar tras un cambio legítimo del kit** (`guard-paths.sh`, un gate, un ledger): se
-  corre `--write`, y el motivo queda en el mensaje del commit que hizo el cambio. Re-sembrar
-  **sin** cambio legítimo convierte la capa en decoración: borra la evidencia que se busca.
-- **`--write` se niega con rc 2 si un protegido *tracked* falta del disco.** No hay drop
-  silencioso: el path sigue en el índice de git, `sha256sum` no puede leerlo y el script
-  imprime `no se pudo hashear '<path>' (¿permisos?): manifiesto NO escrito, el anterior queda
-  intacto` — el manifiesto previo **no se toca**, así que un borrado no se blanquea
-  re-sembrando. Qué hacer en ese caso: **commitear el borrado** (si es legítimo) o
-  **revertirlo** (`git checkout -- <path>`) **antes** de re-sembrar con `--write`.
-- **Append legítimo al ledger protegido (no hay allowlist, por diseño).** `INDEX.jsonl` es
-  instrumento protegido y el protocolo HH-1 exige **un append por lane** ⇒ `reflog-audit.sh`
-  dará **rc=1 de forma legítima**. El cierre debe **declarar** esos appends (sha + lane) como
-  toques autorizados: el instrumento no distingue un append de una edición destructiva, y por
-  eso la declaración es obligatoria, no opcional. Receta corta: correr
-  `bash scripts/guard/reflog-audit.sh --since "<inicio>"` y, por cada línea que nombre
-  `docs/sintergic/handoffs/INDEX.jsonl`, una fila en la tabla «toques autorizados» del cierre
-  con `<sha-corto> · <lane> · append HH-1`. Un append sin declarar es hallazgo, no ruido.
-- Los tres comandos son **deterministas y sin estado oculto**: no escriben en el repo (el
-  manifiesto se escribe donde se le pida), no tocan `.git/hooks/`, no instalan nada.
+- **The manifest has to be seeded**: it does not travel in the repo and no hook creates it. The **path is
+  chosen by whoever closes the cycle** (recommended `docs/sintergic/guard/protected.sha256`, which is
+  relative to the caller's directory). If it is meant to travel, it gets committed: a decision of the
+  closure, not of these scripts.
+- **The manifest file itself is NOT a protected instrument**: it matches no pattern of
+  `guard-paths.sh`, so `--write` may rewrite it freely (if it were, every
+  re-seed would show up as `CAMBIADO` of itself). Adding it to the list is an **owner
+  decision**, not an effect of this document; today it is not there.
+- **Re-seed after a legitimate kit change** (`guard-paths.sh`, a gate, a ledger): run
+  `--write`, and the reason stays in the message of the commit that made the change. Re-seeding
+  **without** a legitimate change turns the layer into decoration: it erases the evidence being sought.
+- **`--write` refuses with rc 2 if a *tracked* protected file is missing from disk.** There is no silent
+  drop: the path is still in the git index, `sha256sum` cannot read it and the script
+  prints `no se pudo hashear '<path>' (¿permisos?): manifiesto NO escrito, el anterior queda
+  intacto`, so the previous manifest **is not touched**: a deletion is not whitewashed
+  by re-seeding. What to do in that case: **commit the deletion** (if legitimate) or
+  **revert it** (`git checkout -- <path>`) **before** re-seeding with `--write`.
+- **Legitimate append to the protected ledger (there is no allowlist, by design).** `INDEX.jsonl` is a
+  protected instrument and protocol HH-1 requires **one append per lane**, so `reflog-audit.sh`
+  will give **rc=1 legitimately**. The closure must **declare** those appends (sha + lane) as
+  authorized touches: the instrument does not distinguish an append from a destructive edit, and that is
+  why the declaration is mandatory, not optional. Short recipe: run
+  `bash scripts/guard/reflog-audit.sh --since "<start>"` and, for each line naming
+  `docs/sintergic/handoffs/INDEX.jsonl`, one row in the closure's authorized touches table
+  with `<short-sha> · <lane> · append HH-1`. An undeclared append is a finding, not noise.
+- The three commands are **deterministic and free of hidden state**: they write nothing to the repo (the
+  manifest is written where it is asked for), they do not touch `.git/hooks/`, they install nothing.
 
-### 8.5 No dependen de `GUARD_ACTIVE`
+### 8.5 They do not depend on `GUARD_ACTIVE`
 
-`manifest-protected.sh`, `reflog-audit.sh` y `verify-manifest.sh` **no leen `GUARD_ACTIVE`** en
-ninguna decisión. Funcionan con el kit **apagado** (estado de §2: `GUARD_ACTIVE` sin definir),
-que es justo el caso de uso: si la detección dependiera de que los hooks estén activos, no
-detectaría nada en el escenario que la motiva. Medido: los tres corren con
-`env -u GUARD_ACTIVE` y con la variable sin definir en el entorno (`printenv GUARD_ACTIVE`
-⇒ rc 1). `verify-manifest.sh` además monta su repo temporal **sin** exportar la variable en
-ningún momento.
+`manifest-protected.sh`, `reflog-audit.sh` and `verify-manifest.sh` **do not read `GUARD_ACTIVE`** in
+any decision. They work with the kit **off** (state of §2: `GUARD_ACTIVE` unset),
+which is precisely the use case: if detection depended on the hooks being active, it would
+detect nothing in the scenario that motivates it. Measured: all three run with
+`env -u GUARD_ACTIVE` and with the variable unset in the environment (`printenv GUARD_ACTIVE`
+⇒ rc 1). `verify-manifest.sh` also sets up its temporary repo **without** exporting the variable at
+any point.
 
-### 8.6 Coherencia con §7.2 (el límite de `--no-verify`)
+### 8.6 Coherence with §7.2 (the `--no-verify` limit)
 
-§7.2 declara que `--no-verify` salta los hooks y que el rastro es «el commit sin el CR en el
-mensaje y sin la línea `GUARD-EXCEPCION`». Ese razonamiento tenía una dependencia incómoda: la
-evidencia se infería de la **ausencia** de una marca escrita por un hook — si el hook no
-corrió, la ausencia se explica sola, pero también se explicaría por otras causas, y en un
-commit sin CR la ausencia es lo normal.
+§7.2 declares that `--no-verify` skips the hooks and that the trace is the commit without the CR in the
+message and without the `GUARD-EXCEPCION` line. That reasoning had an awkward dependency: the
+evidence was inferred from the **absence** of a mark written by a hook. If the hook did not
+run, the absence explains itself, but it would also be explained by other causes, and in a
+commit without a CR the absence is normal.
 
-Ahora son **dos evidencias independientes**:
+Now there are **two independent evidences**:
 
-1. la **ausencia de `GUARD-EXCEPCION`** en un commit con el CR en el mensaje ⇒ `commit-msg` no
-   concedió (o no corrió): sigue siendo la firma del hook, dependiente de que los hooks existan;
-2. `reflog-audit.sh` **nombra el commit** que tocó el instrumento, con sha, fecha, autor y
-   paths: no depende de que ningún hook haya corrido, ni de que la marca esté o falte, ni de
-   que el commit siga en una rama.
+1. the **absence of `GUARD-EXCEPCION`** in a commit with the CR in the message ⇒ `commit-msg` did not
+   grant (or did not run): it is still the hook's signature, dependent on the hooks existing;
+2. `reflog-audit.sh` **names the commit** that touched the instrument, with sha, date, author and
+   paths: it does not depend on any hook having run, nor on the mark being present or missing, nor on
+   the commit still being on a branch.
 
-La segunda no sustituye a la primera: la primera dice **quién autorizó** (y con qué CR), la
-segunda dice **qué pasó de verdad**. Un cierre que exija las dos —`reflog-audit.sh --since
-<inicio>` en 0 toques, y `GUARD-EXCEPCION` presente solo donde hubo excepción declarada— ya no
-puede ser víctima del agujero de §7.6 (hook ausente, sin `+x`, `core.hooksPath` desviado): eso
-apaga la fricción, no la constancia.
+The second does not replace the first: the first says **who authorized** (and with which CR), the
+second says **what actually happened**. A closure that requires both (`reflog-audit.sh --since
+<start>` at 0 touches, and `GUARD-EXCEPCION` present only where there was a declared exception) can no longer
+be a victim of the hole of §7.6 (hook missing, without `+x`, `core.hooksPath` diverted): that
+turns off friction, not constancy.
 
-### 8.7 Aviso: la reconciliación de `AGENTS.md` es del bloque, no del fichero
+### 8.7 Notice: the `AGENTS.md` reconciliation belongs to the block, not to the file
 
-La reconciliación con la fuente única cubre **solo el bloque `CONTRATO-EJECUTOR`** (1228 B,
-sha256 `2606ce56…4d0f`): el próximo `sync --apply` real reordenará el resto del fichero
-(`## Prohibiciones` pasa detrás del bloque) **sin tocar el bloque** — el resto de `AGENTS.md`
-no está certificado por esta capa, solo el bloque.
+The reconciliation with the single source covers **only the `CONTRATO-EJECUTOR` block** (1228 B,
+sha256 `2606ce56…4d0f`): the next real `sync --apply` will reorder the rest of the file
+(`## Prohibiciones` moves behind the block) **without touching the block**; the rest of `AGENTS.md`
+is not certified by this layer, only the block.

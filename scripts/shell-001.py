@@ -1,65 +1,65 @@
 #!/usr/bin/env python3
 """SHELL-001 — gate de la capa aplicación de M-SHELL fase 1 (10 capacidades).
 
-El gate lanza el binario de producto (`target/debug/daggerfall-app`, **sin**
-`--window`: ese flag selecciona el camino legacy M2), con
-`DF_SHELL_STATE=<ruta absoluta>` y `DF_APP_ROOT=<datos retail>`, y mide la
-secuencia de shell que el contrato app↔gate fija VERBATIM
-(`.sintergic/packs/CR-ca78eb76-shell-gate.md` §CONTRATO):
+The gate launches the product binary (`target/debug/daggerfall-app`, **without**
+`--window`: that flag selects the legacy M2 path), with
+`DF_SHELL_STATE=<absolute path>` and `DF_APP_ROOT=<retail data>`, and measures the
+shell sequence the app↔gate contract fixes VERBATIM
+(`.sintergic/packs/CR-ca78eb76-shell-gate.md` §CONTRACT):
 
-  * el título de la ventana lleva la etiqueta `SHELL BOOT|LOADING|MENU|PLAYING|
-    PAUSED|EXIT` (se lee por `_NET_WM_NAME`, como `playthrough-p1-door.py`);
-  * la app espeja sus líneas `SHELL VE: …` en `$DF_SHELL_STATE` (append + flush),
-    y **ese fichero es el canal de sincronización**: cada tecla se envía cuando
-    la línea que la etapa anterior promete ya está escrita, nunca por `sleep`;
-  * las teclas son eventos X11 **núcleo** (`send_event`; XTEST es inerte en este
-    puesto), ruta aceptada en `scripts/playthrough-p1-door.py`.
+    * the window title carries the label `SHELL BOOT|LOADING|MENU|PLAYING|
+        PAUSED|EXIT` (read via `_NET_WM_NAME`, like `playthrough-p1-door.py`);
+    * the app mirrors its `SHELL VE: ...` lines into `$DF_SHELL_STATE` (append + flush),
+        and **that file is the synchronisation channel**: each key is sent when
+        the line the previous stage promises is already written, never by `sleep`;
+    * the keys are **core** X11 events (`send_event`; XTEST is inert on this
+        workstation), the route accepted in `scripts/playthrough-p1-door.py`.
 
-Filas medidas (capa aplicación, COVERAGE-100 §2.1 ids 1,2,3,4,6,9,10,11,12,13;
-las ids 5, 7 y 8 son GAP declarado y **no** se miden aquí)::
+Rows measured (application layer, COVERAGE-100 §2.1 ids 1,2,3,4,6,9,10,11,12,13;
+ids 5, 7 and 8 are declared GAP and are **not** measured here)::
 
-    SH-01 arranque del ejecutable      título SHELL BOOT sin entrada, ventana mapeada
-    SH-02 pantalla de carga            SHELL LOADING + step/units monótonos (N>=3)
-    SH-03 menú principal navegable     SHELL MENU + Down/Up cambian `selection`
-    SH-04 nueva partida                Return sobre `new-game` -> SHELL PLAYING, world_ticks=0
-    SH-05 carga de mundo               world scene=Exterior buildings>0 panels>0
-    SH-06 HUD                          visible=0 en MENU y visible=1 en PLAYING (misma sesión)
-    SH-07 mapa                         M abre y cierra `panel=map-local`
-    SH-08 viaje rápido                 T con el mapa abierto: delta_px>0 minutes>0, posición cambia
-    SH-09 pausa/opciones               Escape: Paused, ticks congelados, resumed=1
-    SH-10 salir                        Escape+Q: SHELL EXIT, el proceso termina con 0
+        SH-01 executable startup       title SHELL BOOT without input, window mapped
+        SH-02 loading screen           SHELL LOADING + monotonic step/units (N>=3)
+        SH-03 navigable main menu      SHELL MENU + Down/Up change `selection`
+        SH-04 new game                 Return on `new-game` -> SHELL PLAYING, world_ticks=0
+        SH-05 world load               world scene=Exterior buildings>0 panels>0
+        SH-06 HUD                      visible=0 in MENU and visible=1 in PLAYING (same session)
+        SH-07 map                      M opens and closes `panel=map-local`
+        SH-08 fast travel              T with the map open: delta_px>0 minutes>0, position changes
+        SH-09 pause/options            Escape: Paused, frozen ticks, resumed=1
+        SH-10 quit                     Escape+Q: SHELL EXIT, the process ends with 0
 
-El gate distingue «no hay capacidad» de «hay capacidad sin entrada» con un
-tercer proceso independiente, `CTRL-no-input`: **0 teclas** durante `--timeout`,
-y el título nunca debe llegar a `SHELL PLAYING`.
+The gate distinguishes "there is no capability" from "there is capability without input" with a
+third independent process, `CTRL-no-input`: **0 keys** during `--timeout`,
+and the title must never reach `SHELL PLAYING`.
 
-Contrato de proceso
--------------------
-Dos procesos independientes de la secuencia completa. Cada corrida se reduce a
-un registro normalizado (`window`, etiquetas de shell vistas, sha256 de la lista
-exacta de líneas `SHELL VE:`, teclas, etapa de aborto, código de salida); los
-dos registros deben ser byte-idénticos (`PROC-two-runs`). Todo lo impreso es
-entero o token: 0 decimales, 0 timestamps, 0 PIDs. Línea terminal `DIGEST
-<sha256>` sobre todo lo anterior y línea `SOURCES fingerprint=<64 hex> files=<n>`
-recomputada desde disco (`path\0sha256(bytes)`, ordenadas, `\n`).
+Process contract
+-----------------
+Two independent processes of the full sequence. Each run is reduced to
+a normalised record (`window`, shell labels seen, sha256 of the exact list
+of `SHELL VE:` lines, keys, abort stage, exit code); the
+two records must be byte-identical (`PROC-two-runs`). Everything printed is an
+integer or a token: 0 decimals, 0 timestamps, 0 PIDs. Terminal line `DIGEST
+<sha256>` over everything above and line `SOURCES fingerprint=<64 hex> files=<n>`
+recomputed from disk (`path\0sha256(bytes)`, sorted, `\n`).
 
-Modos
+Modes
 -----
-    python3 scripts/shell-001.py [--binary PATH] [--skip-build] [--out DIR] [--json]
-                                 [--list] [--falsify NAME] [--self-test] [--timeout S]
+        python3 scripts/shell-001.py [--binary PATH] [--skip-build] [--out DIR] [--json]
+                                                                  [--list] [--falsify NAME] [--self-test] [--timeout S]
 
-  run (defecto)  build (flock) o `--skip-build`, 2 procesos + CTRL, filas y digest.
-  --self-test    fixture VERDE embebida (líneas del contrato): demuestra que la
-                 fixture da 10/10 y exit 0 (el gate PUEDE ponerse verde) y que
-                 cada uno de los 11 falsificadores la pone roja. Imprime
-                 `GATE-SELFTEST rows=10 green=1 falsifiers=11 caught=11`.
-  --falsify N    fixture + una mutación: exige que la fila declarada caiga en rojo.
-  --list         una línea por fila con `keys=` esperadas y `failure=` nombrado.
+    run (default)  build (flock) or `--skip-build`, 2 processes + CTRL, rows and digest.
+    --self-test    embedded GREEN fixture (contract lines): proves that the
+                                  fixture gives 10/10 and exit 0 (the gate CAN go green) and that
+                                  each of the 11 falsifiers turns it red. Prints
+                                  `GATE-SELFTEST rows=10 green=1 falsifiers=11 caught=11`.
+    --falsify N    fixture + one mutation: requires the declared row to turn red.
+    --list         one line per row with expected `keys=` and a named `failure=`.
 
-Exit: 0 verde · 1 rojo · 2 NC (sin DISPLAY / sin ARENA2 / sin binario / build
-roto) · 3 STALE (binario más viejo que `crates/**` y `--skip-build`).
+Exit: 0 green · 1 red · 2 NC (no DISPLAY / no ARENA2 / no binary / broken
+build) · 3 STALE (binary older than `crates/**` with `--skip-build`).
 
-Uso:
+Usage:
     python3 scripts/shell-001.py --skip-build --out .sintergic/artifacts/shell-001-red
     python3 scripts/shell-001.py --self-test
     python3 scripts/shell-001.py --list
@@ -88,8 +88,8 @@ DEFAULT_DATA_ROOT = Path(
     or Path(os.environ.get("HOME", "")) / "Games" / "Daggerfall" / "app"
 )
 
-# Fuentes medidas por el gate (capa aplicación del camino de producto) y ámbito
-# del control de frescura `crates/**`.
+# Sources measured by the gate (application layer of the product path) and scope
+# of the freshness check `crates/**`.
 MEASURED_SOURCES = (
     "crates/app/src/main.rs",
     "crates/app/src/m18_window.rs",
@@ -108,11 +108,11 @@ SHELL_LABELS = (
     "SHELL EXIT",
 )
 
-# ── anclas de forma (una por fila) ────────────────────────────────────────
-# Cada ancla es un `path:line` real a HEAD: hoy señala DÓNDE VIVE LA AUSENCIA
-# (o el primitivo parcial); cuando la capacidad exista, señala el módulo que la
-# emite. El gate verifica que el path resuelve; la línea puede derivar (misma
-# regla que `path_exists` de la familia `sys-*-001`).
+# ── shape anchors (one per row) ────────────────────────────────────────
+# Each anchor is a real `path:line` at HEAD: today it points WHERE THE ABSENCE
+# LIVES (or the partial primitive); when the capability exists, it points at the module that
+# emits it. The gate verifies that the path resolves; the line may drift (same
+# rule as `path_exists` of the `sys-*-001` family).
 ANCHOR_BOOT = "crates/app/src/main.rs:928"
 ANCHOR_LOADING = "crates/app/src/m18_phase.rs:48"
 ANCHOR_MENU = "crates/app/src/m18_window.rs:1485"
@@ -125,7 +125,7 @@ ANCHOR_PAUSE = "crates/app/src/m18_phase.rs:76"
 ANCHOR_EXIT = "crates/app/src/m2_player.rs:103"
 ANCHOR_GATE = "scripts/shell-001.py:1"
 
-# ── contrato de líneas `SHELL VE:` (verbatim del pack) ────────────────────
+# ── `SHELL VE:` line contract (verbatim from the pack) ────────────────────
 RE_BOOT = re.compile(r"^SHELL VE: boot state=Boot$")
 RE_STEP = re.compile(r"^SHELL VE: loading step=(\d+) steps=(\d+) work=(\S+) units=(\d+)$")
 RE_LOADED = re.compile(r"^SHELL VE: loading done steps=(\d+) units=(\d+)$")
@@ -158,7 +158,7 @@ def digest(text: str) -> str:
 
 
 def label_of(title: str) -> str:
-    """Etiqueta de shell del título, o `none` (el título crudo no se imprime)."""
+    """Shell label of the title, or `none` (the raw title is not printed)."""
     for label in SHELL_LABELS:
         if label in title:
             return label
@@ -179,7 +179,7 @@ def first(cap: dict, pattern: re.Pattern[str]):
 
 
 def anchor_check() -> tuple[int, list[str]]:
-    """Cada fila declara su ancla `path:line`: el path debe resolver en disco."""
+    """Each row declares its anchor `path:line`: the path must resolve on disk."""
     anchors = [(row.rid, row.anchor) for row in ROWS] + [(CTRL.rid, CTRL.anchor)]
     unresolved = [
         "%s:%s" % (rid, anchor)
@@ -189,12 +189,12 @@ def anchor_check() -> tuple[int, list[str]]:
     return len(anchors), unresolved
 
 
-# ── filas: un checker por capacidad ───────────────────────────────────────
-# Contrato de retorno: (ok, facts, symptom, evidence_found). `evidence_found`
-# decide el token del rojo: sin la evidencia exigida es `missing_evidence`; con
-# evidencia presente y fuera de contrato, `evidence_mismatch`.
+# ── rows: one checker per capability ───────────────────────────────────
+# Return contract: (ok, facts, symptom, evidence_found). `evidence_found`
+# decides the red token: without the required evidence it is `missing_evidence`; with
+# evidence present and out of contract, `evidence_mismatch`.
 def boot_title(cap: dict) -> str:
-    """Primer título que ya lleva etiqueta de shell (antes de cualquier tecla)."""
+    """First title that already carries a shell label (before any key)."""
     for title in cap["titles"]:
         if label_of(title) != "none":
             return title
@@ -457,7 +457,7 @@ CTRL = Row(
 
 
 def check_ctrl(cap: dict):
-    """0 teclas: el título NUNCA llega a `SHELL PLAYING`. Sin ventana, es rojo."""
+    """0 keys: the title NEVER reaches `SHELL PLAYING`. Without a window, it is red."""
     playing = any("SHELL PLAYING" in title for title in cap["titles"])
     if not cap["window"]:
         return False, "window=0 playing=0", "the app opened no window: the control cannot be judged", False
@@ -470,7 +470,7 @@ def evaluate(cap: dict) -> list[tuple[Row, tuple]]:
     return [(row, row.check(cap)) for row in ROWS]
 
 
-# ── fixture VERDE embebida (las líneas del contrato) ──────────────────────
+# ── embedded GREEN fixture (the contract lines) ──────────────────────
 FIXTURE_TITLES = [
     "DAGGERFALL-LIKE — SHELL BOOT",
     "DAGGERFALL-LIKE — SHELL LOADING",
@@ -517,7 +517,7 @@ def fixture_capture() -> dict:
     }
 
 
-# ── falsificadores: mutan la EVIDENCIA capturada, nunca el runtime ────────
+# ── falsifiers: they mutate the CAPTURED EVIDENCE, never the runtime ────────
 def _salient_index(cap: dict, pattern: re.Pattern[str]) -> int:
     index, match = first(cap, pattern)
     return -1 if match is None else index
@@ -634,8 +634,8 @@ def mut_exit_no_appexit(cap: dict) -> str:
     return "the process ended with 101 (the shell declared code=0 but did not exit)"
 
 
-# Guardas internas del checker: facetas del pack que no tienen falsificador propio
-# (el pack nombra `loading-sleep-disguised` como «units=0 O work= repetido»).
+# Internal checker guards: pack facets with no falsifier of their own
+# (the pack names `loading-sleep-disguised` as "units=0 OR repeated work=").
 GUARDS = (("loading-work-repeated", "SH-02", mut_loading_work_repeated),)
 
 FALSIFIERS = (
@@ -687,7 +687,7 @@ def newest_source() -> tuple[int, str]:
 
 
 def mirrored_lines(log_path: Path) -> list[str]:
-    """Líneas `SHELL VE:` espejadas en stdout (cláusula 1 del contrato)."""
+    """`SHELL VE:` lines mirrored to stdout (clause 1 of the contract)."""
     try:
         text = log_path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
@@ -772,14 +772,14 @@ def walk(d, win, depth=0, acc=None):
 
 
 def is_shell_candidate(name: str) -> bool:
-    """Ventana candidata: título con etiqueta `SHELL <ETAPA>` o el nombre del proyecto."""
+    """Candidate window: title with a `SHELL <STAGE>` label or the project name."""
     if "DAGGERFALL" in name.upper():
         return True
     return any(label in name for label in SHELL_LABELS)
 
 
 def window_owner_pid(d, win):
-    """`_NET_WM_PID` de la ventana, o None si el toolkit no lo publica."""
+    """Window `_NET_WM_PID`, or None if the toolkit does not publish it."""
     try:
         prop = win.get_full_property(d.intern_atom("_NET_WM_PID"), 0)
     except Exception:
@@ -793,7 +793,7 @@ def window_owner_pid(d, win):
 
 
 def find_window(d, deadline, proc):
-    """Ventana propia del proceso: por `_NET_WM_PID`, o por título si falta el PID."""
+    """Own window of the process: by `_NET_WM_PID`, or by title if the PID is missing."""
     fallback = None
     while time.monotonic() < deadline:
         for win, name in walk(d, d.screen().root):
@@ -880,7 +880,7 @@ def press(d, win, X, XK, xevent, name):
     time.sleep(0.12)
 
 
-# Etapas de la secuencia: (etapa, tecla o None, patrón que la etapa deja escrito).
+# Stages of the sequence: (stage, key or None, pattern the stage leaves written).
 SEQUENCE = (
     ("boot", None, RE_BOOT),
     ("loading", None, RE_LOADED),
@@ -903,7 +903,7 @@ SEQUENCE = (
 
 
 class Session:
-    """Un proceso del binario de producto y su ventana, con deadline global."""
+    """One process of the product binary and its window, with a global deadline."""
 
     def __init__(self, d, X, XK, xevent, binary, data_root, state_path, app_log, timeout):
         self.d = d
@@ -1007,8 +1007,8 @@ class Session:
         self.cap["alive"] = 1 if self.proc.poll() is None else 0
         activate(self.d, self.win, self.X)
         self.sample()  # SH-01: primera muestra, antes de cualquier tecla
-        # La etiqueta `SHELL BOOT` puede escribirse uno o dos frames después del mapeo:
-        # se espera (acotado por el deadline global, sin teclas) a la primera etiqueta.
+        # The `SHELL BOOT` label can be written one or two frames after mapping:
+        # the first label is awaited (bounded by the global deadline, without keys).
         settle = min(self.deadline, time.monotonic() + 10.0)
         while time.monotonic() < settle and not boot_title(self.cap):
             time.sleep(0.1)
@@ -1040,7 +1040,7 @@ class Session:
         self.sample()
 
 
-# ── registro normalizado de una corrida (comparación entre procesos) ──────
+# ── normalised record of one run (comparison between processes) ──────
 def normalize(cap: dict) -> str:
     labels = labels_of(cap["titles"])
     body = "\n".join(cap["lines"])
@@ -1093,7 +1093,7 @@ def list_lines() -> list[str]:
 
 
 def emit(lines: list[str], out_path: Path | None) -> int:
-    """Imprime, sella con DIGEST y archiva. `DIGEST` cubre todo lo anterior."""
+    """Prints, seals with DIGEST and archives. `DIGEST` covers everything above."""
     text = "\n".join(lines) + "\n"
     sealed = text + "DIGEST %s\n" % digest(text)
     if out_path is not None:
@@ -1122,7 +1122,7 @@ def mode_list() -> int:
         )
     )
     passed = not missing and not unresolved
-    # `--list` no verifica el producto: su token no puede confundirse con el veredicto del gate.
+    # `--list` does not verify the product: its token cannot be confused with the gate's verdict.
     lines.append("VEREDICTO-LIST: %s (catalogo; el veredicto del producto solo lo emite el modo run)"
                  % ("OK" if passed else "BROKEN"))
     emit(lines, None)
@@ -1239,7 +1239,7 @@ def mode_run(args) -> int:
     except Exception as exc:
         return io_failure("display=absent", "no-display")
 
-    # Frescura: `crates/**` más nuevo que el binario ⇒ STALE (exit 3).
+    # Freshness: `crates/**` newer than the binary ⇒ STALE (exit 3).
     binary_mtime = int(binary.stat().st_mtime)
     newest_mtime, newest_path = newest_source()
     stale = newest_mtime > binary_mtime

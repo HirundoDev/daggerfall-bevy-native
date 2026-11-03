@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-b367c9dd — cuerpo del hook pre-push.
-# Rechaza toda publicación: ramas, tags y deletes. La excepción es explícita,
-# nombrada y se imprime (GUARD_ALLOW_PUSH=<motivo>).
+#  GUARD-KIT:CR-b367c9dd — body of the pre-push hook.
+#  It rejects every publication: branches, tags and deletes. The exception is explicit,
+#  named and printed (GUARD_ALLOW_PUSH=<reason>).
 
 [ "${GUARD_ACTIVE:-0}" = 1 ] || exit 0
 
-# El protocolo de pre-push entrega por stdin: <ref-local> <sha-local> <ref-remoto> <sha-remoto>
+#  The pre-push protocol delivers over stdin: <local-ref> <local-sha> <remote-ref> <remote-sha>
 guard_refs=0
 guard_tags=0
 guard_dels=0

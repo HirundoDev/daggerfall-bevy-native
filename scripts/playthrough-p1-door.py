@@ -1,48 +1,48 @@
 #!/usr/bin/env python3
-"""playthrough-p1-door.py — probe P1 del recorrido: la puerta de FG-01.
+"""playthrough-p1-door.py — walkthrough P1 probe: the FG-01 door.
 
-Mide, en la ventana real, el recorrido minimo de la puerta: **el jugador llega a
-la puerta, pulsa interact (`E`) y la escena transiciona**. Solo usa mecanismos que
-ya existen en el arbol medido (`8ac5144`):
+Measures, in the real window, the minimum door walkthrough: **the player reaches
+the door, presses interact (`E`) and the scene transitions**. It only uses mechanisms that
+already exist in the measured tree (`8ac5144`):
 
-  * `M18_CS14=1` (`m18_demo.rs:2470` -> `apply_cs14_scenario`) inyecta UNA puerta
-    de escenario a `CS14_DOOR_AHEAD_M = 1.4` m del ojo de spawn, y
-    `m28_cs14_scenario_door` (`m18_window.rs:3507`) la mantiene ahi hasta el
-    primer crimen.
-  * `G` es el binding existente de `m28_door_bash` (`m18_window.rs:3546`): su
-    linea `M28 VE: bash at <d> m …` es la prueba de que el jugador ESTA en una
-    puerta (alcance `DOOR_REACH_M = 2.5` m, `m18_window.rs:224`).
-  * `E` es `action.interact` (`m2_player.rs:135`), la tecla del recorrido.
-  * El driver X11 es el aceptado en este puesto (`scripts/measure-m18-cs.py`):
-    descubrimiento por `_NET_WM_NAME`, activacion por `_NET_ACTIVE_WINDOW` +
-    `set_input_focus`, y eventos de teclado **nucleo** con `send_event` (XTEST es
-    inerte para este cliente).
+    * `M18_CS14=1` (`m18_demo.rs:2470` -> `apply_cs14_scenario`) injects ONE scenario
+        door at `CS14_DOOR_AHEAD_M = 1.4` m from the spawn eye, and
+        `m28_cs14_scenario_door` (`m18_window.rs:3507`) keeps it there until the
+        first crime.
+    * `G` is the existing binding of `m28_door_bash` (`m18_window.rs:3546`): its
+        line `M28 VE: bash at <d> m ...` is the proof that the player IS at a
+        door (reach `DOOR_REACH_M = 2.5` m, `m18_window.rs:224`).
+    * `E` is `action.interact` (`m2_player.rs:135`), the walkthrough key.
+    * The X11 driver is the one accepted on this workstation (`scripts/measure-m18-cs.py`):
+        discovery by `_NET_WM_NAME`, activation by `_NET_ACTIVE_WINDOW` +
+        `set_input_focus`, and **core** keyboard events with `send_event` (XTEST is
+        inert for this client).
 
-Lanzamiento: el binario se ejecuta **sin** `--window`. `main.rs:915` mapea
-`--window` al camino M2 legacy (`run_windowed`, un solo bloque ARCH3D), que no
-compone el demo M18: no inyecta CS-14 y no tiene `M28 VE: bash`. El demo
-integrado (el que si tiene la puerta) es el camino por defecto. Prohibido
-`--door-spawn`: no existe en `8ac5144` y usarlo haria tautologico el rojo.
+Launch: the binary runs **without** `--window`. `main.rs:915` maps
+`--window` to the legacy M2 path (`run_windowed`, a single ARCH3D block), which does not
+compose the M18 demo: it injects no CS-14 and has no `M28 VE: bash`. The integrated
+demo (the one that does have the door) is the default path. `--door-spawn` is
+forbidden: it does not exist in `8ac5144` and using it would make the red tautological.
 
-Piernas
-  * `door-interact`: spawn con la puerta a 1.4 m -> `G` (fila `reach`) -> `E` ->
-    4 s -> transiciona si aparece `FG01 VE: interact → interior` o el titulo
-    trae `scene=Interior`. Sin el cableado esa linea no existe nunca: ese FAIL
-    es el ROJO literal.
-  * `negative-no-interact`: proceso nuevo, `W` 1 s y **sin** `E`: no debe
-    aparecer la linea de interior (control de que la transicion de la otra
-    pierna es imputable a `E`).
+Legs
+    * `door-interact`: spawn with the door at 1.4 m -> `G` (row `reach`) -> `E` ->
+        4 s -> it transitions if `FG01 VE: interact -> interior` appears or the title
+        carries `scene=Interior`. Without the wiring that line never exists: that FAIL
+        is the literal RED.
+    * `negative-no-interact`: new process, `W` for 1 s and **no** `E`: the interior
+        line must not appear (proof that the other leg's transition is attributable to
+        `E`).
 
-Salida: filas normalizadas `row <nombre>=<valor>` (sin timestamps, sin
-duraciones, sin PIDs, sin volcar el log de la app). Dos ejecuciones imprimen
-bytes identicos. Los logs crudos quedan en `--out`.
+Output: normalised rows `row <name>=<value>` (no timestamps, no
+durations, no PIDs, no dumping the app log). Two runs print identical
+bytes. Raw logs stay in `--out`.
 
-Exit: 0 todas las filas PASS · 1 alguna FAIL · 2 uso/IO (sin DISPLAY, sin
-ARENA2, binario ausente, build roto, ventana no encontrada).
+Exit: 0 all rows PASS · 1 some FAIL · 2 usage/IO (no DISPLAY, no
+ARENA2, binary absent, broken build, window not found).
 
-Uso:
-  scripts/playthrough-p1-door.py [--skip-build] [--out DIR] [--bin PATH]
-                                 [--data-root DIR] [--timeout S]
+Usage:
+    scripts/playthrough-p1-door.py [--skip-build] [--out DIR] [--bin PATH]
+                                                                  [--data-root DIR] [--timeout S]
 """
 import argparse
 import hashlib
@@ -66,7 +66,7 @@ NET_ACTIVE_WINDOW = "_NET_ACTIVE_WINDOW"
 KEY_PRESS_MASK = X.KeyPressMask
 KEY_RELEASE_MASK = X.KeyReleaseMask
 
-# `DOOR_REACH_M` (m18_window.rs:224): alcance del binding que bate la puerta.
+# `DOOR_REACH_M` (m18_window.rs:224): reach of the binding that hits the door.
 REACH_M = 2.5
 # Puerta de escenario CS-14 (m18_demo.rs:2495, `CS14_DOOR_AHEAD_M`).
 CS14_AHEAD_M = 1.4
@@ -84,7 +84,7 @@ RE_PHASE_PLAYING = re.compile(r"M18 VE: phase MENU → PLAYING")
 
 # ── descubrimiento de ventana (`measure-m18-cs.py`) ────────────────────────
 def name_of(d, win):
-    """`_NET_WM_NAME` (UTF-8, lo que pone winit/KWin) y `WM_NAME` de respaldo."""
+    """`_NET_WM_NAME` (UTF-8, what winit/KWin sets) and `WM_NAME` as fallback."""
     for prop, typ in ((NET_WM_NAME, UTF8), ("WM_NAME", "STRING")):
         try:
             val = win.get_full_property(d.intern_atom(prop), d.intern_atom(typ))
@@ -106,7 +106,7 @@ def name_of(d, win):
 
 
 def walk(d, win, depth=0, acc=None):
-    """Recorrido en profundidad del arbol real (hijos de `win`, no del root)."""
+    """Depth walk of the real tree (children of `win`, not of the root)."""
     acc = [] if acc is None else acc
     if depth > 3:
         return acc
@@ -135,11 +135,11 @@ def find_window(d, needle="DAGGERFALL", timeout=240.0, proc=None):
 
 
 def activate(d, win, timeout=4.0):
-    """Foco real de teclado en :0 (KWin/Wayland).
+    """Real keyboard focus on :0 (KWin/Wayland).
 
-    La ruta aceptada es un ClientMessage EWMH `_NET_ACTIVE_WINDOW` con origen 2
-    (pager/usuario): KWin activa entonces la superficie XWayland. `set_input_focus`
-    solo es un refuerzo; los eventos de abajo van dirigidos a la ventana.
+    The accepted route is an EWMH ClientMessage `_NET_ACTIVE_WINDOW` with source 2
+    (pager/user): KWin then activates the XWayland surface. `set_input_focus`
+    is only a reinforcement; the events below are directed at the window.
     """
     root = d.screen().root
     try:
@@ -223,7 +223,7 @@ def hold(d, win, name, secs):
     time.sleep(0.35)
 
 
-# ── log de la app ──────────────────────────────────────────────────────────
+# ── app log ──────────────────────────────────────────────────────────
 def read_log(path):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -233,7 +233,7 @@ def read_log(path):
 
 
 def wait_lines(path, pattern, timeout, proc=None):
-    """Devuelve las lineas que casan con `pattern` cuando aparecen, o []."""
+    """Returns the lines matching `pattern` as they appear, or []."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         hits = [ln for ln in read_log(path) if pattern.search(ln)]
@@ -246,7 +246,7 @@ def wait_lines(path, pattern, timeout, proc=None):
 
 
 def wait_title(d, win, needle, timeout, proc=None):
-    """Espera a que el titulo contenga `needle`; devuelve el titulo o None."""
+    """Waits until the title contains `needle`; returns the title or None."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if proc is not None and proc.poll() is not None:
@@ -258,9 +258,9 @@ def wait_title(d, win, needle, timeout, proc=None):
     return None
 
 
-# ── una pierna: un proceso, una ventana ────────────────────────────────────
+# ── one leg: one process, one window ────────────────────────────────────
 class Session:
-    """Un proceso del demo con la puerta CS-14 inyectada (`M18_CS14=1`)."""
+    """One demo process with the CS-14 door injected (`M18_CS14=1`)."""
 
     def __init__(self, d, binary, data_root, out_dir, leg):
         self.d = d
@@ -274,10 +274,10 @@ class Session:
 
     def __enter__(self):
         env = dict(os.environ)
-        # Fuente de datos (mismo custodia que `measure-m18-cs.py`).
+        # Data source (same custody as `measure-m18-cs.py`).
         env["DF_APP_ROOT"] = self.data_root
         env.setdefault("DISPLAY", os.environ.get("DISPLAY", ":0"))
-        # Puerta de escenario a 1.4 m del ojo de spawn (`m18_demo.rs:2470`).
+        # Scenario door at 1.4 m from the spawn eye (`m18_demo.rs:2470`).
         env["M18_CS14"] = "1"
         if os.path.exists(self.log_path):
             os.unlink(self.log_path)
@@ -312,7 +312,7 @@ class Session:
         return True
 
     def enter_playing(self, timeout=60.0):
-        """`Return` hasta que el titulo diga PLAYING (MENU -> PLAYING)."""
+        """`Return` until the title says PLAYING (MENU -> PLAYING)."""
         for _ in range(3):
             if wait_title(self.d, self.win, "PLAYING", 0.1, self.proc):
                 return True
@@ -328,7 +328,7 @@ def row(name, value):
 
 
 def bash_distance(lines):
-    """Distancia (m) que la app imprimio para el golpe de puerta, o None."""
+    """Distance (m) the app printed for the door hit, or None."""
     for ln in lines:
         hit = RE_BASH_AT.search(ln)
         if hit:
@@ -337,8 +337,8 @@ def bash_distance(lines):
         if hit:
             return hit.group(1), False
         if RE_BASH_CRIME.search(ln):
-            # La rama del crimen solo se alcanza con la puerta dentro del
-            # alcance (la distancia de escenario es fija: 1.4 m).
+            # The crime branch is only reachable with the door within
+            # reach (the scenario distance is fixed: 1.4 m).
             return "%.1f" % CS14_AHEAD_M, True
     return None, False
 
@@ -352,8 +352,8 @@ def leg_door_interact(d, args, rows):
             return False, "NO-PLAYING (door-interact)"
         rows.append(row("phase", "PLAYING"))
 
-        # `G`: binding existente de `m28_door_bash`. Hasta 3 intentos solo si la
-        # linea no aparece (el input de este puesto llega por `send_event`).
+        # `G`: existing binding of `m28_door_bash`. Up to 3 attempts only if the
+        # line does not appear (this workstation's input arrives via `send_event`).
         bash_lines = []
         for attempt in range(3):
             press(d, session.win, "G", hold=0.10)

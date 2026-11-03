@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-b367c9dd — cuerpo del hook pre-commit.
-# Gate de apagado PRIMERO: sin `GUARD_ACTIVE=1` sale 0 antes de leer nada.
+#  GUARD-KIT:CR-b367c9dd — body of the pre-commit hook.
+#  The OFF gate FIRST: without `GUARD_ACTIVE=1` it exits 0 before reading anything.
 #
-# Con GUARD_ALLOW_CR definido este hook NO evalúa la excepción: el mensaje del
-# commit en curso todavía no existe en pre-commit (git lo escribe después y lo
-# pasa en `$1` a commit-msg). Aquí solo se difiere; la conjunción —CR en el
-# mensaje REAL, como TOKEN DELIMITADO, nunca subcadena— la decide `commit-msg.sh`,
-# el ÚNICO sitio donde se decide — docs/NIGHT-RUN-GUARDRAILS.md §3.
+#  With GUARD_ALLOW_CR set this hook does NOT evaluate the exception: the in-progress
+#  commit message does not exist yet in pre-commit (git writes it afterwards and
+#  passes it in `$1` to commit-msg). Here it only defers; the conjunction —CR in the
+#  REAL message, as a DELIMITED TOKEN, never a substring— is decided by `commit-msg.sh`,
+#  the ONLY place where it is decided — docs/NIGHT-RUN-GUARDRAILS.md §3.
 
 [ "${GUARD_ACTIVE:-0}" = 1 ] || exit 0
 

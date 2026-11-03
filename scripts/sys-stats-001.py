@@ -127,19 +127,19 @@ GV_STAT_NAME = re.compile(r"\bname=(\S+)")
 GV_RES_TYPE = re.compile(r"\btype=(\S+)")
 CITATION = re.compile(r"\b(src|spec)=\S+")
 CITATION_RESOLVE = re.compile(r"\b(?:src|spec|carry)=(\S+)")
-# Tres valores derivados llevan nombre de proyecto en snake_case pero la
-# autoridad citada usa su propio identificador: la fila declara el alias.
+#  Three derived values carry a snake_case project name but the
+#  cited authority uses its own identifier: the row declares the alias.
 SYMBOL_ALIASES = {
     "max_magicka": ("SpellPoints", "max_magicka"),
     "max_fatigue": ("Fatiga máxima", "max_fatigue"),
     "max_breath": ("Aire máximo", "max_breath"),
 }
 
-# ── cita resuelta contra el árbol (CR-4171fb19 · GAP-M41-02) ────────────────
-# `CITATION` sólo probaba presencia y forma: hoy se resuelve el fichero, el
-# rango, el texto citado (con declaración: ni blanco, ni comentario, ni llave
-# suelta) y el símbolo que la fila declara, siguiendo el bloque que la cita
-# abre cuando apunta a la línea del abridor.
+#  ── citation resolved against the tree (CR-4171fb19 · GAP-M41-02) ───────────
+#  `CITATION` only proved presence and shape: today the file, the range,
+#  the cited text (with a declaration: not blank, not a comment, not a bare
+#  brace) and the symbol the row declares are resolved, following the block the citation
+#  opens when it points at the opener line.
 CITE_SPEC = re.compile(
     r"^(?P<path>[\w./+-]+\.(?:rs|md|py|json|toml|cs)):(?P<start>\d+)(?:-(?P<end>\d+))?$"
 )

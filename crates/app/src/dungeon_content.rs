@@ -24,10 +24,10 @@
 //! (`scripts/dun-content-001.py:477-494`, no settle window), so anything
 //! emitted after it is a race against the kill.
 
-// Sin `window` no hay mundo de puertas que consumir (`main.rs`: `mod m18_doors`
-// es `#[cfg(feature = "window")]`) ⇒ `descend` no existe y el resto del
-// contrato (las diez familias, el loot y el reloj) se compila igual, sin
-// llamante por diseño. Mismo criterio que `shell*` en `main.rs`.
+// Without `window` there is no door world to consume (`main.rs`: `mod m18_doors`
+// is `#[cfg(feature = "window")]`) ⇒ `descend` does not exist and the rest of
+// the contract (the ten families, the loot and the clock) compiles the same,
+// with no caller by design. Same criterion as `shell*` in `main.rs`.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
 use std::collections::HashMap;
@@ -40,9 +40,9 @@ use daggerfall_inventory::loot::{
 };
 use daggerfall_parser_bevy_bridge::dungeon_grid::DungeonGrid;
 
-// M44 (`CR-03390267`): el mundo de puertas es tipo de la **ventana**. El
-// contrato de contenido no depende de él: el build por defecto (`probes`, sin
-// `window`) compila las diez familias sin `DoorWorld`.
+// M44 (`CR-03390267`): the door world belongs to the **window**. The
+// content contract does not depend on it: the default build (`probes`, without
+// `window`) compiles the ten families without `DoorWorld`.
 #[cfg(feature = "window")]
 use crate::m18_doors::DoorWorld;
 

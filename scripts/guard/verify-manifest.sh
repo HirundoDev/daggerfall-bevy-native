@@ -1,51 +1,51 @@
 #!/usr/bin/env bash
-# GUARD-KIT:CR-01e3aebf — falsificador de la CAPA DE DETECCIÓN: 5 casillas (a..e).
+#  GUARD-KIT:CR-01e3aebf — falsifier of the DETECTION LAYER: 5 boxes (a..e).
 #
-# Prueba el mecanismo en un repo TEMPORAL (`mktemp -d`), nunca sobre el árbol del
-# target: copia el kit necesario (`guard-paths.sh`, `manifest-protected.sh`,
-# `reflog-audit.sh`), siembra los paths protegidos mínimos y deja un hook
-# `pre-commit` MARCADOR que hace `exit 0` (no bloquea nada) para que `--no-verify`
-# tenga algo real que saltarse en la casilla (c) y su ausencia sea medible.
+#  It exercises the mechanism in a TEMPORARY repo (`mktemp -d`), never on the tree of
+#  the target: it copies the needed kit (`guard-paths.sh`, `manifest-protected.sh`,
+#  `reflog-audit.sh`), seeds the minimum protected paths and leaves a `pre-commit`
+#  MARKER hook that does `exit 0` (blocks nothing) so that `--no-verify`
+#  has something real to skip in box (c) and its absence is measurable.
 #
-# Matriz obligatoria (esperado vs observado):
-#   (a) manifiesto recién escrito ⇒ `--check` rc=0, todas las líneas `OK`, RESUMEN
-#       sin AUSENTE/CAMBIADO/NUEVO.
-#   (b) se edita `scripts/closure-gate.py` y se commitea ⇒ `--check` rc=1 e imprime
-#       `CAMBIADO scripts/closure-gate.py`.
-#   (c) `git commit --no-verify` tocando `docs/sintergic/handoffs/INDEX.jsonl` ⇒
-#       `reflog-audit.sh` rc=1 y nombra ese path; y el hook marcador NO dejó marca
-#       (no corrió) — con control positivo previo de que en un commit normal SÍ la deja.
-#   (d) revert declarado: se restauran los BYTES originales de los dos paths y se
-#       recommitea (no `git revert`: con un path añadido, revert lo BORRARÍA y el
-#       estado sería AUSENTE, no OK) ⇒ `--check` vuelve a rc=0 y `reflog-audit.sh`
-#       sigue viendo los commits infractores (la historia no se reescribe), incluido
-#       el sha del commit de (c).
-#   (e) destrucción de evidencia: tras un commit infractor, `git reflog expire
-#       --expire=now --all && git gc --prune=now` borra el reflog ⇒ `reflog-audit.sh`
-#       DEBE salir 2 e imprimir `SIN EVIDENCIA` (y NO rc 0 con «0 toques»). Esta
-#       casilla falsifica el falso negativo en verde: si el script devolviera 0 sin
-#       evidencia, (e) sería FALLA y el falsificador saldría 1. La destrucción del
-#       reflog es en sí misma un acto que un cierre debe mirar: el hueco deja de ser
-#       silencioso, pero destruir sigue siendo posible.
+#  Mandatory matrix (expected vs observed):
+#    (a) freshly written manifest ⇒ `--check` rc=0, all lines `OK`, RESUMEN
+#        without AUSENTE/CAMBIADO/NUEVO.
+#    (b) `scripts/closure-gate.py` is edited and committed ⇒ `--check` rc=1 and prints
+#        `CAMBIADO scripts/closure-gate.py`.
+#    (c) `git commit --no-verify` touching `docs/sintergic/handoffs/INDEX.jsonl` ⇒
+#        `reflog-audit.sh` rc=1 and names that path; and the marker hook left NO mark
+#        (it did not run) — with a prior positive control that on a normal commit it DOES leave it.
+#    (d) declared revert: the original BYTES of the two paths are restored and
+#        re-committed (not `git revert`: with an added path, revert would DELETE it and the
+#        state would be AUSENTE, not OK) ⇒ `--check` returns to rc=0 and `reflog-audit.sh`
+#        still sees the offending commits (history is not rewritten), including
+#        the sha of the commit from (c).
+#    (e) evidence destruction: after an offending commit, `git reflog expire
+#        --expire=now --all && git gc --prune=now` wipes the reflog ⇒ `reflog-audit.sh`
+#        MUST exit 2 and print `SIN EVIDENCIA` (and NOT rc 0 with '0 toques'). This
+#        box falsifies the green false negative: if the script returned 0 without
+#        evidence, (e) would be FALLA and the falsifier would exit 1. Destroying the
+#        reflog is in itself an act a closure must look at: the hole stops being
+#        silent, but destroying it is still possible.
 #
-# Decisión documentada de (b)/(c)/(d)/(e): los stubs protegidos nacen NO trackeados en
-# el commit baseline, para que el repositorio arranque con un reflog SIN toques
-# (precondición 2). Al commitear (b)/(c) pasan a trackeados; (d) restaura sus bytes
-# y recommitea. (e) es la ÚLTIMA casilla a propósito: destruye el reflog que (c)/(d)
-# necesitan, así que se ejecuta cuando esas dos ya están medidas.
+#  Documented decision for (b)/(c)/(d)/(e): the protected stubs are born UNTRACKED in
+#  the baseline commit, so the repository starts with a reflog WITHOUT touches
+#  (precondition 2). Committing (b)/(c) turns them tracked; (d) restores their bytes
+#  and re-commits. (e) is the LAST box on purpose: it destroys the reflog that (c)/(d)
+#  need, so it runs once those two are already measured.
 #
-# Precondiciones bloqueantes (impresas y medidas, no supuestas):
-#   1. `--write` determinista: dos corridas seguidas ⇒ bytes idénticos (`cmp`).
-#   2. repositorio de partida SIN toques: `reflog-audit.sh` rc=0 e imprime
-#      `0 toques a instrumentos`.
-#   3. control positivo del hook marcador: un commit normal SÍ deja su marca
-#      (si no, la ausencia de marca en (c) no demostraría nada).
+#  Blocking preconditions (printed and measured, not assumed):
+#    1. deterministic `--write`: two consecutive runs ⇒ identical bytes (`cmp`).
+#    2. starting repository WITHOUT touches: `reflog-audit.sh` rc=0 and prints
+#       `0 toques a instrumentos`.
+#    3. positive control of the marker hook: a normal commit DOES leave its mark
+#       (otherwise, the absence of a mark in (c) would prove nothing).
 #
-# Exit 0 SOLO si las 5 casillas dan lo esperado y las 3 precondiciones se cumplen.
-# Cualquier desviación ⇒ exit 1 con la matriz impresa (y, si es de montaje, exit 2).
+#  Exit 0 ONLY if the 5 boxes give what is expected and the 3 preconditions hold.
+#  Any deviation ⇒ exit 1 with the matrix printed (and, if it is a setup issue, exit 2).
 #
-# Limpieza: `find -delete` + `rmdir` acotado al prefijo mktemp (mismo criterio que
-# verify-guard.sh); el temporal desaparece al salir.
+#  Cleanup: `find -delete` + `rmdir` bounded to the mktemp prefix (same criterion as
+#  verify-guard.sh); the temporary disappears on exit.
 
 set -u
 
@@ -70,7 +70,7 @@ abortar() {
   exit 2
 }
 
-# recorta a 110 columnas para la línea de detalle
+#  trims to 110 columns for the detail line
 recorta() { printf '%s' "$1" | tr '\n' ' ' | cut -c1-110; }
 
 # contiene <texto> <aguja>
@@ -100,14 +100,14 @@ git init -q -b main . || abortar "git init falló"
 git config user.email "guard-manifest@example.invalid" || abortar "git config email falló"
 git config user.name "guard-manifest" || abortar "git config name falló"
 git config commit.gpgsign false || abortar "git config gpgsign falló"
-# core.hooksPath se deja SIN definir (como en el target): los hooks viven en
-# .git/hooks por defecto, y así el temporal reproduce la configuración real.
+#  core.hooksPath is left UNSET (as in the target): the hooks live in
+#  .git/hooks by default, and that way the temporary reproduces the real configuration.
 
-# hook MARCADOR: deja una marca y sale 0 (no bloquea nada; sirve para medir si corrió)
+#  MARKER hook: leaves a mark and exits 0 (blocks nothing; it serves to measure whether it ran)
 printf '#!/usr/bin/env bash\nprintf "HOOK-MARCADOR:pre-commit\\n" >> "%s"\nexit 0\n' "$marca" > .git/hooks/pre-commit || abortar "no se pudo escribir el hook marcador"
 chmod +x .git/hooks/pre-commit || abortar "no se pudo dar +x al hook marcador"
 
-# stubs: 2 paths protegidos (gate por patrón + ledger del ORDER) y 1 path libre
+#  stubs: 2 protected paths (pattern gate + ORDER ledger) and 1 free path
 printf 'stub gate\n' > scripts/closure-gate.py || abortar "stub gate falló"
 printf '{}\n' > docs/sintergic/handoffs/INDEX.jsonl || abortar "stub INDEX falló"
 printf 'stub libre\n' > src/foo.rs || abortar "stub libre falló"
@@ -115,19 +115,19 @@ mkdir -p "$guard_tmp/orig" || abortar "no se pudo crear el directorio de origina
 cp -- scripts/closure-gate.py "$guard_tmp/orig/closure-gate.py" || abortar "no se pudo guardar el original del gate"
 cp -- docs/sintergic/handoffs/INDEX.jsonl "$guard_tmp/orig/INDEX.jsonl" || abortar "no se pudo guardar el original del INDEX"
 
-# baseline: SOLO el kit y el path libre (los protegidos quedan untracked ⇒ reflog sin toques)
+#  baseline: ONLY the kit and the free path (the protected ones stay untracked ⇒ reflog without touches)
 git add -- scripts/guard/guard-paths.sh scripts/guard/manifest-protected.sh \
            scripts/guard/reflog-audit.sh src/foo.rs || abortar "git add del baseline falló"
 if ! out_base="$(git commit -q -m "baseline: kit de deteccion + path libre (protegidos untracked)" 2>&1)"; then
   abortar "el commit baseline falló: $(recorta "$out_base")"
 fi
-# control positivo: el hook marcador corrió en el baseline
+#  positive control: the marker hook ran in the baseline
 marca_base='NO'
 [ -s "$marca" ] && marca_base='SI'
 
-# ── precondición 1: --write determinista ────────────────────────────────────
-# Los manifiestos viven FUERA del repo temporal (en $guard_tmp): así el repo queda
-# limpio (`git status` = 0) y se mide también que la ruta absoluta funciona.
+#  ── precondition 1: deterministic --write ───────────────────────────────────
+#  The manifests live OUTSIDE the temporary repo (in $guard_tmp): that keeps the repo
+#  clean (`git status` = 0) and also measures that the absolute path works.
 man="$guard_tmp/manifiesto.sha256"
 man2="$guard_tmp/manifiesto2.sha256"
 out_w1="$(bash scripts/guard/manifest-protected.sh --write "$man" 2>&1)"; rc_w1=$?
@@ -249,8 +249,8 @@ else
     "$(printf '%s\n' "$out_d" | tail -3) / $(printf '%s\n' "$out_d_aud" | tail -3)"
 fi
 
-# ── casilla (e): destrucción de evidencia (reflog expire + gc --prune) ──────
-# Última a propósito: borra el reflog que (c) y (d) usan como evidencia.
+#  ── box (e): evidence destruction (reflog expire + gc --prune) ─────────────
+#  Last on purpose: it wipes the reflog that (c) and (d) use as evidence.
 printf 'linea de prueba e\n' >> scripts/closure-gate.py
 git add -- scripts/closure-gate.py || abortar "git add del caso e falló"
 out_ce="$(git commit -q -m "caso e: toca un gate protegido antes de destruir la evidencia" 2>&1)"; rc_ce=$?

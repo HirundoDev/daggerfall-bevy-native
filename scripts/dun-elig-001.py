@@ -1,65 +1,65 @@
 #!/usr/bin/env python3
-"""DUN-ELIG-001 — gate de aceptación de M44 W44-3 (bloque C: `M44-R10`..`M44-R13`).
+"""DUN-ELIG-001 — acceptance gate for M44 W44-3 (block C: `M44-R10`..`M44-R13`).
 
-Contrato: `.sintergic/packs/CR-7fd7260f-m44-spec.md` §4 (interfaz fijada) y §4.3
-(familias persistidas de save v3); prosa del bloque:
+Contract: `.sintergic/packs/CR-7fd7260f-m44-spec.md` §4 (fixed interface) and §4.3
+(persisted save-v3 families); block prose:
 `docs/sintergic/m44/blocks/BC-state-eligibility-CR-7fd7260f.md`.
 
-Qué mide (estado de hoy: **sin implementación**, luego todo `M44-R*` en rojo medido):
+What it measures (state today: **no implementation**, so every `M44-R*` is measured red):
 
-* `M44-R10` — token = `f(seed, container, player, epoch)` con golden vectors fijos.
-  La función está fijada **bit a bit** en este gate (FNV-1a 64, el mismo primitivo
-  que el `checksum=` del save, `crates/memory/src/savegame_v2.rs:18`), así que el
-  golden no es «lo que haga la implementación» sino el contrato: 3 tuplas fijas ⇒
-  3 tokens de 16 hex que el canal de runtime debe publicar literalmente.
-* `M44-R11` — idempotencia `SEEN`: el mismo contenedor dos veces en la misma epoch
-  ⇒ contenido byte-idéntico; y el `content_digest` del canal se **recomputa desde
-  el artefacto real** de save (`dungeon_loot=`, §4.3), no se cree a la palabra.
-* `M44-R12` — epoch nueva invalida tokens: el mismo `(location, container, player)`
-  observado en dos epochs publica dos tokens distintos.
-* `M44-R13` — lockouts con expiración en minutos: `Locked` mientras
-  `retry_minutes < until_minutes` y `Open` en cuanto `retry_minutes >= until_minutes`;
-  un lockout de más de `LOCKOUT_MAX_MINUTES` minutos es permanente y se rechaza.
+* `M44-R10` — token = `f(seed, container, player, epoch)` with fixed golden vectors.
+    The function is fixed **bit by bit** in this gate (FNV-1a 64, the same primitive
+    as the save `checksum=`, `crates/memory/src/savegame_v2.rs:18`), so the
+    golden is not what the implementation does but the contract: 3 fixed tuples ⇒
+    3 16-hex tokens the runtime channel must publish literally.
+* `M44-R11` — `SEEN` idempotency: same container twice in the same epoch
+    ⇒ byte-identical content; and the channel `content_digest` is **recomputed from
+    the real save artifact** (`dungeon_loot=`, §4.3), never taken on faith.
+* `M44-R12` — a new epoch invalidates tokens: the same `(location, container, player)`
+    observed in two epochs publishes two different tokens.
+* `M44-R13` — lockouts with expiry in minutes: `Locked` while
+    `retry_minutes < until_minutes` and `Open` as soon as `retry_minutes >= until_minutes`;
+    a lockout over `LOCKOUT_MAX_MINUTES` minutes is permanent and is rejected.
 
-Las tres formas de rojo admitidas por el pack §3 se usan así: **(a) artefacto** — el
-save real del producto (`--probe SAVE-ALL-001`) y su censo de familias `dungeon_*`
-(`0/4` hoy, luego `dungeon_loot` no existe y ningún `content_digest` es recomputable);
-**(b) canal** — los procesos reales del producto arrancados con `DF_DUN_STATE` fijado
-escriben `0` líneas `DUN VE: elig|container|lockout` (la ausencia se cuenta, no se
-afirma); **(c) censo** — recuentos literales re-ejecutables sobre `crates/**`
+The three red forms admitted by pack §3 are used like this: **(a) artifact** — the
+product's real save (`--probe SAVE-ALL-001`) and its `dungeon_*` family census
+(`0/4` today, so `dungeon_loot` does not exist and no `content_digest` is recomputable);
+**(b) channel** — the product's real processes started with `DF_DUN_STATE` set
+write `0` `DUN VE: elig|container|lockout` lines (absence is counted, not
+asserted); **(c) census** — literal, re-executable counts over `crates/**`
 (`DUN VE:` = 0/≥1, `dungeon_elig` = 0/≥1, `dungeon_loot` = 0/≥1).
 
-Delta declarado respecto de `scripts/m43_gate_lib.py` (el resto se **importa**):
+Delta declared against `scripts/m43_gate_lib.py` (the rest is **imported**):
 
-* **D1 — no se usa `Gate`**: su harness exige que el *probe* imprima `DIGEST` y
-  `SOURCES`, y `PROBE-DUNGEON-001`/`SAVE-ALL-001` son de M33/M34 y no los imprimen;
-  falsificarlos aquí sería tautología. Se reutilizan `Gate.recompute_fingerprint`,
-  `sha256_hex`, `file_sha256`, `citation_check` y `probe_citations`
-  sin copiar su código; la guarda bidireccional de citas es local (delta D5).
-* **D2 — falsificadores sobre la evidencia de contrato, no sobre `crates/**`**: la
-  lane no puede escribir `crates/**` ni correr `cargo build` (leyes del pack), así que
-  los falsificadores mutan la evidencia de la **fixture de contrato** (patrón
-  `scripts/shell-001.py`). Un falsificador sólo vale si su fila está VERDE antes de
-  mutar; la fixture verde demuestra que el rojo de hoy es ausencia de evidencia y no
-  un gate que siempre dice rojo.
-* **D3 — sin `--verbose`**: `PROBE-DUNGEON-001` imprime su reloj de pared; volcarlo
-  rompería la identidad byte a byte entre los dos procesos.
-* **D4 — el block doc no entra en `SOURCES fingerprint`**: el documento pega este
-  mismo stdout, así que hashearlo haría la pega autorreferente. Su integridad
-  funcional la verifica `C-H4` (tabla golden del documento == tabla del gate) y la de
-  sus citas, `C-H6`.
-* **D5 — guarda de citas bidireccional local**: `probe_citations_guard` de la librería
-  ancla su marcador de atribución en la forma `[OK] <id> - <detalle>` (su `OK_LINE`);
-  con la gramática del pack (`[OK] <ID> <k>=<v> … src=…`) el `id` es la línea entera y
-  el marcador nunca casa, lo que pondría la guarda roja por forma y no por fondo.
-  `guard_citations` reproduce la misma disciplina — un fichero ausente y una línea más
-  allá del final, ambos deben ir rojos **nombrando el token** — sobre el conjunto de
-  citas, con el resolutor de la librería (`citation_check`) y el stdout real de la fila
-  de citas (`probe_citations`).
+* **D1 — `Gate` is not used**: its harness requires the *probe* to print `DIGEST` and
+    `SOURCES`, and `PROBE-DUNGEON-001`/`SAVE-ALL-001` are from M33/M34 and do not print them;
+    faking them here would be tautology. Reused are `Gate.recompute_fingerprint`,
+    `sha256_hex`, `file_sha256`, `citation_check` and `probe_citations`
+    without copying their code; the two-way citation guard is local (delta D5).
+* **D2 — falsifiers over contract evidence, not over `crates/**`**: the
+    lane cannot write `crates/**` or run `cargo build` (pack laws), so
+    the falsifiers mutate the evidence of the **contract fixture** (pattern
+    `scripts/shell-001.py`). A falsifier only counts if its row is GREEN before
+    mutating; the green fixture proves today's red is absence of evidence and not
+    a gate that always says red.
+* **D3 — no `--verbose`**: `PROBE-DUNGEON-001` prints its wall clock; dumping it
+    would break byte-for-byte identity between the two processes.
+* **D4 — the block doc is not part of `SOURCES fingerprint`**: the document pastes this
+    same stdout, so hashing it would make the paste self-referential. Its functional
+    integrity is verified by `C-H4` (document golden table == gate table) and that of its
+    citations, `C-H6`.
+* **D5 — local two-way citation guard**: the library's `probe_citations_guard`
+    anchors its attribution marker on the form `[OK] <id> - <detail>` (its `OK_LINE`);
+    with the pack grammar (`[OK] <ID> <k>=<v> … src=…`) the `id` is the whole line and
+    the marker never matches, which would turn the guard red by form and not by substance.
+    `guard_citations` reproduces the same discipline — a missing file and a line past
+    the end, both must go red **naming the token** — over the citation set,
+    with the library's resolver (`citation_check`) and the real stdout of the citation
+    row (`probe_citations`).
 
-Salidas: filas `[OK]`/`[FAIL]`/`[NC]` con la gramática del pack, `PROBE`/`ARTIFACT`/
-`CANAL`/`GOLDEN`/`SOURCES`/`SCOPE`, `VERDICT: PASS|FAIL|NC` (exit 0/1/2) y
-`DIGEST <sha256>` como última línea, que cubre todo lo impreso antes (filas + veredicto).
+Outputs: `[OK]`/`[FAIL]`/`[NC]` rows with the pack grammar, `PROBE`/`ARTIFACT`/
+`CANAL`/`GOLDEN`/`SOURCES`/`SCOPE`, `VERDICT: PASS|FAIL|NC` (exit 0/1/2) and
+`DIGEST <sha256>` as the last line, covering everything printed before (rows + verdict).
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ BLOCK_DOC = "docs/sintergic/m44/blocks/BC-state-eligibility-CR-7fd7260f.md"
 DEFAULT_BINARY = ROOT / "target" / "debug" / "daggerfall-app"
 DEFAULT_OUT = ROOT / ".sintergic" / "artifacts" / "dun-elig-001"
 
-# ── contrato del bloque C (§4.1/§4.3 del pack) ─────────────────────────────
+#  ── block C contract (§4.1/§4.3 of the pack) ───────────────────────────
 TOKEN_PREFIX = "dungeon-elig-v1"
 TOKEN_TEMPLATE = "dungeon-elig-v1|<seed>|<location>|<container>|<player>|<epoch>"
 FNV_OFFSET = 0xCBF29CE484222325
@@ -105,9 +105,9 @@ DUN_FAMILIES = ("dungeon_state", "dungeon_elig", "dungeon_loot", "dungeon_instan
 DUN_VE_PREFIX = "DUN VE: "
 CANAL_PROBES = ("PROBE-DUNGEON-001", "SAVE-ALL-001")
 
-#: Vectores canónicos de FNV-1a 64 (los mismos que el test del árbol,
-#: `crates/app/src/m34_light_probe.rs:560`): el instrumento se prueba contra ellos
-#: antes de que nadie le crea un golden propio.
+#: Canonical FNV-1a 64 vectors (the same as the tree test,
+#: `crates/app/src/m34_light_probe.rs:560`): the instrument is tested against them
+#: before anyone believes a golden of its own.
 CANON_VECTORS: tuple[tuple[bytes, str], ...] = (
     (b"", "cbf29ce484222325"),
     (b"a", "af63dc4c8601ec8c"),
@@ -131,7 +131,7 @@ IMPL_MODULE = "crates/app/src/dungeon_elig.rs"
 
 @dataclass(frozen=True)
 class Golden:
-    """Una tupla fija del contrato y el token de 16 hex que DEBE producir."""
+    """A fixed tuple of the contract and the 16-hex token it MUST produce."""
 
     seed: int
     location: int
@@ -147,9 +147,9 @@ GOLDEN: tuple[Golden, ...] = (
     Golden(42, 50015, 3, 2, 5, "a809ee2515123280"),
 )
 
-# ── gramática de las líneas que el bloque C promete en `$DF_DUN_STATE` ─────
-# Grupos CON NOMBRE: cada checker consume `match.groupdict()`, así que un grupo
-# posicional devuelve `{}` y la fila moriría con KeyError en vez de en rojo medido.
+#  ── grammar of the lines block C promises in `$DF_DUN_STATE` ─────
+#  NAMED groups: every checker consumes `match.groupdict()`, so a positional
+#  group returns `{}` and the row would die with KeyError instead of measured red.
 RE_ELIG = re.compile(
     r"^DUN VE: elig token=(?P<token>[0-9a-f]{16}) location=(?P<location>\d+) "
     r"container=(?P<container>\d+) player=(?P<player>\d+) epoch=(?P<epoch>\d+)$"
@@ -199,12 +199,12 @@ def own_cite(marker: str) -> str | None:
 
 
 def impl_cite(marker: str, fallback: str | None) -> str | None:
-    """`src=` de una fila `M44-R*`: el módulo de implementación si ya existe, si no el checker.
+    """`src=` of an `M44-R*` row: the implementation module if it already exists, else the checker.
 
-    El pack (§4) exige que toda fila `[OK]` apunte a `crates/app/src/<modulo>.rs:<linea>`.
-    Hoy ese módulo no existe (0 implementación), así que la fila cita el checker que la
-    mide; en cuanto la implementación aterrice, la MISMA fila pasa a citarla sin tocar el
-    gate. Determinista: ni reloj ni red.
+        Pack §4 requires every `[OK]` row to point at `crates/app/src/<module>.rs:<line>`.
+        Today that module does not exist (0 implementation), so the row cites the checker that
+        measures it; as soon as the implementation lands, the SAME row cites it without touching the
+        gate. Deterministic: no clock, no network.
     """
     path = ROOT / IMPL_MODULE
     if path.is_file():
@@ -218,19 +218,19 @@ GUARD_ABSENT = "crates/app/src/m44-guard-absent-001.rs"
 
 
 def guard_citations(text: str, cites: Sequence[str]) -> tuple[bool, str]:
-    """G7 en las dos direcciones, respetando la gramática de fila del pack.
+    """G7 in both directions, respecting the pack row grammar.
 
-    Dirección (a): `probe_citations` de la librería sobre el stdout real de ESTA
-    corrida (cada fila `[OK]` resuelve su `src=`). Dirección (b): dos conjuntos de
-    citas doctorados que DEBEN ir rojos *nombrando el token* — un fichero ausente y
-    una línea más allá del final de un fichero real.
+        Direction (a): the library's `probe_citations` over the real stdout of THIS
+        run (every `[OK]` row resolves its `src=`). Direction (b): two sets of
+        doctored citations that MUST go red *naming the token* — a missing file and
+        a line past the end of a real file.
 
-    La librería trae `probe_citations_guard`, pero su marcador de atribución asume la
-    forma `[OK] <id> - <detalle>` (su `OK_LINE`): con la gramática del pack
-    (`[OK] <ID> <k>=<v> … src=…`) el `id` es la línea entera y el marcador nunca casa,
-    así que esa guarda se pondría roja por forma y no por fondo (delta D5). Esta
-    reproduce la misma disciplina sobre el conjunto de citas con el resolutor de la
-    librería (`citation_check`) y con el mismo texto real.
+        The library ships `probe_citations_guard`, but its attribution marker assumes the
+        form `[OK] <id> - <detail>` (its `OK_LINE`): with the pack grammar
+        (`[OK] <ID> <k>=<v> … src=…`) the `id` is the whole line and the marker never matches,
+        so that guard would go red by form and not by substance (delta D5). This one
+        reproduces the same discipline over the citation set with the library resolver
+        (`citation_check`) and the same real text.
     """
     probe_ok, probe_detail = probe_citations(text)
     if not probe_ok:
@@ -265,7 +265,7 @@ def guard_citations(text: str, cites: Sequence[str]) -> tuple[bool, str]:
 
 
 def fnv1a64(data: bytes) -> int:
-    """FNV-1a 64 — mismo primitivo que el `checksum=` del save (savegame_v2.rs)."""
+    """FNV-1a 64 — same primitive as the save `checksum=` (savegame_v2.rs)."""
     value = FNV_OFFSET
     for byte in data:
         value ^= byte
@@ -306,8 +306,8 @@ def census_files() -> list[Path]:
 def run_probe(binary: Path, probe: str, tag: str, out: Path) -> dict:
     tmp = out / f"tmp-{tag}"
     tmp.mkdir(parents=True, exist_ok=True)
-    # Un `TMPDIR` sucio de una corrida anterior duplicaría los artefactos del probe
-    # (`files>1`) y rompería la identidad byte a byte entre los dos procesos.
+    #  A `TMPDIR` dirty from a previous run would duplicate the probe artifacts
+    #  (`files>1`) and break byte-for-byte identity between the two processes.
     for child in sorted(tmp.iterdir()):
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
@@ -368,7 +368,7 @@ def parse_probe_digest(stdout: str) -> str | None:
 
 
 def probe_numbers(probe: dict) -> tuple[dict, str | None]:
-    """`(index, digest)` del probe: pre-parseados en la fixture, medidos en el producto."""
+    """`(index, digest)` of the probe: pre-parsed in the fixture, measured in the product."""
     index = probe.get("index")
     if index is None:
         index = parse_index(probe.get("stdout", "")) or {}
@@ -408,7 +408,7 @@ def family_census(save_text: str) -> tuple[list[str], dict[str, int]]:
 
 
 def loot_listing(save_text: str, location: int, container: int) -> list[str]:
-    """Líneas canónicas `<source>,<item_id>,<quantity>` de un contenedor (§4.3)."""
+    """Canonical `<source>,<item_id>,<quantity>` lines of a container (§4.3)."""
     rows: list[str] = []
     for line in save_text.splitlines():
         if not line.startswith("dungeon_loot="):
@@ -427,7 +427,7 @@ def loot_listing(save_text: str, location: int, container: int) -> list[str]:
 
 
 def content_digest(listing: list[str]) -> str:
-    """FNV-1a 64 de las líneas del listado, ordenadas como bytes, cada una con `\\n`."""
+    """FNV-1a 64 of the listing lines, sorted as bytes, each with `\n`."""
     body = "".join(f"{line}\n" for line in listing)
     return "%016x" % fnv1a64(body.encode("utf-8"))
 

@@ -7,7 +7,8 @@
 # scanned anyway and listed in the ADVISORY band (non-gating) with their class.
 #
 # Advisory classes: internal-governance · readonly-mirror · mother-copy-framework
-# · guardrail-implementation · third-party-corpus · internal-planning.
+# · guardrail-implementation · third-party-corpus · internal-planning
+# · nominative-detection.
 #
 #   R2 (DECISION-A): the internal codename "Daggerfall Bevy" and the
 #   daggerfall-* prefix are NOT a violation while the repo is private. G1 (public
@@ -71,6 +72,10 @@ is_exempt() {
     ./sovereign-arch/*)           return 0 ;;  # READ-ONLY copy of the Mother (framework)
     ./scripts/ci/*)               return 0 ;;  # guardrail implementation (self-match)
     ./MASTER-PLAN-100J*.md|./prototype-gap-*.md) return 0 ;;  # internal planning artifacts (cite the mark when stating the gate)
+    # Nominative use: the DataRoot resolver must name the directories a user's own copy
+    # lives in (Steam library paths). It is the only way to find that copy; not branding,
+    # not a store page, not metadata. The hit still prints in the advisory band.
+    ./crates/inventory/src/data_root.rs) return 0 ;;
     *)                            return 1 ;;
   esac
 }
@@ -81,6 +86,11 @@ classify() {
     ./docs/sintergic/*|./.sintergic/*) echo "internal-governance" ;;
     ./sovereign-arch/*)                echo "mother-copy-framework" ;;
     ./scripts/ci/*)                    echo "guardrail-implementation" ;;
+    # Nominative use: the DataRoot resolver has to name the directories a user's own
+    # installation lives in (Steam library paths). The string is the only way to find
+    # the user's copy; it is not branding, a store page or metadata. Lines are still
+    # printed in the advisory band, so the hit stays visible.
+    ./crates/inventory/src/data_root.rs) echo "nominative-detection" ;;
     ./reference/*)                     echo "third-party-corpus" ;;
     ./*.md)                            echo "internal-planning" ;;
     *)                                 echo "UNCLASSIFIED-REVIEW" ;;

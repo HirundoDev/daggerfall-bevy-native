@@ -83,6 +83,12 @@ EMAIL_FIXTURE_ALLOW = ("scripts/guard/verify-manifest.sh",
                        "scripts/guard/lane-integrity.py")
 # Not a user path: a unit test feeds `/home/u` as a placeholder HOME to `config_path`.
 PII_ALLOW = ("crates/inventory/src/config_file.rs",)
+# Prose in a language other than English that is DECLARED, not hidden. A file listed
+# here is frozen by design (its bytes are pinned by gates that quote its lines
+# verbatim), so translating its docstrings would break those pins. The hits stay
+# visible in the report under `language.declared` and are covered by the same class
+# in scripts/ci/language-baseline.txt (`frozen-by-design`).
+SPANISH_ALLOW = ("scripts/shell-002.py",)
 SECRET_PATTERNS = [
     (re.compile(rb"AKIA[0-9A-Z]{16}"), "aws-access-key"),
     (re.compile(rb"ghp_[A-Za-z0-9]{36}"), "github-token"),
@@ -404,7 +410,7 @@ def main():
     big = []
     owner_hits, upstream_emails, other_emails, fixture_emails = [], [], [], []
     spanish_files = []
-    lang_flagged, lang_scanned = [], 0
+    lang_flagged, lang_declared, lang_scanned = [], [], 0
     for p, data in walk_text(out):
         rel = str(p.relative_to(out)).replace(os.sep, "/")
         if any(m in data for m in OWNER_MARKERS):
@@ -437,9 +443,13 @@ def main():
                     continue
                 line_no, phrase = next(((n, t.strip()) for n, t in block if t.strip()),
                                        (block[0][0], ""))
-                lang_flagged.append({"file": rel, "es": es, "en": en,
-                                     "ratio": round(es / (es + en), 3) if (es + en) else 0.0,
-                                     "where": f"{rel}:{line_no}:{phrase[:120]}"})
+                record = {"file": rel, "es": es, "en": en,
+                          "ratio": round(es / (es + en), 3) if (es + en) else 0.0,
+                          "where": f"{rel}:{line_no}:{phrase[:120]}"}
+                if rel in SPANISH_ALLOW:
+                    lang_declared.append(record)
+                    continue
+                lang_flagged.append(record)
     for p in files_out:
         if p.stat().st_size > LIMIT_BYTES:
             big.append(str(p.relative_to(out)))
@@ -504,7 +514,8 @@ def main():
           {"files": len(lang_flagged), "scanned": lang_scanned,
            "thresholds": {"min_es_tokens": LANG.MIN_ES, "max_es_ratio": LANG.MAX_RATIO,
                           "min_accents": LANG.MIN_ACCENT},
-           "sample": [x["where"] for x in lang_flagged[:10]]})
+           "sample": [x["where"] for x in lang_flagged[:10]],
+           "declared_frozen": sorted({x["file"] for x in lang_declared})})
 
     head1 = run(["git", "-C", str(REPO), "rev-parse", "HEAD"], REPO).stdout.strip()
     if head1 != head0:
@@ -532,6 +543,7 @@ def main():
                     "spanish_surface": {"files": len(spanish_files),
                                         "sample": sorted(spanish_files)[:10]},
                     "language": {"scanned": lang_scanned, "flagged_count": len(lang_flagged),
+                                 "declared": lang_declared,
                                  "accents_files": len(spanish_files), "flagged": lang_flagged}},
         "emails": {"owner": sorted(set(owner_hits)), "other": other_emails,
                    "upstream_allowlisted": len(upstream_emails)},

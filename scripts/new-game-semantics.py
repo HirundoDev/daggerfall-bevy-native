@@ -1,54 +1,54 @@
 #!/usr/bin/env python3
-"""Mide que hace `NEW GAME` DESPUES de haber jugado: mundo nuevo o reanudacion.
+"""Measures what `NEW GAME` does AFTER having played: new world or resumption.
 
-CR-178183d7 (lane NewGameSemantics, 2026-10-31). La transicion menu -> mundo ->
-menu ya esta medida (`scripts/menu-transition-capture.py`); lo que este script
-decide es la SEMANTICA de la segunda entrada:
+CR-178183d7 (lane NewGameSemantics, 2026-10-31). The menu -> world -> menu
+transition is already measured (`scripts/menu-transition-capture.py`); what this script
+decides is the SEMANTICS of the second entry:
 
-  1. arranca `target/debug/daggerfall-app` (ya construido con `--features window`);
-  2. `Return` (new-game) + `Return` (confirmar el wizard) -> PLAYING #1;
-  3. JUEGA: mantiene `W` unos segundos (el avatar se mueve y el reloj de juego
-     avanza 1 min de juego por segundo real, `TIME_SCALE_GAME_SECONDS_PER_REAL_SECOND`);
-  4. viaja rapido (`M` + `T`) para consumir minutos del reloj de SESION y mover
-     el avatar sobre el mapa (estado que un mundo nuevo debe deshacer);
-  5. `Escape` (pausa) -> `S` + `Return` (guarda el slot) -> `b` (menu);
-  6. `Return` + `Return` -> PLAYING #2 (NEW GAME otra vez);
+  1. launches `target/debug/daggerfall-app` (already built with `--features window`);
+  2. `Return` (new-game) + `Return` (confirm the wizard) -> PLAYING #1;
+  3. PLAYS: holds `W` for a few seconds (the avatar moves and the game clock
+     advances 1 game minute per real second, `TIME_SCALE_GAME_SECONDS_PER_REAL_SECOND`);
+  4. fast travels (`M` + `T`) to consume SESSION clock minutes and move
+     the avatar over the map (state a new world must undo);
+  5. `Escape` (pause) -> `S` + `Return` (saves the slot) -> `b` (menu);
+  6. `Return` + `Return` -> PLAYING #2 (NEW GAME again);
   7. `Escape` -> `b` -> `Down` + `Return` (CONTINUE) -> PLAYING #3.
 
-Firma de cada entrada, leida del log (nada inferido):
+Signature of each entry, read from the log (nothing inferred):
 
-  * `world_ticks` de `SHELL VE: new_game … world_ticks=N`;
-  * `clock` de `M18 VE: sim ticks=N … clock M min` (reloj de juego real);
-  * `sim ticks` (frames del mundo desde el arranque del proceso);
-  * `pos`/`yaw` del primer `M19 VE: pos=(…)` de la entrada;
-  * `character` de `SHELL VE: session … character=…`;
-  * `hud` digest y `world scene=/location=` de la entrada;
-  * sha256 de la captura de la ventana tras ESTABILIZAR la imagen.
+  * `world_ticks` from `SHELL VE: new_game ... world_ticks=N`;
+  * `clock` from `M18 VE: sim ticks=N ... clock M min` (real game clock);
+  * `sim ticks` (world frames since process start);
+  * `pos`/`yaw` of the first `M19 VE: pos=(...)` of the entry;
+  * `character` from `SHELL VE: session ... character=...`;
+  * `hud` digest and `world scene=/location=` of the entry;
+  * sha256 of the window capture after STABILISING the image.
 
-ESTABILIDAD DE LA CAPTURA (CR-178183d7, lane InstrumentStability): `is_world`
-solo dice que el frame PARECE un mundo; un frame a medio pintar tambien lo
-parece (medido: 80f7c08c con 1614 colores frente a los 2176 del frame final,
-136 923 px distintos). Por eso cada captura se acepta solo si `is_world`,
-la marca de fase `SHELL VE: world scene=` ya existe y la imagen se repite igual
-`SETTLE_STABLE_CAPTURES` capturas consecutivas (mismo sha256). Cada frame
-medido queda en `frames.txt` y los PNG en `frames/`; cada corrida agrega una
-linea a `runs.jsonl` (sha256 de las capturas, igualdad y veredictos).
+CAPTURE STABILITY (CR-178183d7, lane InstrumentStability): `is_world`
+only says the frame LOOKS like a world; a half-painted frame also does
+(measured: 80f7c08c with 1614 colours against the final frame's 2176,
+136,923 distinct px). That is why each capture is accepted only if `is_world`,
+the phase mark `SHELL VE: world scene=` already exists and the image repeats
+identically for `SETTLE_STABLE_CAPTURES` consecutive captures (same sha256). Each
+measured frame stays in `frames.txt` and the PNGs in `frames/`; each run appends a
+line to `runs.jsonl` (capture sha256s, equality and verdicts).
 
-Uso:  python3 scripts/new-game-semantics.py [--label pre-fix]
-      (cada corrida escribe en .sintergic/artifacts/new-game-semantics/<label>/)
+Usage:  python3 scripts/new-game-semantics.py [--label pre-fix]
+      (each run writes to .sintergic/artifacts/new-game-semantics/<label>/)
       python3 scripts/new-game-semantics.py --label negative --replay a.png,b.png
-      (prueba negativa: reevalua capturas grabadas con la regla vieja y la nueva)
+      (negative test: re-evaluates recorded captures with the old and the new rule)
 
-VEREDICTO:
-  * `RESUMES`  — la entrada #2 conserva reloj/posicion de la sesion anterior
-                 (o la captura no coincide con la primera creacion);
-  * `FRESH`    — reloj, ticks, posicion y captura coinciden con la primera
-                 creacion, y el slot no se reutiliza;
-  * `CONTINUE-PRESERVES` / `CONTINUE-LOST` — `continue` restaura los minutos
-                 guardados (`load done … ticks=N`) o no.
+VERDICT:
+  * `RESUMES`  - entry #2 keeps the previous session's clock/position
+                 (or the capture does not match the first creation);
+  * `FRESH`    - clock, ticks, position and capture match the first
+                 creation, and the slot is not reused;
+  * `CONTINUE-PRESERVES` / `CONTINUE-LOST` - `continue` restores the saved
+                 minutes (`load done ... ticks=N`) or does not.
 
-Uso:  python3 scripts/new-game-semantics.py [--label pre-fix]
-      (cada corrida escribe en .sintergic/artifacts/new-game-semantics/<label>/)
+Usage:  python3 scripts/new-game-semantics.py [--label pre-fix]
+      (each run writes to .sintergic/artifacts/new-game-semantics/<label>/)
 """
 from __future__ import annotations
 
@@ -86,13 +86,13 @@ WORLD_MIN_DISTINCT = 500
 WORLD_MAX_PAPER = 0.01
 WORLD_MAX_FIELD = 0.20
 
-# ── estabilidad de la captura (CR-178183d7, lane InstrumentStability) ────────
-# `is_world` solo dice que el frame PARECE un mundo: un frame a medio pintar lo
-# satisface (medido: `signoff/world-first.png` = 80f7c08c, 1614 colores, campo
-# 0.21%, papel 0%, sin barras). La aceptacion exige estabilidad de PIXEL:
-# `SETTLE_STABLE_CAPTURES` capturas CONSECUTIVAS con el mismo sha256 separadas
-# por `SETTLE_INTERVAL`. 3 capturas = la imagen aguanto >= 2 intervalos sin
-# cambiar; el pincel no sobrevive a eso (ver `frames.txt` de cada corrida).
+# -- capture stability (CR-178183d7, lane InstrumentStability) --------
+# `is_world` only says the frame LOOKS like a world: a half-painted frame
+# satisfies it (measured: `signoff/world-first.png` = 80f7c08c, 1614 colours, field
+# 0.21%, paper 0%, no bars). Acceptance requires PIXEL stability:
+# `SETTLE_STABLE_CAPTURES` CONSECUTIVE captures with the same sha256 separated
+# by `SETTLE_INTERVAL`. 3 captures = the image held for >= 2 intervals without
+# changing; the brush does not survive that (see `frames.txt` of each run).
 SETTLE_STABLE_CAPTURES = 3
 SETTLE_INTERVAL = 0.15
 SETTLE_KEEP_FRAMES = 40
@@ -120,9 +120,9 @@ RE_RESET = re.compile(
     r"npcs restored=(\d+)"
 )
 RE_TRAVEL = re.compile(r"SHELL VE: travel (\S+)")
-# CR-7a3e9c14: lo que el SLOT declara al escribirse (generacion 4) y lo que la
-# ventana aplica al reanudar. Son las dos medidas del round-trip: si el slot no
-# declara mundo (fidelity=3) no hay renglon que leer y se dice `SIN LINEA`.
+# CR-7a3e9c14: what the SLOT declares when written (generation 4) and what the
+# window applies on resume. They are the two measurements of the round-trip: if the slot does not
+# declare a world (fidelity=3) there is no row to read and it says `SIN LINEA`.
 RE_FIDELITY = re.compile(
     r"SHELL VE: slot fidelity=(\d+) index=(\d+) pos=\((-?\d+),(-?\d+),(-?\d+)\) "
     r"yaw=(-?[\d.]+) pitch=(-?[\d.]+) world_minutes=(\d+) environment=(-?\d+) "
@@ -241,8 +241,8 @@ def capture(win, png: Path) -> None:
             capture_output=True, text=True, timeout=CAPTURE_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        # La ventana desaparecio entre el `focus` y la captura: sin tope, `import`
-        # se queda esperando para siempre y el plazo de fase nunca se evalua.
+        # The window disappeared between `focus` and the capture: without a cap, `import`
+        # waits forever and the phase deadline is never evaluated.
         raise SystemExit("import colgado >%.1fs (ventana %s perdida)" % (CAPTURE_TIMEOUT, hex(win.id)))
     if rc.returncode != 0 or not png.is_file() or png.stat().st_size == 0:
         raise SystemExit("import fallo rc=%d %s" % (rc.returncode, (rc.stderr or rc.stdout)[:200]))
@@ -285,24 +285,24 @@ def is_world(m: dict) -> bool:
 def settle_core(win, png: Path, deadline: float, tag: str, fatal: bool,
                 frames_log: Path | None = None, frames_dir: Path | None = None,
                 log_path: Path | None = None, marker_count: int | None = None) -> dict:
-    """Captura la ventana hasta que la imagen sea ESTABLE, no solo «world-like».
+    """Captures the window until the image is STABLE, not merely "world-like".
 
-    Defecto que corrige, medido (CR-178183d7, lane InstrumentStability): el
-    criterio viejo aceptaba el PRIMER frame que pasaba `is_world`; a mitad de
-    pintado el frame ya cumple distinct>=500 / paper<=1% / field<=20% / sin
-    barras, pero el sha256 cambia cuando el pincel termina (80f7c08c ->
-    328b363b, 136 923 px distintos). Aceptar ese frame hacia que la igualdad de
-    capturas —y con ella el veredicto RESUMES/FRESH— dependiera del instante
-    de la toma.
+    Defect it fixes, measured (CR-178183d7, lane InstrumentStability): the old
+    criterion accepted the FIRST frame that passed `is_world`; halfway through
+    painting the frame already meets distinct>=500 / paper<=1% / field<=20% / no
+    bars, but the sha256 changes when the brush finishes (80f7c08c ->
+    328b363b, 136,923 distinct px). Accepting that frame made capture equality
+    -and with it the RESUMES/FRESH verdict- depend on the instant
+    of the shot.
 
-    Criterio de aceptacion (los tres obligatorios; ninguno relaja `is_world`):
+    Acceptance criterion (all three mandatory; none relaxes `is_world`):
       1. `is_world(m)`;
-      2. la marca de fase `SHELL VE: world scene=` ya se emitio `marker_count`
-         veces (el mundo existe tambien en el log);
-      3. racha de `SETTLE_STABLE_CAPTURES` capturas CONSECUTIVAS con el mismo
-         sha256: la imagen no cambio durante >= 2 intervalos.
-    Un frame intermedio no puede cumplir (3): su captura siguiente tiene otro
-    sha y reinicia la racha (ver `frames.txt` de cada corrida).
+      2. the phase mark `SHELL VE: world scene=` has already been emitted `marker_count`
+         times (the world also exists in the log);
+      3. a streak of `SETTLE_STABLE_CAPTURES` CONSECUTIVE captures with the same
+         sha256: the image did not change for >= 2 intervals.
+    An intermediate frame cannot satisfy (3): its next capture has another
+    sha and restarts the streak (see `frames.txt` of each run).
     """
     t0 = time.monotonic()
     n = 0
@@ -316,9 +316,9 @@ def settle_core(win, png: Path, deadline: float, tag: str, fatal: bool,
         except SystemExit as exc:
             if fatal:
                 raise
-            # `try_settle_world` contrato: publicar lo medido, no abortar. La
-            # ventana desaparecio a mitad de fase; la captura colgada no puede
-            # tumbar una corroboracion que se declara no-fatal.
+            # `try_settle_world` contract: publish what was measured, do not abort. The
+            # window disappeared mid-phase; the hung capture cannot
+            # bring down a corroboration declared non-fatal.
             if frames_log is not None:
                 with frames_log.open("a", encoding="utf-8") as fh:
                     fh.write("%s n=%d HUNG %s\n" % (tag, n, exc))
@@ -372,29 +372,29 @@ def settle_core(win, png: Path, deadline: float, tag: str, fatal: bool,
 def settle_world(win, png: Path, deadline: float, tag: str = "settle",
                  frames_log: Path | None = None, frames_dir: Path | None = None,
                  log_path: Path | None = None, marker_count: int | None = None) -> dict:
-    """Acepta solo una captura pixel-estable; aborta si no la consigue."""
+    """Accepts only a pixel-stable capture; aborts if it does not get one."""
     return settle_core(win, png, deadline, tag, True, frames_log, frames_dir, log_path, marker_count)
 
 
 def try_settle_world(win, png: Path, deadline: float, tag: str = "settle",
                      frames_log: Path | None = None, frames_dir: Path | None = None,
                      log_path: Path | None = None, marker_count: int | None = None) -> dict:
-    """Como `settle_world` pero devuelve la ultima medida si no estabiliza.
+    """Like `settle_world` but returns the last measurement if it does not stabilise.
 
-    La captura de CONTINUE es evidencia adicional: si no hay mundo estable (p. ej.
-    sigue el menu) se publica lo medido —con `stable` < umbral—, no se aborta.
+    The CONTINUE capture is additional evidence: if there is no stable world (e.g.
+    it is still the menu) what was measured is published -with `stable` < threshold-, it does not abort.
     """
     return settle_core(win, png, deadline, tag, False, frames_log, frames_dir, log_path, marker_count)
 
 
-# ── replay negativo de la regla de estabilidad ──────────────────────────────
+#  ── negative replay of the stability rule ──────────────────────────────────
 
 def replay(paths: list[Path], out: Path) -> int:
-    """Reevalua una secuencia de capturas con la regla vieja y la nueva.
+    """Re-evaluates a sequence of captures with the old and the new rule.
 
-    Prueba negativa: un frame que la regla vieja aceptaba (primer `is_world`
-    satisfecho, p. ej. el frame a medio pintar) debe quedar RECHAZADO por la
-    nueva si no tiene `SETTLE_STABLE_CAPTURES` consecutivas identicas.
+    Negative test: a frame the old rule accepted (first `is_world`
+    satisfied, e.g. the half-painted frame) must be REJECTED by
+    the new one if it does not have `SETTLE_STABLE_CAPTURES` consecutive identical captures.
     """
     frames = []
     for p in paths:
@@ -486,12 +486,12 @@ def wait_count(path: Path, needle: str, n: int, deadline: float, proc) -> bool:
 
 
 def entry_signature(text: str, nth: int) -> dict:
-    """Firma de la entrada `nth` (1-based): lineas desde su `create done`.
+    """Signature of the `nth` entry (1-based): lines since its `create done`.
 
-    El corte es `m.start()`, no `m.end()` (CR-178183d7): la propia linea
-    `SHELL VE: create done surfaces=N character=<token> state=Playing` lleva el
-    token del personaje, y cortar en `m.end()` la dejaba FUERA de la firma — la
-    entrada #2 declaraba `character=None` por el instrumento, no por el mundo.
+    The cut is `m.start()`, not `m.end()` (CR-178183d7): the line
+    `SHELL VE: create done surfaces=N character=<token> state=Playing` itself carries the
+    character token, and cutting at `m.end()` left it OUT of the signature - entry
+    #2 declared `character=None` because of the instrument, not because of the world.
     """
     marks = [m.start() for m in re.finditer(r"SHELL VE: create done ", text)]
     if len(marks) < nth:
@@ -524,8 +524,8 @@ def entry_signature(text: str, nth: int) -> dict:
         sig["location"] = tuple(int(m.group(i)) for i in (2, 3, 4))
     m = RE_HUD.search(chunk)
     if m:
-        # `SHELL VE: hud` repite la foto de `Startup`: por si sola no mide la
-        # segunda entrada. La linea del reset la SOBRESCRIBE con el digest real.
+        # `SHELL VE: hud` repeats `Startup`'s photo: by itself it does not measure the
+        # second entry. The reset line OVERWRITES it with the real digest.
         sig["hud_digest"] = m.group(4)
     m = RE_RESET.search(chunk)
     if m:
@@ -541,11 +541,11 @@ def entry_signature(text: str, nth: int) -> dict:
         sig["reset_stage"] = int(m.group(12))
         sig["reset_billboards"] = int(m.group(13))
         sig["reset_npcs"] = int(m.group(14))
-        # El primer `M19 VE: pos=` periódico NO es necesariamente la entrada:
-        # en la entrada #1 de la corrida post-fix cayó 1.8 m dentro del paseo
-        # (412.8 con reset en 411.0) y en la #2 en el spawn. La posición de la
-        # entrada es la que publica el propio reset en las DOS entradas; la
-        # línea periódica se conserva como `pos_line` (nada se oculta).
+        # The first periodic `M19 VE: pos=` is NOT necessarily the entry:
+        # on entry #1 of the post-fix run it landed 1.8 m into the walk
+        # (412.8 with reset at 411.0) and on #2 at the spawn. The entry's
+        # position is the one the reset itself publishes on BOTH entries; the
+        # periodic line is kept as `pos_line` (nothing is hidden).
         sig["pos_line"] = sig.get("pos")
         sig["pos"] = sig["reset_pos"]
         sig["yaw"] = sig["reset_yaw"]
@@ -581,11 +581,11 @@ def fmt_pos(pos) -> str:
 
 
 def continue_signature(text: str) -> dict:
-    """Firma de la sesion #3 (CONTINUE): lo que sigue al ultimo `continue result=`.
+    """Signature of session #3 (CONTINUE): what follows the last `continue result=`.
 
-    El instrumento medía `continue` solo por `load done … ticks=N`; reloj y
-    posicion tras reanudar no se publicaban, y por eso el gap
-    `CONTINUE-SIN-POSICION` no tenia numeros. Aqui se leen del mismo log.
+    The instrument measured `continue` only by `load done ... ticks=N`; clock and
+    position after resuming were not published, and that is why the gap
+    `CONTINUE-SIN-POSICION` had no numbers. Here they are read from the same log.
     """
     marks = [m.end() for m in re.finditer(r"SHELL VE: continue result=", text)]
     if not marks:
@@ -620,12 +620,12 @@ def continue_signature(text: str) -> dict:
 
 
 def world_round_trip(text: str) -> dict:
-    """Round-trip medido por el SLOT: lo declarado al guardar vs lo aplicado.
+    """Round-trip measured by the SLOT: what was declared on save vs what was applied.
 
-    `slot` es el renglon de fidelidad que la puerta de escritura publica (posicion
-    en mm, yaw, minuto de mundo y sitio); `resume` es el estado que
-    `m18_session_restored` aplica. Un delta de 0 mm / 0 min es la igualdad
-    medida; un `slot` ausente con `W-SAVE-001` presente es el caso legado.
+    `slot` is the fidelity row the write door publishes (position
+    in mm, yaw, world minute and site); `resume` is the state
+    `m18_session_restored` applies. A delta of 0 mm / 0 min is the measured
+    equality; a missing `slot` with `W-SAVE-001` present is the legacy case.
     """
     out = {"slot": None, "resume": None, "warning": None}
     m = last_match(RE_FIDELITY, text)
@@ -656,7 +656,7 @@ def world_round_trip(text: str) -> dict:
 
 
 def reset_compact(sig: dict) -> str:
-    """Los numeros del reset medidos en ESA entrada (no inferidos)."""
+    """The reset numbers measured on THAT entry (not inferred)."""
     if "career" not in sig:
         return "SIN LINEA `M18 VE: NEW GAME reset` — el mundo no se midio"
     return ("career=%s clock=%d min ticks=%d hud %s→%s pos=%s yaw=%.2f scene=%s guards=%d "
@@ -713,8 +713,8 @@ def main() -> int:
         "# estabilidad de captura: umbral %d consecutivas con el mismo sha256, intervalo %.2f s, "
         "marca de fase `%s`\n" % (SETTLE_STABLE_CAPTURES, SETTLE_INTERVAL, SETTLE_WORLD_MARKER.strip()),
         encoding="utf-8")
-    # `shot_saved` se captura DENTRO del `try`; se inicializa aqui para que una
-    # salida temprana (FAIL de captura) no rompa el reporte con `NameError`.
+    # `shot_saved` is captured INSIDE the `try`; it is initialised here so an
+    # early exit (capture FAIL) does not break the report with `NameError`.
     shot_saved = None
     save_dir = out / "saves"
     save_dir.mkdir()
@@ -763,7 +763,7 @@ def main() -> int:
                              frames_log=frames_log, frames_dir=frames_dir,
                              log_path=log_path, marker_count=1)
 
-        # ── jugar: el avatar anda y el reloj avanza ──────────────────────
+        # -- play: the avatar walks and the clock advances ----------------------
         before_play = entry_signature(log_text(log_path), 1)
         key_down(d, win, "w")
         time.sleep(6.0)
@@ -777,7 +777,7 @@ def main() -> int:
             proc,
         )
 
-        # ── viaje rapido: consume minutos del reloj de SESION ────────────
+        # -- fast travel: consumes SESSION clock minutes ------------
         press(d, win, "m")
         opened = wait_line(log_path, "SHELL VE: map open=1", time.monotonic() + 10.0, proc)
         pressed_t = False
@@ -789,10 +789,10 @@ def main() -> int:
             wait_line(log_path, "SHELL VE: map open=0", time.monotonic() + 10.0, proc)
         time.sleep(0.6)
 
-        # ── captura del MOMENTO DE GUARDAR (antes de la tecla de pausa) ──
-        # El panel de pausa repinta la pantalla, asi que la unica forma de
-        # comparar "guardado" con "reanudado" es capturar y asentar el mundo
-        # ANTES de `Escape` (CR-7a3e9c14; antes esta fila salia `sha=-`).
+        # -- capture of the SAVE MOMENT (before the pause key) --
+        # The pause panel repaints the screen, so the only way to
+        # compare "saved" with "resumed" is to capture and settle the world
+        # BEFORE `Escape` (CR-7a3e9c14; before, this row came out `sha=-`).
         saved_shot_path = out / "world-saved.png"
         shot_saved = try_settle_world(win, saved_shot_path, time.monotonic() + 25.0, tag="saved",
                                       frames_log=frames_log, frames_dir=frames_dir,
@@ -865,9 +865,9 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 proc.kill()
     finally:
-        # Un aborto (SystemExit de `capture`/`settle_world`) no puede dejar la app
-        # viva en :0: la corrida siguiente engancharia su ventana por titulo y
-        # mediria la instancia anterior.
+        # An abort (`SystemExit` of `capture`/`settle_world`) cannot leave the app
+        # alive on :0: the next run would hook its window by title and
+        # measure the previous instance.
         if proc.poll() is None:
             proc.terminate()
             try:
@@ -893,10 +893,10 @@ def main() -> int:
     same_pixels = shot1["sha256"] == shot2["sha256"]
     load = last_match(RE_LOAD_DONE, text)
     cont = last_match(RE_CONTINUE, text)
-    # `continue` NO emite `SHELL VE: load done …ticks=N` (esa línea es del
-    # browser de carga): los ticks restaurados se leen del primer
-    # `SHELL VE: pause state=Paused ticks=N` POSTERIOR a `continue result=`,
-    # que es la pausa de cierre del instrumento sobre la sesión reanudada.
+    # `continue` does NOT emit `SHELL VE: load done ...ticks=N` (that line belongs to the
+    # load browser): the restored ticks are read from the first
+    # `SHELL VE: pause state=Paused ticks=N` AFTER `continue result=`,
+    # which is the instrument's closing pause over the resumed session.
     post_continue = text[text.rfind("SHELL VE: continue result="):] if cont else ""
     pause_after_continue = RE_PAUSE.search(post_continue)
     continue_ticks = int(load.group(3)) if load else (
@@ -966,12 +966,12 @@ def main() -> int:
                      "`SHELL VE: session … character=`, solo `create done` lo hace; "
                      "el personaje restaurado queda NO MEDIDO (hud digest 9020… no discrimina)")
 
-    # La firma por `clock_min`/`sim_ticks` NO sirve para decidir FRESH/RESUMES:
-    # ambas avanzan con el tiempo de juego y la captura de la entrada #1 cae en
-    # un instante distinto en cada corrida (medido: postfix dio clock igual y
-    # `FRESH`; postfix2, con la misma imagen 328b363b en las dos entradas, dio
-    # clock 210168724 vs 210168720 y `RESUMES`). Se compara contra el estado
-    # JUGADO —lo que un reanudado arrastraria— y no contra relojes en vuelo.
+    # Signing by `clock_min`/`sim_ticks` does NOT serve to decide FRESH/RESUMES:
+    # both advance with play time and the entry #1 capture falls on
+    # a different instant on each run (measured: postfix gave equal clock and
+    # `FRESH`; postfix2, with the same image 328b363b on both entries, gave
+    # clock 210168724 vs 210168720 and `RESUMES`). It compares against the PLAYED
+    # state -what a resume would carry over- and not against clocks in flight.
     resumed_signals = []
     if shot_saved is not None and shot2 is not None and shot2["sha256"] == shot_saved["sha256"]:
         resumed_signals.append("imagen == guardado")
@@ -987,7 +987,7 @@ def main() -> int:
     continue_ok = continue_ticks is not None and session_minutes_saved is not None \
         and continue_ticks == session_minutes_saved
 
-    # ── round-trip medido por el SLOT (CR-7a3e9c14) ────────────────────
+    # -- round-trip measured by the SLOT (CR-7a3e9c14) --------------------
     trip = world_round_trip(text)
     slot, resumed_world = trip["slot"], trip["resume"]
     if slot and resumed_world:
@@ -1051,7 +1051,7 @@ def main() -> int:
     ]
     (out / "evidence.txt").write_text("\n".join(evidence) + "\n", encoding="utf-8")
 
-    # ── ledger de corridas: una linea por ejecucion, aunque `--label` se repita ──
+    # -- run ledger: one line per execution, even if `--label` repeats --
     run_record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "label": args.label,

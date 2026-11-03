@@ -523,35 +523,35 @@ mod m17_window;
 mod m18_doors;
 #[cfg(feature = "window")]
 mod m18_window;
-// M-SHELL fase 1 (CR-ca78eb76): application layer of the shell — state machine,
+// M-SHELL phase 1 (CR-ca78eb76): application layer of the shell — state machine,
 // `SHELL VE:` evidence contract and fast-travel plan.
 //
-// `CR-a602cafc` (P5): `probes`, no `window`. La fase 2 los dejó colgando de la
-// ventana y el instrumento (`scripts/mplay-001.py`) conduce el binario SIN
-// servidor gráfico: la ruta existía y `P4`/`P9` no tenían quien las midiera.
-// El shell no necesita el mundo compuesto para hablar de sí mismo — la escena
-// entra por parámetro (`shell_route::SessionScene`).
+// `CR-a602cafc` (P5): `probes`, no `window`. Phase 2 left them hanging off the
+// window and the instrument (`scripts/mplay-001.py`) drives the binary WITHOUT a
+// graphics server: the route existed and `P4`/`P9` had nobody to measure them.
+// The shell does not need the composed world to talk about itself — the scene
+// comes in as a parameter (`shell_route::SessionScene`).
 #[cfg(feature = "probes")]
-// La ventana es el consumidor de casi todo el contrato del shell: en un build
-// `probes` sin `window` esas funciones quedan sin llamante por diseño (se
-// compilan igual porque el pase headless y los tests las miden).
+// The window is the consumer of almost the whole shell contract: in a `probes`
+// build without `window` those functions are left without a caller by design
+// (they still compile because the headless pass and the tests measure them).
 #[cfg_attr(not(feature = "window"), allow(dead_code))]
 mod shell;
-// M-SHELL fase 2 (CR-a34396f5): slots `SAVE0..SAVE5` del shell sobre el save v3
-// de 🧠 Memoria (`DF_SAVE_DIR` por proceso/perfil).
+// M-SHELL phase 2 (CR-a34396f5): shell slots `SAVE0..SAVE5` on top of the
+// v3 save of the Memory organ (`DF_SAVE_DIR` per process/profile).
 #[cfg(feature = "probes")]
 #[cfg_attr(not(feature = "window"), allow(dead_code))]
 mod shell_slots;
-// M-SHELL fase 3 (CR-a602cafc): las rutas de sesión (`creación → mundo →
-// guardar → menú`) sin ECS, para que la ventana y el pase headless sean la
-// MISMA ruta. Un solo dueño de las transiciones: `m18_window` traduce teclas y
-// llama aquí; `m38_ui2_probe` la ejercita sin ventana.
+// M-SHELL phase 3 (CR-a602cafc): the session routes (`creation → world →
+// save → menu`) without ECS, so the window and the headless pass are the
+// SAME route. A single owner of the transitions: `m18_window` translates keys
+// and calls here; `m38_ui2_probe` exercises it without a window.
 #[cfg(feature = "probes")]
 #[cfg_attr(not(feature = "window"), allow(dead_code))]
 mod shell_route;
-// M-QST (CR-9b3e5d70): el disparador de la quest principal y el acto 1 como
-// ruta sin ventana — la tabla legal vive en `daggerfall_behavior::mainquest`
-// y aquí solo la costura (oferta, teclas, muerte, save v3, probe headless).
+// M-QST (CR-9b3e5d70): the main quest trigger and act 1 as a windowless
+// route — the legal table lives in `daggerfall_behavior::mainquest`
+// and here only the seam (offer, keys, death, v3 save, headless probe).
 #[cfg(feature = "probes")]
 #[cfg_attr(not(feature = "window"), allow(dead_code))]
 mod mainquest_route;
@@ -561,24 +561,24 @@ mod mainquest_route;
 #[cfg(feature = "window")]
 mod world_stream;
 
-/// ¿Puede el limb de ventana abrir un event loop en este proceso?
+/// Can the window limb open an event loop in this process?
 ///
-/// winit aborta con `Failed to build event loop` (rc=101) cuando el proceso no
-/// tiene servidor gráfico: en un run headless `--features window` la sonda ya
-/// había impreso su veredicto y el pánico de después lo convertía en un fallo
-/// de la sonda (F1 de `CR-a602cafc`). El guard NO simula la ventana: dice que
-/// no se intentó, y el veredicto de la sonda queda intacto.
+/// winit aborts with `Failed to build event loop` (rc=101) when the process has
+/// no graphics server: in a headless `--features window` run the probe had already
+/// printed its verdict and the later panic turned it into a probe
+/// failure (F1 of `CR-a602cafc`). The guard does NOT simulate the window: it says it
+/// was not attempted, and the probe verdict stays intact.
 ///
-/// `DISPLAY` (X11) o `WAYLAND_DISPLAY` (Wayland) presentes ⇒ se intenta; las
-/// dos ausentes ⇒ `limb=headless-no-display`, una línea determinista por sonda.
+/// `DISPLAY` (X11) or `WAYLAND_DISPLAY` (Wayland) present ⇒ it is attempted; both
+/// absent ⇒ `limb=headless-no-display`, one deterministic line per probe.
 ///
-/// **Dónde se llama:** en cada limb, justo ANTES de construir la ventana (no en
-/// el `if` del dispatch de `--probe`). Abortar el bloque del dispatch ahorraría
-/// el pánico pero también la evidencia que el limb publica antes de la ventana
-/// — medido: `m8_window` imprime `SAVED to …`/`roundtrip: true` antes de
-/// `App::new()` y son las líneas que `mplay-001` lee en P7/P8 (abortar el
-/// bloque convertía dos filas PASS en FAIL). El borde de la ventana es el
-/// punto exacto: la medición se publica, la ventana headless no se intenta.
+/// **Where it is called:** in every limb, right BEFORE building the window (not in
+/// the `--probe` dispatch `if`). Aborting the dispatch block would save
+/// the panic but also the evidence the limb publishes before the window
+/// — measured: `m8_window` prints `SAVED to …`/`roundtrip: true` before
+/// `App::new()` and those are the lines `mplay-001` reads in P7/P8 (aborting the
+/// block turned two PASS rows into FAIL). The window edge is the
+/// exact point: the measurement is published, the headless window is not attempted.
 #[cfg(feature = "window")]
 pub(crate) fn window_limb_ready(probe: &str) -> bool {
     let x11 = std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty());

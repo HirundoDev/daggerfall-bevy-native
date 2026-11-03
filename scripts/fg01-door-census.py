@@ -1,39 +1,39 @@
 #!/usr/bin/env python3
-"""fg01-door-census.py — censo de puertas retail desde BYTES CRUDOS (FG-01 `GAP-FG01-02`).
+"""fg01-door-census.py — retail door census from RAW BYTES (FG-01 `GAP-FG01-02`).
 
-Oráculo **independiente** del parser Rust: lee BSA/DOS, `.RMB` y `ARCH3D` con
-stdlib puro (0 dependencias, 0 `daggerfall_parser_rs`), de modo que sus cifras
-puedan contradecir al motor en vez de repetirlo (una tautología no mide nada).
+An **independent** oracle of the Rust parser: reads BSA/DOS, `.RMB` and `ARCH3D` with
+pure stdlib (0 dependencies, 0 `daggerfall_parser_rs`), so that its figures
+can contradict the engine instead of repeating it (a tautology measures nothing).
 
-Qué cuenta
+What it counts
 ----------
-1. **`.RMB`** (`BLOCKS.BSA`): sub-records de bloque y sus dos `BlockData`
-   (exterior + interior), cada una con su lista de puertas (`door_count` = byte
-   +4 de la cabecera de 17 B). Residuo de layout por sub-record: bytes declarados
-   (`BlockDataSizes[i]`) − bytes consumidos por las dos `BlockData`.
-2. **`ARCH3D.BSA`**: los planos cuyo archivo de textura base es **74**
-   (`DFU:MeshReader.cs:614` `BuildingDoors = 74`; `:645` reducción
-   `archive -= archive/100*100` sólo si `archive > 100` y no es 331/156). Esas
-   son las puertas de fachada que el modelo del edificio embebe: el `.RMB` retail
-   no las lleva (0 en el exterior de los 9005 sub-records).
-3. **Lo que el mundo compone**: `MAPS.BSA` `MAPPITEM.<región>` + `MAPNAMES` →
-   ciudades (capital + pequeñas ≤ 9 celdas, misma selección determinista que
-   `PROBE-RMB-001`) → nombres `.RMB` por celda (`DFU:MapsFile.cs:855-893`) →
-   sub-records compuestos y planos 74 de los modelos exteriores que esos
-   edificios instancian.
-4. **Lo que llega hoy a la escena**: se lee del propio instrumento de la app
-   (`FG01-02 VE: world doors composed=<n> retail=<n> scenario=<n>`). Sin
-   `--world` ese dato es NO-VERIFICADO (nunca se estima).
+1. **`.RMB`** (`BLOCKS.BSA`): block sub-records and their two `BlockData`
+      (exterior + interior), each with its door list (`door_count` = byte
+      +4 of the 17 B header). Layout residue per sub-record: declared bytes
+      (`BlockDataSizes[i]`) − bytes consumed by the two `BlockData`.
+2. **`ARCH3D.BSA`**: planes whose base texture archive is **74**
+      (`DFU:MeshReader.cs:614` `BuildingDoors = 74`; `:645` reduction
+      `archive -= archive/100*100` only if `archive > 100` and it is not 331/156). Those
+      are the facade doors the building model embeds: the retail `.RMB`
+      does not carry them (0 in the exterior of the 9005 sub-records).
+3. **What the world composes**: `MAPS.BSA` `MAPPITEM.<region>` + `MAPNAMES` →
+      cities (capital + small ones ≤ 9 cells, same deterministic selection as
+      `PROBE-RMB-001`) → `.RMB` names per cell (`DFU:MapsFile.cs:855-893`) →
+      composed sub-records and 74 planes of the exterior models those
+      buildings instantiate.
+4. **What reaches the scene today**: read from the app's own instrument
+      (`FG01-02 VE: world doors composed=<n> retail=<n> scenario=<n>`). Without
+      `--world` that datum is UNVERIFIED (never estimated).
 
-Salida
+Output
 ------
-Filas normalizadas `row <nombre>=<valor>` (sin timestamps ni PIDs) + detalle en
+Normalized rows `row <name>=<value>` (no timestamps, no PIDs) + detail in
 `--out DIR` (default `.sintergic/artifacts/fg01-02/`, gitignored) + `--json`.
 
-Exit: `0` censo completo · `1` algún dato NO-VERIFICADO (se declara en
-`row unverified=`) · `2` uso/IO.
+Exit: `0` full census · `1` some UNVERIFIED datum (declared in
+`row unverified=`) · `2` usage/IO.
 
-Uso:
+Usage:
   scripts/fg01-door-census.py [--data-root DIR] [--out DIR] [--json]
                               [--world LOG]
 """
@@ -66,9 +66,9 @@ SECTION3_LEN = 16
 PERSON_LEN = 17
 DOOR_LEN = 19
 
-# `MeshReader.cs:614` — archivo de textura de las puertas de edificio.
+#  `MeshReader.cs:614` — texture archive of the building doors.
 BUILDING_DOORS_ARCHIVE = 74
-# `maps.rs:48-56` — tabla de prefijos por BlockIndex y segunda letra.
+#  `maps.rs:48-56` — prefix table per BlockIndex and second letter.
 RMB_BLOCK_PREFIXES = [
     "TVRN", "GENR", "RESI", "WEAP", "ARMR", "ALCH", "BANK", "BOOK", "CLOT", "FURN",
     "GEMS", "LIBR", "PAWN", "TEMP", "TEMP", "PALA", "FARM", "DUNG", "CAST", "MANR",
@@ -85,7 +85,7 @@ class CensusError(Exception):
     """Dato ilegible: se declara NO-VERIFICADO, nunca se rellena."""
 
 
-# ── primitivas little-endian con comprobación de límites ──────────────────
+#  ── little-endian primitives with bounds checking ─────────────────────────
 def u8(b, at):
     if at + 1 > len(b):
         raise CensusError("u8 out of bounds at %d (len %d)" % (at, len(b)))
@@ -162,7 +162,7 @@ class Bsa(object):
             off += size
         self.data_end = off
         self.directory_offset = dir_off
-        # Invariante de layout: 4 + Σ DataSize = offset del directorio.
+        #  Layout invariant: 4 + Σ DataSize = directory offset.
         self.layout_ok = off == dir_off
 
     def names(self):
@@ -181,7 +181,7 @@ class Bsa(object):
 
 # ── `.RMB` (rmb.rs: layout de bloque) ─────────────────────────────────────
 def parse_block_data(buf, at):
-    """Una `BlockData` → dict con contadores, modelos y nº de puertas."""
+    """One `BlockData` → dict with counters, models and door count."""
     mc = u8(buf, at)
     fc = u8(buf, at + 1)
     s3 = u8(buf, at + 2)
@@ -448,8 +448,8 @@ def census(data_root, world_log):
     if not arch.layout_ok:
         unverified.append("arch3d_bsa_layout")
     arch_ids = [k for k in arch.ordered if not isinstance(k, str)]
-    # Ids únicos por PRIMERA aparición: el directorio retail repite ids, y un
-    # id repetido no es otro record (se declara el conteo de duplicados).
+    #  Unique ids by FIRST appearance: the retail directory repeats ids, and a
+    #  repeated id is not another record (the duplicate count is declared).
     seen = set()
     unique_ids = []
     for rid in arch_ids:
@@ -485,13 +485,13 @@ def census(data_root, world_log):
                                                 for v in sorted(version_histogram))))
     rows.append(row("model_doors_planes_74", door_planes_total))
     rows.append(row("model_doors_records_74", records_with_doors))
-    # Contraste E-C: los dos modelos citados en el pack.
+    #  E-C cross-check: the two models cited in the pack.
     for probe_id in (444, 445):
         mesh = model_planes.get(probe_id)
         rows.append(row("model_%d_door_planes_74" % probe_id,
                         mesh["door_planes"] if mesh else "absent"))
 
-    # ── 3. lo que el mundo compone (`MAPS.BSA`) ──────────────────────────
+    #  ── 3. what the world composes (`MAPS.BSA`) ─────────────────────────
     maps = Bsa(raw["maps"])
     location_door_elements = 0
     composed_buildings = 0
@@ -577,9 +577,9 @@ def census(data_root, world_log):
     rows.append(row("composed_model_doors", composed_model_doors))
     rows.append(row("composed_models_unresolved", composed_models_unresolved))
     rows.append(row("location_door_elements", location_door_elements))
-    # El mundo compone la CAPITAL sola (`compose_capital_with_pixel`), no las 5
-    # ciudades del `PROBE-RMB-001`: se declaran ambas cifras para que el cruce
-    # censo↔mundo (paso 3) tenga una igualdad comprobable.
+    #  The world composes the CAPITAL alone (`compose_capital_with_pixel`), not the 5
+    #  cities of `PROBE-RMB-001`: both figures are declared so that the
+    #  census↔world cross-check (step 3) has a checkable equality.
     capital = next((c for c in cities if c["name"] == CAPITAL_CITY), None)
     if capital is None:
         unverified.append("capital_absent_from_selection")
@@ -590,7 +590,7 @@ def census(data_root, world_log):
         rows.append(row("capital_model_doors", capital["model_door_planes_74"]))
         rows.append(row("capital_location_door_elements", capital["location_door_elements"]))
 
-    # ── 4. lo que llega hoy a la escena (instrumento de la app) ──────────
+    #  ── 4. what reaches the scene today (app instrument) ────────────────
     world = None
     if world_log:
         try:

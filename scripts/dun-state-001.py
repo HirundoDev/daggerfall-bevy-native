@@ -1,71 +1,71 @@
 #!/usr/bin/env python3
-"""DUN-STATE-001 — gate de aceptación de M44 W44-2 (bloque B: `M44-R5`..`M44-R9`).
+"""DUN-STATE-001 — acceptance gate for M44 W44-2 (block B: `M44-R5`..`M44-R9`).
 
-Contrato: `.sintergic/packs/CR-7fd7260f-m44-spec.md` §4 (interfaz fijada) y §4.2
-(canal `DUN VE:`); prosa del bloque: `docs/sintergic/m44/blocks/BC-state-eligibility-CR-7fd7260f.md`
-(la tabla de transiciones del documento y la que codifica este gate son LA MISMA —
-fila `B-H4` lo verifica leyendo el documento, no la memoria de nadie).
+Contract: `.sintergic/packs/CR-7fd7260f-m44-spec.md` §4 (fixed interface) and §4.2
+(`DUN VE:` channel); block prose: `docs/sintergic/m44/blocks/BC-state-eligibility-CR-7fd7260f.md`
+(the document's transition table and the one this gate encodes are THE SAME —
+row `B-H4` verifies it by reading the document, not anyone's memory).
 
-Qué mide (estado de hoy: **sin implementación**, luego todo `M44-R*` en rojo medido):
+What it measures (state today: **no implementation**, so every `M44-R*` is measured red):
 
-* `M44-R5` — los 6 estados (`Dormant/Open/Engaged/Cleared/Cooldown/Closed`) y, por
-  cada transición declarada (origen → evento → destino), una fila de caso y una de
-  contra-caso. La tabla vive en `TRANSITIONS`; el documento la repite y `B-H4` la
-  compara fila a fila (12 transiciones ⇒ 24 filas de evidencia).
-* `M44-R6` — `Dormant` = 0 simulación **medido con un número**: sobre ≥`DORMANT_TICKS_MIN`
-  ticks declarados en una mazmorra `Dormant`, `counters=0 runs=0`.
-* `M44-R7` — jefe muerto persiste: dos observaciones `state=Dead respawns=0` de la
-  misma `(location, boss, epoch)` y la `machine=Cleared` de esa location en el save.
-* `M44-R8` — contenedor compartido: abierto por uno ⇒ `Open` para el otro, y el
-  contra-caso (nunca abierto ⇒ `Closed` para el otro).
-* `M44-R9` — puertas/palancas/trampas persisten: el **artefacto real** de save
-  (`save-all-1.dfl` que produce `--probe SAVE-ALL-001`) lleva las 4 familias
-  `dungeon_*` de §4.3 y la línea `DUN VE: load` declara un digest que el gate
-  recomputa desde los bytes del fichero (FNV-1a 64 de las líneas `dungeon_*`).
+* `M44-R5` — the 6 states (`Dormant/Open/Engaged/Cleared/Cooldown/Closed`) and, for
+    each declared transition (origin → event → destination), one case row and one
+    counter-case row. The table lives in `TRANSITIONS`; the document repeats it and `B-H4`
+    compares it row by row (12 transitions ⇒ 24 evidence rows).
+* `M44-R6` — `Dormant` = 0 simulation **measured with a number**: over ≥`DORMANT_TICKS_MIN`
+    declared ticks in a `Dormant` dungeon, `counters=0 runs=0`.
+* `M44-R7` — dead boss persists: two `state=Dead respawns=0` observations of the
+    same `(location, boss, epoch)` and that location's `machine=Cleared` in the save.
+* `M44-R8` — shared container: opened by one ⇒ `Open` for the other, and the
+    counter-case (never opened ⇒ `Closed` for the other).
+* `M44-R9` — doors/levers/traps persist: the **real** save artifact
+    (`save-all-1.dfl` produced by `--probe SAVE-ALL-001`) carries the 4
+    `dungeon_*` families of §4.3 and the `DUN VE: load` line declares a digest the gate
+    recomputes from the file bytes (FNV-1a 64 of the `dungeon_*` lines).
 
-Las tres formas de rojo admitidas por el pack §3 se usan así: **(a) artefacto** — el
-save real del producto (85 líneas, §4.3 ausente: `0/4` familias) y la salida real de
-`--probe PROBE-DUNGEON-001` (4.232 mazmorras, digest 5573c56afce6749a); **(b) canal** —
-los procesos reales del producto arrancados con `DF_DUN_STATE` fijado escriben `0`
-líneas `DUN VE:` (la ausencia se cuenta, no se afirma); **(c) censo** — recuentos
-literales re-ejecutables sobre `crates/**` con valor esperado del contrato
-(`DUN VE:` = 0/≥1, `Dormant` = 0/≥1, familias `dungeon_*` = 0/4).
+The three red forms admitted by pack §3 are used like this: **(a) artifact** — the
+product's real save (85 lines, §4.3 absent: `0/4` families) and the real output of
+`--probe PROBE-DUNGEON-001` (4,232 dungeons, digest 5573c56afce6749a); **(b) channel** —
+the product's real processes started with `DF_DUN_STATE` set write `0`
+`DUN VE:` lines (absence is counted, not asserted); **(c) census** — counts that are
+literal and re-executable over `crates/**` with the contract's expected value
+(`DUN VE:` = 0/≥1, `Dormant` = 0/≥1, `dungeon_*` families = 0/4).
 
-Delta declarado respecto de `scripts/m43_gate_lib.py` (el resto se **importa**):
+Delta declared against `scripts/m43_gate_lib.py` (the rest is **imported**):
 
-* **D1 — no se usa `Gate`**: su harness exige que el *probe* imprima `DIGEST` y
-  `SOURCES`, y los probes existentes (`PROBE-DUNGEON-001`, `SAVE-ALL-001`) son de
-  M33/M34 y no los imprimen; falsificarlos aquí sería tautología. Se reutilizan
-  `Gate.recompute_fingerprint`, `sha256_hex`, `file_sha256`, `citation_check`,
-  `probe_citations` sin copiar su código; la guarda bidireccional de citas es local
-  (D5). El `DIGEST` de
-  este gate cubre **su propio stdout** (regla del target, pack §5).
-* **D2 — falsificadores sobre la evidencia de contrato, no sobre `crates/**`**: la
-  lane no puede escribir `crates/**` ni correr `cargo build` (leyes L1/L6 del pack),
-  así que los falsificadores mutan la evidencia de la **fixture de contrato**
-  (patrón `scripts/shell-001.py`: «mutan la EVIDENCIA capturada, nunca el
-  runtime»). Un falsificador sólo vale si su fila está VERDE antes de mutar; la
-  fixture verde es lo que demuestra que el rojo de hoy es ausencia de evidencia y
-  no un gate que siempre dice rojo.
-* **D3 — sin `--verbose`**: `PROBE-DUNGEON-001` imprime su reloj de pared
-  (`elapsed pass1=… ms`); volcarlo rompería la identidad byte a byte entre los dos
-  procesos. La salida cruda de los probes se archiva en `--out`, nunca se cita.
-* **D4 — el block doc no entra en `SOURCES fingerprint`**: el documento pega este
-  mismo stdout, así que hashearlo haría la pega autorreferente (el fingerprint
-  cambiaría al pegar). Su integridad funcional la verifica `B-H4` (tabla del
-  documento == tabla del gate) y la de sus citas, `B-H3`.
-* **D5 — guarda de citas bidireccional local**: `probe_citations_guard` de la librería
-  ancla su marcador de atribución en la forma `[OK] <id> - <detalle>` (su `OK_LINE`);
-  con la gramática del pack (`[OK] <ID> <k>=<v> … src=…`) el `id` es la línea entera y
-  el marcador nunca casa, lo que pondría la guarda roja por forma y no por fondo.
-  `guard_citations` reproduce la misma disciplina — un fichero ausente y una línea más
-  allá del final, ambos deben ir rojos **nombrando el token** — sobre el conjunto de
-  citas, con el resolutor de la librería (`citation_check`) y el stdout real de la fila
-  de citas (`probe_citations`).
+* **D1 — `Gate` is not used**: its harness requires the *probe* to print `DIGEST` and
+    `SOURCES`, and the existing probes (`PROBE-DUNGEON-001`, `SAVE-ALL-001`) are from
+    M33/M34 and do not print them; faking them here would be tautology. Reused are
+    `Gate.recompute_fingerprint`, `sha256_hex`, `file_sha256`, `citation_check`,
+    `probe_citations` without copying their code; the two-way citation guard is local
+    (D5). This gate's `DIGEST` covers
+    **its own stdout** (target rule, pack §5).
+* **D2 — falsifiers over contract evidence, not over `crates/**`**: the
+    lane cannot write `crates/**` or run `cargo build` (pack laws L1/L6),
+    so the falsifiers mutate the evidence of the **contract fixture**
+    (pattern `scripts/shell-001.py`: they mutate the captured EVIDENCE, never the
+    runtime). A falsifier only counts if its row is GREEN before mutating; the
+    green fixture is what proves today's red is absence of evidence and
+    not a gate that always says red.
+* **D3 — no `--verbose`**: `PROBE-DUNGEON-001` prints its wall clock
+    (`elapsed pass1=… ms`); dumping it would break byte-for-byte identity between the two
+    processes. Raw probe output is archived in `--out`, never cited.
+* **D4 — the block doc is not part of `SOURCES fingerprint`**: the document pastes this
+    same stdout, so hashing it would make the paste self-referential (the fingerprint
+    would change on paste). Its functional integrity is verified by `B-H4` (table of the
+    document == table of the gate) and that of its citations, `B-H3`.
+* **D5 — local two-way citation guard**: the library's `probe_citations_guard`
+    anchors its attribution marker on the form `[OK] <id> - <detail>` (its `OK_LINE`);
+    with the pack grammar (`[OK] <ID> <k>=<v> … src=…`) the `id` is the whole line and
+    the marker never matches, which would turn the guard red by form and not by substance.
+    `guard_citations` reproduces the same discipline — a missing file and a line past
+    the end, both must go red **naming the token** — over the citation set,
+    with the library's resolver (`citation_check`) and the real stdout of the citation
+    row (`probe_citations`).
 
-Salidas: filas `[OK]`/`[FAIL]`/`[NC]` con la gramática del pack, `PROBE`/`CANAL`/
-`SOURCES`/`SCOPE`, `VERDICT: PASS|FAIL|NC` (exit 0/1/2) y `DIGEST <sha256>` como
-última línea, que cubre todo lo impreso antes (filas + veredicto).
+Outputs: `[OK]`/`[FAIL]`/`[NC]` rows with the pack grammar, `PROBE`/`CANAL`/
+`SOURCES`/`SCOPE`, `VERDICT: PASS|FAIL|NC` (exit 0/1/2) and `DIGEST <sha256>` as
+the last line, covering everything printed before (rows + verdict).
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ BLOCK_DOC = "docs/sintergic/m44/blocks/BC-state-eligibility-CR-7fd7260f.md"
 DEFAULT_BINARY = ROOT / "target" / "debug" / "daggerfall-app"
 DEFAULT_OUT = ROOT / ".sintergic" / "artifacts" / "dun-state-001"
 
-# ── contrato del bloque B (§4.1/§4.2/§4.3 del pack) ────────────────────────
+#  ── block B contract (§4.1/§4.2/§4.3 of the pack) ──────────────────────
 STATES = ("Dormant", "Open", "Engaged", "Cleared", "Cooldown", "Closed")
 DUN_FAMILIES = ("dungeon_state", "dungeon_elig", "dungeon_loot", "dungeon_instance")
 DORMANT_TICKS_MIN = 600
@@ -108,8 +108,8 @@ DUN_VE_PREFIX = "DUN VE: "
 FIXTURE_INDEX = {"regions": 45, "locations": 15_251, "dungeons": EXPECTED_DUNGEONS, "without_dungeon": 11_019}
 FIXTURE_DIGEST = "5573c56afce6749a"
 
-# Probes cuyo stdout alimenta el canal `DUN VE:` (vehículos REALES, ya existentes:
-# no se inventa un `--probe DUN-STATE-001`, que hoy sería «token desconocido»).
+#  Probes whose stdout feeds the `DUN VE:` channel (REAL vehicles, already existing:
+#  no `--probe DUN-STATE-001` is invented, which today would be an unknown token).
 CANAL_PROBES = ("PROBE-DUNGEON-001", "SAVE-ALL-001")
 
 # Fuentes cuyo sha256 entra en `SOURCES fingerprint` (se recomputan desde disco).
@@ -130,7 +130,7 @@ IMPL_MODULE = "crates/app/src/dungeon_state.rs"
 
 @dataclass(frozen=True)
 class Transition:
-    """Una arista declarada del autómata de mazmorra (§4.3, `machine`)."""
+    """A declared edge of the dungeon automaton (§4.3, `machine`)."""
 
     number: int
     frm: str
@@ -155,9 +155,9 @@ TRANSITIONS: tuple[Transition, ...] = (
     Transition(12, "Open", "seal", "Closed", "Cooldown", "Cooldown"),
 )
 
-# ── gramática de las líneas que el bloque B promete en `$DF_DUN_STATE` ─────
-# Grupos CON NOMBRE: cada checker consume `match.groupdict()`, así que un grupo
-# posicional devuelve `{}` y la fila moriría con KeyError en vez de en rojo medido.
+#  ── grammar of the lines block B promises in `$DF_DUN_STATE` ─────
+#  NAMED groups: every checker consumes `match.groupdict()`, so a positional
+#  group returns `{}` and the row would die with KeyError instead of measured red.
 RE_STATE = re.compile(
     r"^DUN VE: state location=(?P<location>\d+) block=(?P<block>\d+) door=(?P<door>\d+) "
     r"from=(?P<from>\w+) event=(?P<event>\w+) to=(?P<to>\w+) "
@@ -220,12 +220,12 @@ def own_cite(marker: str) -> str | None:
 
 
 def impl_cite(marker: str, fallback: str | None) -> str | None:
-    """`src=` de una fila `M44-R*`: el módulo de implementación si ya existe, si no el checker.
+    """`src=` of an `M44-R*` row: the implementation module if it already exists, else the checker.
 
-    El pack (§4) exige que toda fila `[OK]` apunte a `crates/app/src/<modulo>.rs:<linea>`.
-    Hoy ese módulo no existe (0 implementación), así que la fila cita el checker que la
-    mide; en cuanto la implementación aterrice, la MISMA fila pasa a citarla sin tocar el
-    gate. Determinista: ni reloj ni red.
+        Pack §4 requires every `[OK]` row to point at `crates/app/src/<module>.rs:<line>`.
+        Today that module does not exist (0 implementation), so the row cites the checker that
+        measures it; as soon as the implementation lands, the SAME row cites it without touching the
+        gate. Deterministic: no clock, no network.
     """
     path = ROOT / IMPL_MODULE
     if path.is_file():
@@ -239,19 +239,19 @@ GUARD_ABSENT = "crates/app/src/m44-guard-absent-001.rs"
 
 
 def guard_citations(text: str, cites: Sequence[str]) -> tuple[bool, str]:
-    """G7 en las dos direcciones, respetando la gramática de fila del pack.
+    """G7 in both directions, respecting the pack row grammar.
 
-    Dirección (a): `probe_citations` de la librería sobre el stdout real de ESTA
-    corrida (cada fila `[OK]` resuelve su `src=`). Dirección (b): dos conjuntos de
-    citas doctorados que DEBEN ir rojos *nombrando el token* — un fichero ausente y
-    una línea más allá del final de un fichero real.
+        Direction (a): the library's `probe_citations` over the real stdout of THIS
+        run (every `[OK]` row resolves its `src=`). Direction (b): two sets of
+        doctored citations that MUST go red *naming the token* — a missing file and
+        a line past the end of a real file.
 
-    La librería trae `probe_citations_guard`, pero su marcador de atribución asume la
-    forma `[OK] <id> - <detalle>` (su `OK_LINE`): con la gramática del pack
-    (`[OK] <ID> <k>=<v> … src=…`) el `id` es la línea entera y el marcador nunca casa,
-    así que esa guarda se pondría roja por forma y no por fondo (delta D5). Esta
-    reproduce la misma disciplina sobre el conjunto de citas con el resolutor de la
-    librería (`citation_check`) y con el mismo texto real.
+        The library ships `probe_citations_guard`, but its attribution marker assumes the
+        form `[OK] <id> - <detail>` (its `OK_LINE`): with the pack grammar
+        (`[OK] <ID> <k>=<v> … src=…`) the `id` is the whole line and the marker never matches,
+        so that guard would go red by form and not by substance (delta D5). This one
+        reproduces the same discipline over the citation set with the library resolver
+        (`citation_check`) and the same real text.
     """
     probe_ok, probe_detail = probe_citations(text)
     if not probe_ok:
@@ -286,7 +286,7 @@ def guard_citations(text: str, cites: Sequence[str]) -> tuple[bool, str]:
 
 
 def fnv1a64(data: bytes) -> int:
-    """FNV-1a 64 — mismo primitivo que el `checksum=` del save (savegame_v2.rs)."""
+    """FNV-1a 64 — same primitive as the save `checksum=` (savegame_v2.rs)."""
     hash_value = 0xCBF29CE484222325
     for byte in data:
         hash_value ^= byte
@@ -318,8 +318,8 @@ def census_files() -> list[Path]:
 def run_probe(binary: Path, probe: str, tag: str, out: Path) -> dict:
     tmp = out / f"tmp-{tag}"
     tmp.mkdir(parents=True, exist_ok=True)
-    # Un `TMPDIR` sucio de una corrida anterior duplicaría los artefactos del probe
-    # (`files>1`) y rompería la identidad byte a byte entre los dos procesos.
+    #  A `TMPDIR` dirty from a previous run would duplicate the probe artifacts
+    #  (`files>1`) and break byte-for-byte identity between the two processes.
     for child in sorted(tmp.iterdir()):
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
@@ -380,7 +380,7 @@ def parse_probe_digest(stdout: str) -> str | None:
 
 
 def probe_numbers(probe: dict) -> tuple[dict, str | None]:
-    """`(index, digest)` del probe: pre-parseados en la fixture, medidos en el producto."""
+    """`(index, digest)` of the probe: pre-parsed in the fixture, measured in the product."""
     index = probe.get("index")
     if index is None:
         index = parse_index(probe.get("stdout", "")) or {}
@@ -421,14 +421,14 @@ def family_census(save_text: str) -> tuple[list[str], dict[str, int]]:
 
 
 def dungeon_digest(save_text: str) -> tuple[str, int]:
-    """FNV-1a 64 de las líneas `dungeon_*` en orden de fichero, cada una con `\\n`."""
+    """FNV-1a 64 of the `dungeon_*` lines in file order, each with `\n`."""
     lines = [line for line in save_text.splitlines() if line.startswith(DUN_FAMILIES)]
     body = "".join(f"{line}\n" for line in lines)
     return "%016x" % fnv1a64(body.encode("utf-8")), len(lines)
 
 
 def state_entries(save_text: str) -> list[tuple[int, str]]:
-    """`(location, machine)` de cada `dungeon_state=` del artefacto real."""
+    """`(location, machine)` of every `dungeon_state=` in the real artifact."""
     rows: list[tuple[int, str]] = []
     for line in save_text.splitlines():
         if not line.startswith("dungeon_state="):

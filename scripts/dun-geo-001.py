@@ -1,53 +1,53 @@
 #!/usr/bin/env python3
-"""DUN-GEO-001 - gate de M44 / bloque A (W44-1): la geometria M34 es la que consume el camino de contenido.
+"""DUN-GEO-001 - M44 / block A gate (W44-1): the M34 geometry is what the content path consumes.
 
-Contrato: `.sintergic/packs/CR-7fd7260f-m44-spec.md` §4.1 (IDs `M44-R1..R4`);
-golden vectors y postcondiciones: `docs/sintergic/m44/blocks/A-geometry-CR-7fd7260f.md`.
+Contract: `.sintergic/packs/CR-7fd7260f-m44-spec.md` §4.1 (IDs `M44-R1..R4`);
+golden vectors and postconditions: `docs/sintergic/m44/blocks/A-geometry-CR-7fd7260f.md`.
 
-Que mide, y por que asi
+What it measures, and why like this
 -----------------------
-* `M44-R1` **delega** en `PROBE-DUNGEON-001` (`crates/app/src/main.rs:685`): dos
-  procesos separados del binario, y cada golden de la geometria ya medida por M34
-  (`crates/app/src/dungeon_probe.rs:35-52`) se compara contra lo que el probe
-  imprime. El gate NO reimplementa el censo: lo parsea. Si el probe imprime el
-  numero, el numero del gate es ese numero.
-* `M44-R2` mide con censo re-ejecutable (R-negativa) si el camino de contenido
-  (`crates/app/src/m18_window.rs`) llama al ensamblador de geometria. El valor
-  esperado lo fija el contrato (`assemble_calls>=1` y `geometry_links>=1`), no la
-  medicion de hoy.
-* `M44-R3` exige el `DIGEST=` del probe igual en los dos procesos **y** el bloque
-  de geometria byte-identico. La unica linea excluida es el cronometro de pared
-  `elapsed pass1=N ms pass2=M ms`: se declara, se acota a UNA linea por captura y
-  su forma se verifica (`PROC-volatile`). Sin esa exclusion la identidad byte a
-  byte es inalcanzable por una razon ajena al contrato, y un instrumento que no
-  puede ponerse verde no mide nada.
-* `M44-R4` exige 0 solapes a 1.400 mm sobre el conjunto que consume el camino de
-  contenido. La cifra la publica el producto en el canal runtime
-  (`DUN VE: geo overlaps ...`); si el canal no trae esa fila la fila es roja
-  `missing_evidence` (o `blocked_by:M44-R2` cuando el censo mide 0 llamadas al
-  ensamblador): el gate no publica un recuento de solapes que nadie ha medido.
+* `M44-R1` **delegates** to `PROBE-DUNGEON-001` (`crates/app/src/main.rs:685`): two
+    separate processes of the binary, and every geometry golden already measured by M34
+    (`crates/app/src/dungeon_probe.rs:35-52`) is compared against what the probe
+    prints. The gate does NOT reimplement the census: it parses it. If the probe prints the
+    number, the gate's number is that number.
+* `M44-R2` measures with a re-executable census (R-negative) whether the content path
+    (`crates/app/src/m18_window.rs`) calls the geometry assembler. The expected
+    value is fixed by the contract (`assemble_calls>=1` and `geometry_links>=1`), not by
+    today's measurement.
+* `M44-R3` requires the probe `DIGEST=` to be equal in both processes **and** the
+    geometry block to be byte-identical. The only excluded line is the wall clock
+    `elapsed pass1=N ms pass2=M ms`: it is declared, bounded to ONE line per capture and
+    its shape is verified (`PROC-volatile`). Without that exclusion byte-for-byte
+    identity is unreachable for a reason foreign to the contract, and an instrument that
+    cannot go green measures nothing.
+* `M44-R4` requires 0 overlaps at 1.400 mm over the set the content path
+    consumes. The figure is published by the product on the runtime channel
+    (`DUN VE: geo overlaps ...`); if the channel does not carry that row the row is red
+    `missing_evidence` (or `blocked_by:M44-R2` when the census measures 0 calls to the
+    assembler): the gate does not publish an overlap count nobody has measured.
 
-Canal runtime: el dueno es el gate, no el operador
+Runtime channel: the owner is the gate, not the operator
 --------------------------------------------------
-Un instrumento no puede depender de la receta del operador: un PASS que solo
-aparece cuando alguien exporta `$DF_DUN_STATE` a mano no mide el producto, mide la
-memoria de quien lo lanza. Por eso el gate **resuelve su propio canal**:
+An instrument cannot depend on the operator's recipe: a PASS that only
+appears when someone exports `$DF_DUN_STATE` by hand does not measure the product, it measures the
+memory of whoever launches it. That is why the gate **resolves its own channel**:
 
-* default `<out>/dun_canal.txt` (dentro de sus propios artefactos) => `source=gate`
-* `--channel <path>` (absoluto, o relativo a la raiz del repo) => `source=flag`
-* `--channel off`: el probe corre **sin** `$DF_DUN_STATE` => `source=off`, y
-  `M44-R4` queda roja por falta de evidencia (control negativo permanente)
+* default `<out>/dun_canal.txt` (inside its own artifacts) => `source=gate`
+* `--channel <path>` (absolute, or relative to the repo root) => `source=flag`
+* `--channel off`: the probe runs **without** `$DF_DUN_STATE` => `source=off`, and
+    `M44-R4` stays red for lack of evidence (permanent negative control)
 
-Antes de cada una de las dos corridas del probe el canal se trunca a 0 bytes y se
-exporta `$DF_DUN_STATE=<su path>` al proceso hijo. Los restos de una corrida
-anterior no pueden contaminar la medicion. La variable ambiental que traiga el
-operador se ignora: el gate impone la suya al producto. El canal resuelto se
-publica en la cabecera del run como `NOTE channel=<path> source=gate|flag|off`.
+Before each of the two probe runs the channel is truncated to 0 bytes and
+`$DF_DUN_STATE=<its path>` is exported to the child process. Leftovers from a previous
+run cannot contaminate the measurement. Any environment variable the
+operator brings is ignored: the gate imposes its own on the product. The resolved channel is
+published in the run header as `NOTE channel=<path> source=gate|flag|off`.
 
-Precondiciones: retail ARENA2 (`$HOME/Games/Daggerfall/app/ARENA2/{MAPS,BLOCKS}.BSA`)
-y binario construido. Sin retail => `VERDICT: NC`, exit 2 (nunca un PASS falso).
+Preconditions: retail ARENA2 (`$HOME/Games/Daggerfall/app/ARENA2/{MAPS,BLOCKS}.BSA`)
+and a built binary. Without retail => `VERDICT: NC`, exit 2 (never a false PASS).
 
-Exit codes: 0 PASS, 1 FAIL (rojo del contrato), 2 entorno/uso (NC).
+Exit codes: 0 PASS, 1 FAIL (contract red), 2 environment/usage (NC).
 """
 
 from __future__ import annotations
@@ -86,8 +86,8 @@ DUN_CHANNEL_ENV = "DF_DUN_STATE"
 DEFAULT_CHANNEL = "dun_canal.txt"
 CHANNEL_OFF = "off"
 
-# Fuentes que este gate mide: el probe, su despacho, el camino de contenido
-# censado, la entrada de geometria del camino interior y el ensamblador.
+#  Sources this gate measures: the probe, its dispatch, the content path
+#  censused, the interior-path geometry entry and the assembler.
 MEASURED_SOURCES = (
     "crates/app/src/dungeon_probe.rs",
     "crates/app/src/main.rs",
@@ -131,11 +131,11 @@ RE_DIGEST = re.compile(r"^DIGEST=([0-9a-f]{16}) ")
 RE_PASS_ROW = re.compile(r"^PASS (\S+)$")
 RE_FAIL_ROW = re.compile(r"^FAIL (\S+)$")
 
-# La unica linea volatil declarada: cronometro de pared del probe.
+#  The only declared volatile line: the probe's wall clock.
 VOLATILE_RE = re.compile(r"^elapsed pass1=(?:\d+|<ms>) ms pass2=(?:\d+|<ms>) ms$")
 VOLATILE_MASK = "elapsed pass1=<ms> ms pass2=<ms> ms"
 
-# Censos del camino de contenido (R-negativa, re-ejecutable sobre el fichero).
+#  Content-path censuses (R-negative, re-executable over the file).
 RE_ASSEMBLE_CALL = re.compile(r"assemble\(")
 RE_GEOMETRY_LINK = re.compile(r"dungeon_grid|assemble_dungeon|DungeonGrid|interior_retail|RetailDungeon")
 RE_DUNGEON_MENTION = re.compile(r"dungeon", re.IGNORECASE)
@@ -179,7 +179,7 @@ def milli(declared: str) -> int:
 
 
 def normalize(text: str) -> tuple[str, int]:
-    """Enmascara la unica linea volatil declarada; devuelve (texto, lineas con esa forma)."""
+    """ Masks the only declared volatile line; returns (text, lines with that shape)."""
     out: list[str] = []
     shaped = 0
     for line in text.splitlines():
@@ -192,7 +192,7 @@ def normalize(text: str) -> tuple[str, int]:
 
 
 def parse_probe(text: str) -> dict:
-    """Valores que el probe imprime. Clave ausente = la fila no existe."""
+    """ Values the probe prints. Missing key = the row does not exist."""
     out: dict = {}
     rows: list[str] = []
     for line in text.splitlines():
@@ -274,7 +274,7 @@ def resolve_channel(spec: str | None, out: Path) -> tuple[Path | None, str]:
 
 
 def read_dun_state(path: Path | None, source: str) -> tuple[list[str], str]:
-    """Lineas `DUN VE: ` del canal que el GATE resolvio (la variable del operador no manda)."""
+    """ `DUN VE: ` lines of the channel the GATE resolved (the operator's variable does not rule)."""
     if path is None or not path.is_file():
         return [], source
     try:
@@ -315,15 +315,15 @@ def retail_present() -> tuple[bool, str]:
 
 
 def truncate(path: Path) -> None:
-    """Vacia el canal antes de cada corrida: los restos de ayer no miden hoy."""
+    """ Empties the channel before each run: yesterday's leftovers do not measure today."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"")
 
 
 def run_probe(binary: Path, channel: Path | None) -> subprocess.CompletedProcess:
-    """Probe con el canal del gate exportado, o SIN la variable cuando el canal es `off`.
+    """ Probe with the gate channel exported, or WITHOUT the variable when the channel is `off`.
 
-    `m43_gate_lib.run()` no acepta `env`, y la lib no se edita: el runner vive aqui.
+         `m43_gate_lib.run()` does not accept `env`, and the lib is not edited: the runner lives here.
     """
     env = dict(os.environ)
     if channel is None:
@@ -798,12 +798,12 @@ MENTION_ONLY_CENSUS = (
 
 
 def mention_only_capture(binary: Path) -> dict:
-    """Captura SIN consumidor: el censo solo MENCIONA `dungeon`, en un comentario.
+    """ Capture WITHOUT a consumer: the census only MENTIONS `dungeon`, in a comment.
 
-    El guard `content-mention-only` afirma una propiedad del instrumento (una
-    mencion no satisface el censo), no del arbol de hoy: por eso su base es este
-    censo sintetico y no el fichero real, que puede ganar el consumidor en
-    cualquier momento sin que el guard deje de ser cierto.
+         The `content-mention-only` guard asserts a property of the instrument (a
+         mention does not satisfy the census), not of today's tree: that is why its base is this
+         synthetic census and not the real file, which may gain the consumer at
+         any moment without the guard ceasing to be true.
     """
     out = fixture_capture(binary)
     out["census"] = {CONTENT_PATH: MENTION_ONLY_CENSUS}
@@ -960,7 +960,7 @@ def fixture_capture(binary: Path) -> dict:
 
 
 def base_capture(binary: Path) -> dict:
-    """Captura con la geometria del fixture y el censo REAL del camino de contenido."""
+    """ Capture with the fixture geometry and the REAL content-path census."""
     masked, count = normalize(FIXTURE_PROBE)
     return {
         "probe": [masked, masked],

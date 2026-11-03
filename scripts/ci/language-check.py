@@ -75,6 +75,11 @@ COMMENT_EXT = {".rs", ".sh", ".bash", ".py", ".toml", ".yml", ".yaml"}
 EXEMPT_PREFIX = ("docs/sintergic/", "reference/dfu-spec/")
 EXEMPT_SUFFIX = (".es.md",)
 COMMENT_HASH_EXT = {".sh", ".bash", ".py", ".toml", ".yml", ".yaml"}
+# `/* */` block comments exist only where `#` is not the comment marker. Gating on
+# this set is not leniency: in a shell file the case pattern `/*)` (an absolute
+# path) is code, and treating it as a block opener turned every following line of
+# the script into alleged prose (three false positives measured 2026-11-03).
+BLOCK_COMMENT_EXT = COMMENT_EXT - COMMENT_HASH_EXT
 WALK_SKIP_DIRS = {".git", "target", "saves", "node_modules", "__pycache__", ".venv", "venv"}
 
 TOKEN_RX = re.compile("[a-záéíóúüñ]+")
@@ -196,7 +201,7 @@ def comment_lines(text, ext):
             in_block = not closed
             out.append((no, body))
             continue
-        if s.startswith("/*"):
+        if ext in BLOCK_COMMENT_EXT and s.startswith("/*"):
             body = s[2:]
             if "*/" in body:
                 out.append((no, body.split("*/", 1)[0]))

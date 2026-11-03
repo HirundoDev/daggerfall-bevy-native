@@ -1,35 +1,35 @@
 #!/usr/bin/env python3
-"""Captura la TRANSICION menu -> juego -> menu en la ventana real de `:0`.
+"""Captures the menu -> game -> menu TRANSITION in the real `:0` window.
 
-CR-178183d7, lane MenuTransition (2026-10-31). La captura del menu moderno ya
-esta probada identica a la maqueta sellada (`scripts/menu-selection-capture.py`);
-lo que falta es la OTRA pantalla: al entrar en juego el menu desaparece y el
-mundo (UI `320x200 x2`) sigue. Este script:
+CR-178183d7, lane MenuTransition (2026-10-31). The modern-menu capture is already
+proven identical to the sealed mockup (`scripts/menu-selection-capture.py`);
+what is missing is the OTHER screen: on entering the game the menu disappears and the
+world (UI `320x200 x2`) remains. This script:
 
-  1. lanza `target/debug/daggerfall-app --features window` (binario ya construido);
-  2. localiza la ventana por `get_wm_name()` conteniendo `DAGGERFALL`;
-  3. captura la fase MENU (`menu.png`) y mide su firma;
-  4. inyecta `Return` con **XTEST** (python-xlib) — `xdotool`/`wmctrl` no estan
-     en este entorno y `XSendEvent` no es lo que el pedido exige: primero
-     `new-game`, luego el `Return` del wizard de creacion que entra al mundo;
-  5. espera la evidencia del log (`phase MENU -> PLAYING`, `screen WORLD`,
+    1. launches `target/debug/daggerfall-app --features window` (binary already built);
+    2. locates the window by `get_wm_name()` containing `DAGGERFALL`;
+    3. captures the MENU phase (`menu.png`) and measures its signature;
+    4. injects `Return` with **XTEST** (python-xlib) — `xdotool`/`wmctrl` are not
+          in this environment and `XSendEvent` is not what the request demands: first
+          `new-game`, then the creation-wizard `Return` that enters the world;
+    5. waits for the log evidence (`phase MENU -> PLAYING`, `screen WORLD`,
      `scale gate OK · WORLD`, `main-menu row not painted — surface is WORLD`);
-  6. captura la fase MUNDO (`world.png`) y mide que NO queda rastro del menu;
-  7. ida y vuelta: `Escape` (pausa) -> `b` (menu) y captura `menu-back.png`;
-     reentrada `Return`+`Return` y captura `world2.png`;
-  8. imprime tabla de mediciones, sha256 y las lineas de log citadas.
+    6. captures the WORLD phase (`world.png`) and measures that NO menu trace remains;
+    7. round trip: `Escape` (pause) -> `b` (menu) and capture `menu-back.png`;
+          re-entry `Return`+`Return` and capture `world2.png`;
+    8. prints the measurement table, sha256 and the cited log lines.
 
-Firma del menu (medida sobre la maqueta sellada `main-menu-1280x720.png`):
-35 colores distintos, campo RGB (23,23,23) 51.97 %, papel RGB (220,220,220)
-30.44 %, barra RGB (44,48,49) 5.05 %. El mundo 3D no puede reproducir esa
-firma: se exige `distinct >= 500`, `papel < 1 %`, `campo < 20 %`, 0 bandas de
-barra en las columnas 500/700 y > 50 % de pixeles distintos contra el menu.
+Menu signature (measured over the sealed mockup `main-menu-1280x720.png`):
+35 distinct colors, field RGB (23,23,23) 51.97 %, paper RGB (220,220,220)
+30.44 %, bar RGB (44,48,49) 5.05 %. The 3D world cannot reproduce that
+signature: it requires `distinct >= 500`, `paper < 1 %`, `field < 20 %`, 0
+bar bands at columns 500/700 and > 50 % of pixels distinct from the menu.
 
-Falsificadores (exit != 0):
-  * la tecla no mueve la fase            -> INJECTION-BLOCKED (se declara el gap)
-  * el log no emite el gate de escalas    -> GATE-SILENT
-  * la captura del mundo conserva la firma del menu -> MENU-STILL-PAINTED
-  * el menu de vuelta no es 1280x720 con 0 bandas    -> ROUNDTRIP-BROKEN
+Falsifiers (exit != 0):
+    * the key does not move the phase      -> INJECTION-BLOCKED (the gap is declared)
+    * the log does not emit the scale gate -> GATE-SILENT
+    * the world capture keeps the menu signature -> MENU-STILL-PAINTED
+    * the return menu is not 1280x720 with 0 bands -> ROUNDTRIP-BROKEN
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ BAR_RGB = (44, 48, 49)            # relleno de la fila seleccionada
 BAR_COLUMNS = (500, 700)          # columnas sin glifos
 REFERENCE = ROOT / "docs" / "sintergic" / "design" / "mockups" / "main-menu-1280x720.png"
 
-# Umbrales del mundo: la firma del menu no puede sobrevivir.
+#  World thresholds: the menu signature cannot survive.
 WORLD_MIN_DISTINCT = 500
 WORLD_MAX_PAPER = 0.01
 WORLD_MAX_FIELD = 0.20
@@ -101,7 +101,7 @@ def find_window(d, deadline: float, proc):
 
 
 def focus(d, win) -> bool:
-    """Pone el foco X en la ventana; XTEST inyecta en el foco, no en un win."""
+    """Puts X focus on the window; XTEST injects into the focus, not into a win."""
     for _ in range(20):
         try:
             win.set_input_focus(X.RevertToParent, X.CurrentTime)
@@ -126,18 +126,18 @@ def keycode(d, keysym: str) -> int:
 
 
 def key(d, keysym: str, down: bool) -> None:
-    """XTEST: inyeccion en el servidor X, va al foco X de la ventana."""
+    """XTEST: injection into the X server, it goes to the window's X focus."""
     xtest.fake_input(d, X.KeyPress if down else X.KeyRelease, keycode(d, keysym))
     d.sync()
 
 
 def unsent_key(d, win, keysym: str, down: bool) -> None:
-    """`XSendEvent` a la ventana: el canal que esta ventana SI consume.
+    """`XSendEvent` to the window: the channel this window DOES consume.
 
-    Medido en esta lane (2026-10-31, :0 XWayland/KWin): `XTEST` llega al foco X
-    (comprobado con `get_input_focus`) pero el cliente winit no lo ve — la misma
-    tecla por `XSendEvent` si llega. Es el canal de `menu-selection-capture.py`,
-    que ya mueve la seleccion del menu en este entorno.
+        Measured in this lane (2026-10-31, :0 XWayland/KWin): `XTEST` reaches the X focus
+        (checked with `get_input_focus`) but the winit client does not see it — the same
+        key through `XSendEvent` does arrive. It is the channel of `menu-selection-capture.py`,
+        which already moves the menu selection in this environment.
     """
     cls = xevent.KeyPress if down else xevent.KeyRelease
     win.send_event(
@@ -249,11 +249,11 @@ SIGN_WORLD = lambda m: (
 
 
 def settle(win, png: Path, deadline: float, pinned, label: str):
-    """Espera a que la ventana muestre la firma pedida y devuelve (medida, segundos).
+    """Waits for the window to show the requested signature and returns (measurement, seconds).
 
-    El menu de vuelta no aparece en el mismo frame que el cambio de camaras:
-    medido en esta lane, el surface repinta ~1 s despues. Se sondea la firma en
-    vez de dormir un tiempo fijo, para no capturar la fase anterior.
+        The return menu does not appear on the same frame as the camera switch:
+        measured in this lane, the surface repaints ~1 s later. The signature is polled
+        instead of sleeping a fixed time, to avoid capturing the previous phase.
     """
     start = time.monotonic()
     last = None
@@ -409,13 +409,13 @@ def main() -> int:
                         time.monotonic() + 20.0, proc)
         back_gate = wait_log_n(log_path, "scale gate OK · MENU", 2, time.monotonic() + 20.0, proc)
         back_screen = wait_log_n(log_path, "M18 VE: screen MENU", 2, time.monotonic() + 15.0, proc)
-        # El menu repinta con latencia medida (1-4 s): se espera su firma, no un sleep fijo.
+        #  The menu repaints with measured latency (1-4 s): its signature is awaited, not a fixed sleep.
         back_png = OUT / "menu-back.png"
         m_back, elapsed = settle(win, back_png, time.monotonic() + 20.0, SIGN_MENU, "MENU-BACK")
         m_back = measure(back_png, reference)
         print(line(m_back, "MENU-BACK", back_png) + " estabilizado=+%.1fs" % elapsed)
 
-        # ── reentrada: la transicion se puede repetir sin dejar el menu a medias ──
+        #  ── re-entry: the transition can be repeated without leaving the menu half-done ──
         time.sleep(0.8)
         press(d, win, "Return")
         press(d, win, "Return")
@@ -424,9 +424,9 @@ def main() -> int:
         m_world2, elapsed2 = settle(win, world2_png, time.monotonic() + 45.0, SIGN_WORLD, "WORLD-2")
         m_world2 = measure(world2_png, reference)
         print(line(m_world2, "WORLD-2", world2_png) + " estabilizado=+%.1fs" % elapsed2)
-        # El aviso de fila no pintada es un latch: solo habla en el CAMBIO a
-        # juego, asi que la reentrada no lo repite (se exige el cambio de
-        # pantalla + el gate, no el aviso).
+        #  The unpainted-row notice is a latch: it only speaks on the CHANGE to
+        #  game, so re-entry does not repeat it (the screen change + the gate
+        #  are required, not the notice).
         bad_world2 = world_verdict(
             m_world2,
             log_text(log_path).count("M18 VE: screen WORLD") >= 2,

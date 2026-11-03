@@ -1,40 +1,40 @@
-//! **M-SHELL fase 2 — capa aplicación** (`CR-ca78eb76` + `CR-a34396f5`): el
-//! estado del shell (`Boot → Loading → Menu → Create → Playing ⇄ Paused →
-//! Exit`), sus transiciones puras y la evidencia que consumen los gates
-//! `scripts/shell-001.py` (fase 1) y `scripts/shell-002.py` (fase 2).
+//! **M-SHELL phase 2 — application layer** (`CR-ca78eb76` + `CR-a34396f5`): the
+//! shell state (`Boot → Loading → Menu → Create → Playing ⇄ Paused →
+//! Exit`), its pure transitions and the evidence the gates consume
+//! `scripts/shell-001.py` (phase 1) and `scripts/shell-002.py` (phase 2).
 //!
-//! Este módulo NO dibuja ni simula: los sistemas Bevy que lo conducen viven en
-//! `m18_window` (donde están los recursos del mundo) y aquí queda lo que se
-//! puede auditar sin una ventana — el contrato de líneas `SHELL VE:`, el espejo
-//! byte-idéntico en `$DF_SHELL_STATE`, el reloj de sesión discreto, el plan de
-//! viaje rápido sobre `daggerfall_heart::travel`, y el estado de navegación de
-//! la fase 2 (menú de 5 ítems, wizard de creación, panel de opciones y browser
-//! de slots).
+//! This module neither draws nor simulates: the Bevy systems that drive it live in
+//! `m18_window` (where the world's resources are) and here stays what can be
+//! audited without a window — the `SHELL VE:` line contract, the byte-identical
+//! mirror in `$DF_SHELL_STATE`, the discrete session clock, the fast-travel plan
+//! over `daggerfall_heart::travel`, and the phase 2 navigation state (5-item menu,
+//! creation wizard, options panel and slot
+//! browser).
 //!
-//! ## Fase 2 (`CR-a34396f5`) — estado que sobrevive a la navegación
+//! ## Phase 2 (`CR-a34396f5`) — state that survives navigation
 //!
-//! Tres piezas viven en el [`Shell`] y NO en la pantalla: el **panel** abierto
-//! ([`ShellPanel`]), el **estado de opciones** (una sola página con su valor,
-//! que sobrevive a cerrar el panel y a entrar/salir de una partida) y el
-//! **browser de slots** (slot seleccionado + hechos leídos de `DF_SAVE_DIR`).
-//! Los slots son documentos v3 de 🧠 Memoria (`crate::shell_slots`): el shell
-//! no inventa un formato propio.
+//! Three pieces live in the [`Shell`] and NOT on the screen: the open **panel**
+//! ([`ShellPanel`]), the **options state** (a single page with its value, which
+//! survives closing the panel and entering/leaving a game) and the **slot
+//! browser** (selected slot + facts read from `DF_SAVE_DIR`).
+//! The slots are 🧠 Memory v3 documents (`crate::shell_slots`): the shell
+//! does not invent a format of its own.
 //!
-//! ## Contrato de evidencia (verbatim del pack `CR-ca78eb76-shell-gate.md`)
+//! ## Evidence contract (verbatim from the `CR-ca78eb76-shell-gate.md` pack)
 //!
-//! El gate compara las líneas contra `re.compile(...)` exactos (`shell-001.py`
-//! §contrato): los constructores de este módulo son la ÚNICA copia de esas
-//! formas. Añadir una línea exige tocar el contrato (y el gate) a la vez.
+//! The gate compares the lines against exact `re.compile(...)` patterns
+//! (`shell-001.py` §contract): this module's constructors are the ONLY copy of those
+//! shapes. Adding a line requires touching the contract (and the gate) at the same time.
 //!
-//! ## Reloj de sesión (`ticks`) — por qué es discreto
+//! ## Session clock (`ticks`) — why it is discrete
 //!
-//! `PROC-two-runs` exige que las 15 líneas sean **byte-idénticas** entre dos
-//! procesos, así que ningún campo puede derivarse de `dt` ni de la hora real.
-//! El reloj que el shell reporta cuenta **minutos de juego consumidos por el
-//! jugador** (el viaje rápido es el único consumidor en esta fase); el reloj M4
-//! en tiempo real (`ProgressionClock`) sigue vivo para las skills y NO se
-//! reporta. En `Paused` el reloj no se toca: el valor congelado es el mismo por
-//! construcción y por ausencia de consumidores, no por una constante.
+//! `PROC-two-runs` requires the 15 lines to be **byte-identical** between two
+//! processes, so no field can be derived from `dt` or from wall-clock time.
+//! The clock the shell reports counts **game minutes consumed by the
+//! player** (fast travel is the only consumer in this phase); the real-time M4
+//! clock (`ProgressionClock`) stays alive for the skills and is NOT
+//! reported. In `Paused` the clock is not touched: the frozen value is the same by
+//! construction and by absence of consumers, not by a constant.
 
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
@@ -45,34 +45,34 @@ use daggerfall_heart::travel::{
     calculate_travel_time, calculate_trip_cost, TerrainLookup, Transport, TravelOptions,
 };
 
-/// Prefijo de todas las líneas de evidencia (el gate filtra por él, y el espejo
-/// de stdout usa la misma condición: `mirrored_lines`).
+/// Prefix of every evidence line (the gate filters by it, and the stdout
+/// mirror uses the same condition: `mirrored_lines`).
 pub const LINE_PREFIX: &str = "SHELL VE: ";
 
-/// Ítems del menú principal en orden de navegación (fase 2, `CR-a34396f5`):
-/// los cinco destinos que el gate `scripts/shell-002.py` exige declarados en
-/// `menu order=` y que el menú retail de arranque pinta
-/// (`m39_block_a::MENU_TARGETS`, mismo orden). `new-game` es el índice 0
-/// (selección inicial del contrato) y `quit` el último.
+/// Main menu items in navigation order (phase 2, `CR-a34396f5`):
+/// the five destinations the `scripts/shell-002.py` gate requires declared in
+/// `menu order=` and that the retail startup menu paints
+/// (`m39_block_a::MENU_TARGETS`, same order). `new-game` is index 0
+/// (initial selection of the contract) and `quit` the last one.
 pub const MENU_ITEMS: [&str; 5] = ["new-game", "continue", "load", "options", "quit"];
 
-/// Índice de `new-game` dentro de [`MENU_ITEMS`].
+/// Index of `new-game` inside [`MENU_ITEMS`].
 pub const MENU_NEW_GAME: usize = 0;
-/// Índice de `continue` dentro de [`MENU_ITEMS`].
+/// Index of `continue` inside [`MENU_ITEMS`].
 pub const MENU_CONTINUE: usize = 1;
-/// Índice de `load` dentro de [`MENU_ITEMS`].
+/// Index of `load` inside [`MENU_ITEMS`].
 pub const MENU_LOAD: usize = 2;
-/// Índice de `options` dentro de [`MENU_ITEMS`].
+/// Index of `options` inside [`MENU_ITEMS`].
 pub const MENU_OPTIONS: usize = 3;
-/// Índice de `quit` dentro de [`MENU_ITEMS`].
+/// Index of `quit` inside [`MENU_ITEMS`].
 pub const MENU_QUIT: usize = 4;
 
-/// Pasos del canon de creación (`create step=<n> steps=10`): el wizard retail
-/// pinta 16 superficies (`m38_surfaces::CREATE_SURFACE_COUNT`) y pregunta estos
-/// diez campos en este orden. Los ids son estables y distintos (contrato
+/// Canon creation steps (`create step=<n> steps=10`): the retail wizard
+/// paints 16 surfaces (`m38_surfaces::CREATE_SURFACE_COUNT`) and asks these
+/// ten fields in this order. The ids are stable and distinct (contract
 /// `ID = [a-z0-9-]{1,24}`).
 pub const CREATE_STEPS: usize = 10;
-/// Campos del canon de creación, en el orden en que el wizard los pregunta.
+/// Canon creation fields, in the order the wizard asks them.
 pub const CREATE_FIELDS: [&str; CREATE_STEPS] = [
     "face",
     "race",
@@ -85,73 +85,73 @@ pub const CREATE_FIELDS: [&str; CREATE_STEPS] = [
     "disadvantages",
     "summary",
 ];
-/// Caras del wizard (`FACES.CIF`): `Right`/`Left` recorren este anillo.
+/// Wizard faces (`FACES.CIF`): `Right`/`Left` walk this ring.
 pub const CREATE_FACES: usize = 16;
-/// Semilla fija del reloj de sesión (minutos de juego de arranque).
+/// Fixed seed of the session clock (startup game minutes).
 ///
-/// No se lee ningún reloj real: el pack exige un reloj determinista
-/// («seed fijo por slot») y `PROC-two-runs` exige byte-identidad, así que la
-/// sesión arranca en el minuto 12 del día de juego y de ahí solo avanza con
-/// consumidores reales (viaje rápido). Es una semilla declarada, no un hecho
+/// No real clock is read: the pack requires a deterministic clock
+/// ("fixed seed per slot") and `PROC-two-runs` requires byte identity, so the
+/// session starts at minute 12 of the game day and only advances with
+/// real consumers (fast travel). It is a declared seed, not a retail fact.
 /// retail.
 pub const SESSION_CLOCK_SEED: u64 = 12;
 
 /// Superficie retail del menú (`m18_phase::MENU_PANEL_ID`).
 pub const MENU_SURFACE: &str = "main-menu";
-/// Panel retail que abre `M` (5º panel de sesión de `ui_spec`, `map-local`).
+/// Retail panel that `M` opens (5th session panel of `ui_spec`, `map-local`).
 pub const MAP_PANEL: &str = "map-local";
-/// Id de la superficie de opciones que declara la pausa.
+/// Id of the options surface the pause declares.
 pub const PAUSE_OPTIONS: &str = "pause-menu";
-/// Id del panel del browser de slots (`panel=save-browser` del contrato).
+/// Id of the slot browser panel (`panel=save-browser` of the contract).
 pub const BROWSER_PANEL: &str = "save-browser";
-/// Páginas del panel de opciones: las 11 superficies de configuración del censo
-/// (`m38_surfaces::CONFIG_SURFACE_COUNT`), el `pages=11` del contrato.
+/// Pages of the options panel: the 11 configuration surfaces of the census
+/// (`m38_surfaces::CONFIG_SURFACE_COUNT`), the contract's `pages=11`.
 pub const CONFIG_PAGES: usize = daggerfall_app::m38_surfaces::CONFIG_SURFACE_COUNT;
 
-/// Tiempo mínimo que la pantalla de arranque se presenta (s).
+/// Minimum time the boot screen is presented (s).
 pub const BOOT_DWELL: f32 = 1.0;
-/// Tiempo mínimo por paso de carga (s) — la pantalla debe ser legible; las
-/// unidades del paso salen del trabajo real, nunca de este temporizador.
+/// Minimum time per loading step (s) — the screen must be legible; the step's
+/// units come from the real work, never from this timer.
 pub const LOADING_STEP_DWELL: f32 = 0.30;
-/// Retardo de la línea de un cambio de estado: el título ya escrito en el
-/// servidor X se muestrea ANTES de que la línea aparezca (el gate muestrea cada
-/// 50 ms durante `wait`).
+/// Delay of a state-change line: the title already written to the X
+/// server is sampled BEFORE the line appears (the gate samples every
+/// 50 ms during `wait`).
 pub const LABEL_SETTLE: f32 = 0.50;
-/// Retardo de la línea de pausa tras el cambio de etiqueta.
+/// Delay of the pause line after the label change.
 pub const PAUSE_SETTLE: f32 = 0.45;
-/// Reintento de petición de foco de teclado en la antesala del shell (s).
+/// Retry of the keyboard-focus request in the shell antechamber (s).
 pub const FOCUS_RETRY: f32 = 0.50;
-/// Retardo de la línea de reanudación tras el cambio de etiqueta.
+/// Delay of the resume line after the label change.
 pub const RESUME_SETTLE: f32 = 0.30;
-/// Retardo de `exit state=Exit` tras poner la etiqueta `SHELL EXIT`.
+/// Delay of `exit state=Exit` after setting the `SHELL EXIT` label.
 pub const EXIT_SETTLE: f32 = 0.60;
-/// Tiempo que el proceso sigue vivo después de la línea de salida (s): el
-/// título `SHELL EXIT` debe haber sido muestreado y el `AppExit` llega con 0.
+/// Time the process stays alive after the exit line (s): the
+/// `SHELL EXIT` title must have been sampled and `AppExit` arrives with 0.
 pub const EXIT_AFTER_LINE: f32 = 0.80;
 
-/// Metros de mundo por píxel de mapa que el avatar avanza en un viaje rápido
-/// (declarado: el mundo de la fase 1 no se streamea, así que el viaje mueve al
-/// jugador y su píxel de mapa, no carga otra celda).
+/// World metres per map pixel the avatar advances in one fast travel
+/// (declared: the phase 1 world is not streamed, so travel moves the
+/// player and their map pixel, it does not load another cell).
 pub const TRAVEL_M_PER_PIXEL: f32 = 8.0;
 
-/// Estado del shell. `Loading` lleva el paso en curso (0-based) y `Menu` la
-/// selección; el resto son estados planos.
+/// Shell state. `Loading` carries the step in progress (0-based) and `Menu` the
+/// selection; the rest are flat states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShellState {
-    /// Pantalla de arranque, antes de cualquier trabajo de carga.
+    /// Boot screen, before any loading work.
     Boot,
-    /// Carga en curso: `step` es el índice del paso que se está presentando.
+    /// Loading in progress: `step` is the index of the step being presented.
     Loading {
         /// Paso en curso (0-based).
         step: usize,
     },
-    /// Menú navegable con la selección actual.
+    /// Navigable menu with the current selection.
     Menu {
         /// Índice seleccionado dentro de [`MENU_ITEMS`].
         selection: usize,
     },
-    /// Wizard de creación: `step` (1-based, `1..=CREATE_STEPS`) y la cara
-    /// elegida (`Right`/`Left`).
+    /// Creation wizard: `step` (1-based, `1..=CREATE_STEPS`) and the chosen
+    /// face (`Right`/`Left`).
     Create {
         /// Paso del canon en curso (`CREATE_FIELDS[step - 1]`).
         step: usize,
@@ -160,15 +160,15 @@ pub enum ShellState {
     },
     /// Mundo vivo.
     Playing,
-    /// Pausa: el mundo está congelado.
+    /// Pause: the world is frozen.
     Paused,
-    /// Salida pedida: la etiqueta ya es `SHELL EXIT`, la línea y el `AppExit`
-    /// están en la cola.
+    /// Exit requested: the label is already `SHELL EXIT`, the line and the `AppExit`
+    /// are in the queue.
     Exit,
 }
 
 impl ShellState {
-    /// Etiqueta corta que el título de la ventana publica tras `SHELL `.
+    /// Short label the window title publishes after `SHELL `.
     pub fn label(self) -> &'static str {
         match self {
             Self::Boot => "BOOT",
@@ -181,39 +181,39 @@ impl ShellState {
         }
     }
 
-    /// Etiqueta completa del título (`SHELL PLAYING`, …) — la que el gate busca
-    /// en `window.title` con `label_of`.
+    /// Full title label (`SHELL PLAYING`, ...) — the one the gate looks up
+    /// in `window.title` with `label_of`.
     pub fn title(self) -> String {
         format!("SHELL {}", self.label())
     }
 
-    /// ¿Corre el mundo? Solo `Playing` (la pausa congela el bundle de sistemas).
+    /// Is the world running? Only `Playing` (the pause freezes the system bundle).
     pub fn world_live(self) -> bool {
         matches!(self, Self::Playing)
     }
 }
 
-/// Panel abierto sobre el estado actual (fase 2).
+/// Panel open over the current state (phase 2).
 ///
-/// Es el único cursor de panel: `Menu` + `Load` es el browser de carga,
-/// `Paused` + `Options` el panel de opciones, `Paused` + `Save` el browser de
-/// guardado. `None` es «el estado desnudo», y por eso `Escape` con panel cierra
-/// el panel en vez de reanudar la partida.
+/// It is the only panel cursor: `Menu` + `Load` is the load browser,
+/// `Paused` + `Options` the options panel, `Paused` + `Save` the save
+/// browser. `None` is "the bare state", and that is why `Escape` with a panel closes
+/// the panel instead of resuming the game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShellPanel {
-    /// Sin panel: el estado se comporta como en la fase 1.
+    /// Without a panel: the state behaves as in phase 1.
     #[default]
     None,
-    /// Panel de opciones (`options open=1` abierto desde menú o pausa).
+    /// Options panel (`options open=1` opened from menu or pause).
     Options,
-    /// Browser de carga del menú (`load open=1`).
+    /// Menu load browser (`load open=1`).
     Load,
-    /// Browser de guardado de la pausa (`save open=1`).
+    /// Pause save browser (`save open=1`).
     Save,
 }
 
 impl ShellPanel {
-    /// Id retail del panel que declara la línea (`panel=` del contrato).
+    /// Retail id of the panel the line declares (`panel=` of the contract).
     pub fn id(self) -> Option<&'static str> {
         match self {
             Self::None => None,
@@ -223,24 +223,24 @@ impl ShellPanel {
     }
 }
 
-/// Una página del panel de opciones: el id estable del censo de configuración
-/// (`CFG01`…, publicado en minúsculas: el contrato `page` solo admite
-/// `[a-z0-9-]{1,24}`) y la clave del control que la página expone (su primera
-/// lectura declarada, `config.effects.count` → `config-effects-count`).
+/// One page of the options panel: the stable id of the configuration census
+/// (`CFG01`..., published in lowercase: the contract `page` only accepts
+/// `[a-z0-9-]{1,24}`) and the control key the page exposes (its first
+/// declared reading, `config.effects.count` → `config-effects-count`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigPage {
-    /// Id de la página (`cfg01`…), derivado de `m38_surfaces` (ids estables).
+    /// Page id (`cfg01`...), derived from `m38_surfaces` (stable ids).
     pub id: String,
-    /// Clave del control de la página.
+    /// Control key of the page.
     pub key: String,
 }
 
-/// Las páginas del panel de opciones, tal como las declara
-/// `m38_surfaces::config_pages()` (11 páginas con su control real).
+/// The options panel pages, as declared by
+/// `m38_surfaces::config_pages()` (11 pages with their real control).
 ///
-/// Un censo que no resuelve deja el panel con 0 páginas: `o`/`Return` en
-/// `options` lo dice por `M18 VE:` y NO emite ninguna línea de contrato —
-/// `pages=0` no es un valor inventable.
+/// A census that does not resolve leaves the panel with 0 pages: `o`/`Return` in
+/// `options` says so through `M18 VE:` and emits NO contract line —
+/// `pages=0` is not an inventable value.
 pub fn config_pages() -> Vec<ConfigPage> {
     daggerfall_app::m38_surfaces::config_pages()
         .map(|pages| {
@@ -255,30 +255,30 @@ pub fn config_pages() -> Vec<ConfigPage> {
         .unwrap_or_default()
 }
 
-/// Token determinista del personaje creado: `face` elige carrera (anillo de 8)
-/// y género (paridad). Sin aleatoriedad de sistema, sin timestamps: dos
-/// procesos con la misma cara producen el mismo token y el mismo save.
+/// Deterministic token of the created character: `face` chooses race (8 ring)
+/// and gender (parity). No system randomness, no timestamps: two
+/// processes with the same face produce the same token and the same save.
 pub fn character_token(face: usize) -> String {
     let race = crate::shell_slots::RACES[face % crate::shell_slots::RACES.len()];
     let gender = if face % 2 == 0 { "m" } else { "f" };
     format!("{race}-{gender}")
 }
 
-/// Un paso de carga: el nombre del trabajo y las unidades REALES que resolvió.
+/// One loading step: the job name and the REAL units it resolved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoadingStep {
-    /// Nombre del trabajo (`panels`, `settlements`, `buildings`, `textures`,
-    /// `npcs`) — distinto por paso, como exige `check_loading`.
+    /// Job name (`panels`, `settlements`, `buildings`, `textures`,
+    /// `npcs`) — different per step, as `check_loading` requires.
     pub work: &'static str,
-    /// Unidades contadas al ejecutar el trabajo (`>0`: 0 = dormir disfrazado).
+    /// Units counted when running the job (`>0`: 0 = sleeping in disguise).
     pub units: u64,
 }
 
-/// Datos del HUD medidos una sola vez, antes de que el mundo avance: el mismo
-/// `digest` en `MENU` y en `PLAYING` prueba que es el mismo selector.
+/// HUD data measured once, before the world advances: the same
+/// `digest` in `MENU` and in `PLAYING` proves it is the same selector.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HudFacts {
-    /// Id del panel del HUD (`hud`).
+    /// Id of the HUD panel (`hud`).
     pub panel: String,
     /// Píxeles opacos del HUD compuesto.
     pub opaque: usize,
@@ -286,7 +286,7 @@ pub struct HudFacts {
     pub digest: u64,
 }
 
-/// Resultado del plan de viaje rápido (todo del motor ❤️, nada inventado).
+/// Result of the fast-travel plan (all from the ❤️ engine, nothing invented).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TravelFacts {
     /// Píxel de origen.
@@ -301,15 +301,15 @@ pub struct TravelFacts {
     pub gold: u64,
 }
 
-/// Línea de evidencia pendiente con su retardo restante (s).
+/// Pending evidence line with its remaining delay (s).
 struct Pending {
     remaining: f32,
     line: String,
 }
 
-/// Espejo de la evidencia: `stdout` (con `flush` por línea) + append en
-/// `$DF_SHELL_STATE` (con `flush` por línea). Sin la variable de entorno no
-/// escribe fichero y lo dice una vez — nunca falla en silencio.
+/// Evidence mirror: `stdout` (with per-line `flush`) + append to
+/// `$DF_SHELL_STATE` (with per-line `flush`). Without the environment variable it does not
+/// write a file and says so once — it never fails silently.
 pub struct ShellMirror {
     path: Option<PathBuf>,
     file: Option<File>,
@@ -317,7 +317,7 @@ pub struct ShellMirror {
 }
 
 impl ShellMirror {
-    /// Toma `$DF_SHELL_STATE`; sin él solo queda la salida estándar.
+    /// Takes `$DF_SHELL_STATE`; without it only standard output remains.
     pub fn from_env() -> Self {
         let path = std::env::var_os("DF_SHELL_STATE").map(PathBuf::from);
         let file = path.as_ref().and_then(|path| {
@@ -336,8 +336,8 @@ impl ShellMirror {
         }
     }
 
-    /// Escribe la línea completa (ya con [`LINE_PREFIX`]) en stdout y en el
-    /// espejo, con `flush` en los dos: el gate lee el fichero mientras corre.
+    /// Writes the full line (already with [`LINE_PREFIX`]) to stdout and to the
+    /// mirror, with `flush` on both: the gate reads the file while it runs.
     pub fn emit(&mut self, line: &str) {
         println!("{line}");
         let _ = std::io::stdout().flush();
@@ -364,87 +364,87 @@ impl ShellMirror {
     }
 }
 
-/// Estado completo del shell + la cola de evidencia.
+/// Full shell state + the evidence queue.
 ///
-/// El `derive` de recurso es la única concesión al ECS en este módulo: el
-/// estado lo consume la ventana (`m18_window`) y las transiciones siguen
-/// siendo puras y auditables sin ventana.
+/// The resource `derive` is the only concession to ECS in this module: the
+/// state is consumed by the window (`m18_window`) and the transitions remain
+/// pure and auditable without a window.
 #[derive(bevy::prelude::Resource)]
 pub struct Shell {
     /// Estado actual.
     pub state: ShellState,
     /// Segundos en el estado actual (lo avanza `shell_pump`).
     pub dwell: f32,
-    /// Líneas pendientes, en orden estricto (una por frame como máximo). La
-    /// cola es privada: `say` encola y `pump` publica, sin atajos externos.
+    /// Pending lines, in strict order (at most one per frame). The
+    /// queue is private: `say` enqueues and `pump` publishes, with no outside shortcuts.
     queue: VecDeque<Pending>,
-    /// Pasos de carga, en orden, con sus unidades reales.
+    /// Loading steps, in order, with their real units.
     pub steps: Vec<LoadingStep>,
-    /// Suma de unidades (la que cierra `loading done`).
+    /// Sum of units (the one that closes `loading done`).
     pub units_total: u64,
-    /// Reloj de sesión: minutos de juego consumidos (viaje rápido).
+    /// Session clock: game minutes consumed (fast travel).
     pub clock_minutes: u64,
     /// HUD medido en `Boot`.
     pub hud: HudFacts,
-    /// Identidad retail del asentamiento compuesto: `(region, location_id,
-    /// block)` — la fila `world` publica este triple. `None` cuando `MAPS.BSA`
-    /// no se pudo leer: la fila NO se emite (0 coordenadas inventadas).
+    /// Retail identity of the composed settlement: `(region, location_id,
+    /// block)` — the `world` row publishes this triple. `None` when `MAPS.BSA`
+    /// could not be read: the row is NOT emitted (0 invented coordinates).
     pub location: Option<(u16, u16, u16)>,
-    /// Píxel de mapa de la sesión (origen del viaje).
+    /// Map pixel of the session (travel origin).
     pub base_pixel: [i32; 2],
-    /// Destino elegido: el asentamiento más cercano al píxel de la sesión.
+    /// Chosen destination: the settlement closest to the session's pixel.
     pub travel_target: Option<[i32; 2]>,
-    /// ¿Está abierto el mapa (`map-local`)?
+    /// Is the map open (`map-local`)?
     pub map_open: bool,
-    /// Índice del panel `map-local` en la composición (`None` si no existe).
+    /// Index of the `map-local` panel in the composition (`None` if it does not exist).
     pub map_panel: Option<usize>,
-    /// Panel visible antes de abrir el mapa (se restaura al cerrar).
+    /// Visible panel before opening the map (restored on close).
     pub map_restore: usize,
-    /// Ticks congelados de la pausa en curso.
+    /// Frozen ticks of the pause in progress.
     pub paused_ticks: u64,
-    /// ¿Se pidió ya el `AppExit` de la salida?
+    /// Was the exit `AppExit` already requested?
     pub exit_requested: bool,
-    /// Panel abierto sobre el estado actual (fase 2). Vive aquí, no en la
-    /// pantalla: cerrar el panel y volver a abrirlo NO reinicia la navegación.
+    /// Panel open over the current state (phase 2). It lives here, not on the
+    /// screen: closing the panel and reopening it does NOT reset navigation.
     pub panel: ShellPanel,
-    /// Páginas del panel de opciones: id estable + clave del control
-    /// (`m38_surfaces::config_pages`, 11 páginas).
+    /// Options panel pages: stable id + control key
+    /// (`m38_surfaces::config_pages`, 11 pages).
     pub options: Vec<ConfigPage>,
-    /// Página en la que el panel reabre (sobrevive a la navegación).
+    /// Page the panel reopens on (survives navigation).
     pub options_page: usize,
-    /// Valor por página: una sola copia, la que el jugador movió.
+    /// Value per page: a single copy, the one the player moved.
     pub options_values: Vec<u64>,
-    /// Token del personaje de la sesión (`character.name` del save v3).
+    /// Character token of the session (`character.name` of the v3 save).
     pub character: Option<String>,
-    /// Cara del personaje de la sesión (`character.face_index` del save v3).
+    /// Character face of the session (`character.face_index` of the v3 save).
     pub face: usize,
-    /// Slot del que se cargó (o al que se guardó) la sesión, si hay alguno.
+    /// Slot the session was loaded from (or saved to), if any.
     pub session_slot: Option<usize>,
-    /// Slots ocupados leídos al abrir el browser (`slots=N` del contrato).
+    /// Occupied slots read when opening the browser (`slots=N` of the contract).
     pub slots: Vec<crate::shell_slots::SlotFacts>,
     /// Ficheros presentes que no son documentos v3 (no se cargan).
     pub slots_rejected: usize,
-    /// Posición del cursor del browser dentro de [`Shell::slots`].
+    /// Browser cursor position inside [`Shell::slots`].
     pub browser_slot: usize,
     /// Espejo de evidencia.
     pub mirror: ShellMirror,
-    /// M-QST: estado de la quest principal de la sesión. Se rehidrata al
-    /// cargar un slot (antes de entrar al mundo) y se persiste al guardar; la
-    /// única puerta de escritura es `MainQuest::apply`.
+    /// M-QST: main quest state of the session. It is rehydrated when
+    /// loading a slot (before entering the world) and persisted on save; the
+    /// only write door is `MainQuest::apply`.
     pub mainquest: crate::mainquest_route::MainQuest,
-    /// Estado de mundo que la sesión guardará (`CR-7a3e9c14`).
+    /// World state the session will save (`CR-7a3e9c14`).
     ///
-    /// Lo **mide** el half de ventana una vez por frame (`m18_shell_world_snapshot`:
-    /// `Locomotion` + cámara + `ProgressionClock` + escena de puertas) y lo
-    /// **consume** la puerta de escritura, que sigue sin tocar la ECS. `None`
-    /// significa «esta sesión no midió mundo» (el paso sin ventana): el slot se
-    /// escribe entonces con la generación 3 y la evidencia lo dice —
-    /// `fidelity=3`, nunca un mundo inventado.
+    /// The window half **measures** it once per frame (`m18_shell_world_snapshot`:
+    /// `Locomotion` + camera + `ProgressionClock` + door scene) and the
+    /// write door **consumes** it, still without touching ECS. `None`
+    /// means "this session did not measure a world" (the windowless pass): the slot is
+    /// then written with generation 3 and the evidence says so —
+    /// `fidelity=3`, never an invented world.
     pub snapshot: Option<crate::shell_slots::WorldSnapshot>,
 }
 
 impl Shell {
-    /// Ensambla el shell con los datos medidos en `Startup`.
+    /// Assembles the shell with the data measured in `Startup`.
     pub fn new(
         steps: Vec<LoadingStep>,
         hud: HudFacts,
@@ -488,7 +488,7 @@ impl Shell {
         }
     }
 
-    /// Valor de la opción de la página en curso.
+    /// Value of the option of the current page.
     pub fn option_value(&self) -> u64 {
         self.options_values
             .get(self.options_page)
@@ -496,13 +496,13 @@ impl Shell {
             .unwrap_or(0)
     }
 
-    /// ¿Hay más de una página de opciones declarada?
+    /// Is more than one options page declared?
     pub fn options_pages(&self) -> usize {
         self.options.len()
     }
 
-    /// Encola una línea con retardo (s). El orden de encolado ES el orden de
-    /// emisión: `shell_pump` publica como máximo una por frame.
+    /// Enqueues a line with a delay (s). The enqueue order IS the emission
+    /// order: `shell_pump` publishes at most one per frame.
     pub fn say(&mut self, delay: f32, line: String) {
         self.queue.push_back(Pending {
             remaining: delay,
@@ -510,20 +510,20 @@ impl Shell {
         });
     }
 
-    /// Avanza el reloj de estado y publica **como máximo una** línea encolada,
-    /// en orden de encolado. Una línea por frame mantiene el orden estricto:
-    /// dos líneas con su retardo ya cumplido no pueden adelantarse entre sí.
+    /// Advances the state clock and publishes **at most one** enqueued line,
+    /// in enqueue order. One line per frame keeps the strict order:
+    /// two lines whose delay has already elapsed cannot overtake each other.
     pub fn pump(&mut self, dt: f32) {
         if let Some(line) = self.next_line(dt) {
             self.mirror.emit(&line);
         }
     }
 
-    /// Avanza el reloj y devuelve la línea que toca publicar en este frame
-    /// (`None` si el frente de la cola todavía tiene retardo vivo). Es la
-    /// disciplina de [`Shell::pump`] sin el espejo: una sola copia del
-    /// «adelanta el frente, una línea como máximo», que es lo que hace que el
-    /// orden de encolado sea el orden de emisión.
+    /// Advances the clock and returns the line to publish this frame
+    /// (`None` if the queue front still has a live delay). It is
+    /// [`Shell::pump`]'s discipline without the mirror: a single copy of
+    /// "advance the front, one line at most", which is what makes the
+    /// enqueue order the emission order.
     fn next_line(&mut self, dt: f32) -> Option<String> {
         self.dwell += dt;
         let front = self.queue.front_mut()?;
@@ -534,23 +534,23 @@ impl Shell {
         self.queue.pop_front().map(|pending| pending.line)
     }
 
-    /// Declara la pausa: `pause state=Paused …` **y** `pause frozen=1 …` en la
-    /// misma transición, una línea detrás de la otra en la cola.
+    /// Declares the pause: `pause state=Paused ...` **and** `pause frozen=1 ...` in the
+    /// same transition, one line after the other in the queue.
     ///
-    /// **Orden de emisión declarado (CR-6d086222).** El congelado se publica
-    /// aquí, como parte de la pausa, y no tras un temporizador de reloj real.
-    /// Antes esperaba `FROZEN_AFTER` (1.0 s) y su **posición** dependía del
-    /// frame en que llegara la tecla siguiente: con el arnés del gate a ~0.18 s
-    /// por etapa `pause frozen=1` salía detrás de `options close=1`; con la
-    /// MISMA secuencia de teclas a ~0.55 s por etapa salía entre
-    /// `options open=1` y `options set`. Dos sellos distintos para el mismo
-    /// input: `PROC-idempotent` rojo entre invocaciones. Encolar los dos hechos
-    /// juntos hace que la posición sea función del input y no del frame.
+    /// **Declared emission order (CR-6d086222).** The freeze is published
+    /// here, as part of the pause, and not after a real-clock timer.
+    /// It used to wait for `FROZEN_AFTER` (1.0 s) and its **position** depended on the
+    /// frame in which the next key arrived: with the gate harness at ~0.18 s
+    /// per stage `pause frozen=1` came out behind `options close=1`; with the
+    /// SAME key sequence at ~0.55 s per stage it came out between
+    /// `options open=1` and `options set`. Two distinct seals for the same
+    /// input: `PROC-idempotent` red between invocations. Enqueuing both facts
+    /// together makes the position a function of the input and not of the frame.
     ///
-    /// La semántica no cambia: el mundo deja de tickear en el instante en que
-    /// el estado pasa a `Paused` ([`ShellState::world_live`]), así que `ticks`
-    /// es el mismo valor que declaraba el temporizador; lo único que cambia es
-    /// cuándo se publica la línea.
+    /// The semantics do not change: the world stops ticking at the instant
+    /// the state becomes `Paused` ([`ShellState::world_live`]), so `ticks`
+    /// is the same value the timer declared; the only thing that changes is
+    /// when the line is published.
     pub fn pause_begin(&mut self) {
         self.state = ShellState::Paused;
         self.dwell = 0.0;
@@ -562,14 +562,14 @@ impl Shell {
         self.say(0.0, frozen_line(self.paused_ticks));
     }
 
-    /// Publica de golpe **todas** las líneas cuyo retardo ya cumplió, en orden
-    /// estricto de encolado, y se detiene ante el **primer** retraso vivo.
+    /// Publishes at once **all** lines whose delay has already elapsed, in strict
+    /// enqueue order, and stops at the **first** live delay.
     ///
-    /// Es la versión sin reloj de [`Shell::pump`] para los consumidores que no
-    /// tienen frames (el pase headless del probe y cualquier transcripción que
-    /// deba publicar lo pendiente antes de escribir su propia línea de fase):
-    /// el orden de emisión sigue siendo el de encolado y una línea con retardo
-    /// vivo NO se adelanta — se queda en la cola para el `pump` que la cumpla.
+    /// It is the clock-free version of [`Shell::pump`] for consumers with no
+    /// frames (the probe's headless pass and any transcript that must publish what is
+    /// pending before writing its own phase line): the emission order remains the enqueue
+    /// order and a line with a live delay is NOT overtaken — it stays in the queue for the
+    /// `pump` that fulfils it. Returns how many lines it published.
     /// Devuelve cuántas líneas publicó.
     pub fn drain(&mut self) -> usize {
         let mut published = 0usize;
@@ -587,7 +587,7 @@ impl Shell {
     }
 }
 
-// ── contrato de líneas (ÚNICA copia de las formas del gate) ───────────────
+// ── line contract (ONLY copy of the gate shapes) ──────────────────────────
 
 /// `SHELL VE: boot state=Boot`
 pub fn boot_line() -> String {
@@ -611,7 +611,7 @@ pub fn menu_line(items: usize, selection: usize) -> String {
 
 /// `SHELL VE: menu order=new-game,continue,load,options,quit`
 ///
-/// Fase 2: el menú declara UNA vez por entrada el orden exacto de sus ítems
+/// Phase 2: the menu declares once per entry the exact order of its items
 /// (`scripts/shell-002.py` `RE_MENU_ORDER`).
 pub fn menu_order_line() -> String {
     format!("{LINE_PREFIX}menu order={}", MENU_ITEMS.join(","))
@@ -737,9 +737,9 @@ pub fn load_done_line(slot: usize, format: &str, ticks: u64, character: &str) ->
 
 /// `SHELL VE: options open=1 page=cfg01 pages=11 panel=pause-menu`
 ///
-/// `panel=` es el literal de la pausa TAMBIÉN cuando el panel se abre desde el
-/// menú: el contrato de fase 2 lo exige en las dos aperturas (una sola ruta de
-/// código, una sola forma de línea).
+/// `panel=` is the pause literal ALSO when the panel opens from the
+/// menu: the phase 2 contract requires it in both openings (a single code
+/// path, a single line shape).
 pub fn options_open_line(page: &str, pages: usize) -> String {
     format!("{LINE_PREFIX}options open=1 page={page} pages={pages} panel={PAUSE_OPTIONS}")
 }
@@ -796,11 +796,11 @@ pub fn save_line(slot: usize, format: &str, bytes: usize, digest: u64) -> String
 /// `SHELL VE: slot fidelity=4 index=0 pos=(x,y,z) yaw=R pitch=R
 /// world_minutes=M environment=E map_id=I`
 ///
-/// Renglón NUEVO: no casa con `^SHELL VE: slot index=` (la línea de
-/// `scripts/shell-002.py` sigue anclada a `slot index=`), así que se suma al
-/// canal sin renombrar ni mover ninguna de las cinco expresiones fijadas.
-/// La posición va en **milímetros enteros** y `yaw`/`pitch` en radianes con
-/// tres decimales: el renglón no lleva ningún valor que el render pueda mover.
+/// NEW row: it does not match `^SHELL VE: slot index=` (the
+/// `scripts/shell-002.py` line stays anchored to `slot index=`), so it joins the
+/// channel without renaming or moving any of the five pinned expressions.
+/// The position travels in **integer millimetres** and `yaw`/`pitch` in radians with
+/// three decimals: the row carries no value the renderer can move.
 pub fn slot_fidelity_line(index: usize, world: &crate::shell_slots::WorldSnapshot) -> String {
     format!(
         "{LINE_PREFIX}slot fidelity={} index={index} pos=({},{},{}) yaw={:.3} pitch={:.3} \
@@ -819,21 +819,21 @@ pub fn slot_fidelity_line(index: usize, world: &crate::shell_slots::WorldSnapsho
 
 /// `SHELL VE: slot fidelity=3 index=0 pos=unmeasured reason=session-without-world`
 ///
-/// Se escribe cuando la sesión no midió mundo (paso sin ventana): el slot que
-/// sale es el de generación 3 y la línea **no** publica una posición que nadie
-/// midió — `pos=unmeasured` es la medida (0 coordenadas inventadas).
+/// It is written when the session did not measure a world (windowless pass): the slot that
+/// comes out is the generation 3 one and the line does **not** publish a position nobody
+/// measured — `pos=unmeasured` is the measurement (0 invented coordinates).
 pub fn slot_fidelity_absent_line(index: usize) -> String {
     format!(
         "{LINE_PREFIX}slot fidelity=3 index={index} pos=unmeasured reason=session-without-world"
     )
 }
 
-/// `SHELL VE: warning W-SAVE-001 slot=0 fidelity=3 missing=… restored=identity+session-clock`
+/// `SHELL VE: warning W-SAVE-001 slot=0 fidelity=3 missing=... restored=identity+session-clock`
 ///
-/// El slot de generación 3 (el que el producto escribía hasta
-/// `CR-7a3e9c14`) no declara mundo: se reanuda la identidad y el reloj de
-/// sesión, y el aviso dice **qué falta**. No hay teletransporte silencioso al
-/// spawn ni reloj inventado — `reason=` nombra la causa medible.
+/// The generation 3 slot (the one the product wrote until
+/// `CR-7a3e9c14`) does not declare a world: identity and the session
+/// clock are resumed, and the warning says **what is missing**. There is no silent teleport to
+/// spawn and no invented clock — `reason=` names the measurable cause.
 pub fn save_fidelity_warning_line(
     slot: usize,
     plan: &crate::shell_slots::RestorePlan,
@@ -848,10 +848,10 @@ pub fn save_fidelity_warning_line(
 
 /// `SHELL VE: warning W-SAVE-002 slot=0 environment=2 restored=clock+orientation`
 ///
-/// El slot declara un interior/mazmorra y el reingreso a esa escena no está en
-/// el alcance (`FG-01` resuelve la puerta, no la reentrada desde un slot): se
-/// restauran reloj y orientación, la posición NO se teletransporta a
-/// coordenadas de otra escena y el aviso lo declara.
+/// The slot declares an interior/dungeon and re-entry to that scene is out of
+/// scope (`FG-01` resolves the door, not the re-entry from a slot): clock and
+/// orientation are restored, the position is NOT teleported to
+/// coordinates of another scene, and the warning declares it.
 pub fn interior_not_restored_line(slot: usize, environment: i64) -> String {
     format!(
         "{LINE_PREFIX}warning W-SAVE-002 slot={slot} environment={environment} \
@@ -864,9 +864,9 @@ pub fn session_menu_line() -> String {
     format!("{LINE_PREFIX}session state=Menu from=Playing")
 }
 
-// ── navegación de menú (pura) ─────────────────────────────────────────────
+// ── menu navigation (pure) ────────────────────────────────────────────
 
-/// Siguiente selección al pulsar `Down` (circular — el menú tiene 5 ítems).
+/// Next selection on `Down` (circular — the menu has 5 items).
 pub fn selection_after_down(selection: usize) -> usize {
     (selection + 1) % MENU_ITEMS.len()
 }
@@ -878,14 +878,14 @@ pub fn selection_after_up(selection: usize) -> usize {
 
 // ── viaje rápido (motor ❤️ real) ──────────────────────────────────────────
 
-/// Distancia de Chebyshev entre dos píxeles de mapa (la métrica de
-/// `find_coastal_pixel`: mismo criterio, una sola regla de cercanía).
+/// Chebyshev distance between two map pixels (the metric of
+/// `find_coastal_pixel`: same criterion, a single proximity rule).
 pub fn chebyshev(a: [i32; 2], b: [i32; 2]) -> i32 {
     (a[0] - b[0]).abs().max((a[1] - b[1]).abs())
 }
 
-/// Destino del viaje rápido: el asentamiento más cercano que no sea el píxel
-/// base; desempate `(x, y)` ascendente, determinista.
+/// Fast-travel destination: the nearest settlement that is not the base
+/// pixel; tie-break by ascending `(x, y)`, deterministic.
 pub fn nearest_other(pixels: &[[i32; 2]], base: [i32; 2]) -> Option<[i32; 2]> {
     pixels
         .iter()
@@ -894,9 +894,9 @@ pub fn nearest_other(pixels: &[[i32; 2]], base: [i32; 2]) -> Option<[i32; 2]> {
         .min_by_key(|pixel| (chebyshev(base, *pixel), pixel[0], pixel[1]))
 }
 
-/// Plan de viaje con el motor real: `calculate_travel_time` sobre el clima de
-/// `CLIMATE.PAK` a pie con las opciones del popup retail (cauto, posada,
-/// barco), y `calculate_trip_cost` con las mismas opciones.
+/// Travel plan with the real engine: `calculate_travel_time` over the
+/// `CLIMATE.PAK` weather on foot with the retail popup options (cautious, inn,
+/// boat), and `calculate_trip_cost` with the same options.
 pub fn plan_travel<T: TerrainLookup>(
     terrain: &T,
     from: (i32, i32),
@@ -927,8 +927,8 @@ mod tests {
     use super::*;
     use daggerfall_heart::travel::UniformTerrain;
 
-    /// Las formas de línea son las del contrato del gate (`scripts/shell-001.py`
-    /// §RE_*): prefijo exacto, un espacio entre campos, sin cola.
+    /// The line shapes are the gate contract's (`scripts/shell-001.py`
+    /// §RE_*): exact prefix, one space between fields, no tail.
     #[test]
     fn evidence_lines_match_the_gate_contract() {
         assert_eq!(boot_line(), "SHELL VE: boot state=Boot");
@@ -998,8 +998,8 @@ mod tests {
         );
     }
 
-    /// El título lleva la etiqueta completa que `label_of` busca, y el estado
-    /// decide si el mundo corre.
+    /// The title carries the full label `label_of` looks up, and the state
+    /// decides whether the world runs.
     #[test]
     fn titles_and_world_gate_follow_the_state() {
         assert_eq!(ShellState::Boot.title(), "SHELL BOOT");
@@ -1025,9 +1025,9 @@ mod tests {
         }
     }
 
-    /// Las formas de la fase 2 son las del gate `scripts/shell-002.py`, con el
-    /// literal `panel=pause-menu` también en la apertura desde el menú y el
-    /// `format=v3` de los slots.
+    /// The phase 2 shapes are those of the `scripts/shell-002.py` gate, with the
+    /// `panel=pause-menu` literal also on the opening from the menu and the
+    /// `format=v3` of the slots.
     #[test]
     fn phase_two_lines_match_the_gate_contract() {
         let slot = crate::shell_slots::SlotFacts {
@@ -1095,9 +1095,9 @@ mod tests {
         assert_eq!(session_menu_line(), "SHELL VE: session state=Menu from=Playing");
     }
 
-    /// `_fixture` — el renglón de fidelidad NO colisiona con la línea anclada
-    /// `slot index=` de `scripts/shell-002.py` (el fichero del gate es
-    /// intocable): mismo prefijo, otra forma, y `pos` en milímetros enteros.
+    /// `_fixture` — the fidelity row does NOT collide with the anchored
+    /// `slot index=` line of `scripts/shell-002.py` (the gate file is
+    /// untouchable): same prefix, another shape, and `pos` in integer millimetres.
     #[test]
     fn slot_fidelity_lines_fixture_do_not_collide_with_the_pinned_slot_line() {
         let world = crate::shell_slots::WorldSnapshot {
@@ -1115,7 +1115,7 @@ mod tests {
             "SHELL VE: slot fidelity=4 index=0 pos=(422000,1600,419000) yaw=3.930 \
              pitch=-0.000 world_minutes=210169081 environment=1 map_id=65535"
         );
-        // El renglón viejo sigue exactamente igual (contrato de fase 2).
+        // The old row stays exactly the same (phase 2 contract).
         assert!(!slot_fidelity_line(0, &world).starts_with("SHELL VE: slot index="));
         assert_eq!(
             slot_fidelity_absent_line(3),
@@ -1138,9 +1138,9 @@ mod tests {
         );
     }
 
-    /// Las 11 páginas del censo de configuración se publican con id en
-    /// minúsculas y clave de control distinta (el contrato `page`/`key` solo
-    /// admite `[a-z0-9-]{1,24}`).
+    /// The 11 pages of the configuration census are published with lowercase
+    /// id and a distinct control key (the `page`/`key` contract only
+    /// accepts `[a-z0-9-]{1,24}`).
     #[test]
     fn config_pages_are_the_declared_eleven_with_lowercase_ids() {
         let pages = config_pages();
@@ -1157,8 +1157,8 @@ mod tests {
         }
     }
 
-    /// El canon de creación declara 10 pasos con ids distintos y el token del
-    /// personaje es determinista (misma cara → mismo token).
+    /// The creation canon declares 10 steps with distinct ids and the character
+    /// token is deterministic (same face → same token).
     #[test]
     fn create_canon_declares_ten_distinct_fields_and_a_deterministic_token() {
         assert_eq!(CREATE_STEPS, 10);
@@ -1173,12 +1173,12 @@ mod tests {
         assert_eq!(character_token(CREATE_FACES + 1), character_token(1));
     }
 
-    /// El menú navega en círculo sobre los 5 ítems: `Down` recorre
-    /// 0→1→2→3→4→0 y `Up` el camino inverso 0→4→3→2→1→0 (incluido el salto
-    /// 1→2). Los ciclos se escriben como secuencias explícitas: repetir aquí
-    /// `(s + 1) % 5` reafirmaría la fórmula en vez de comprobar el contrato.
+    /// The menu navigates in a circle over the 5 items: `Down` walks
+    /// 0→1→2→3→4→0 and `Up` the reverse path 0→4→3→2→1→0 (including the jump
+    /// 1→2). The cycles are written as explicit sequences: repeating here
+    /// `(s + 1) % 5` would reassert the formula instead of checking the contract.
     ///
-    /// Los nombres fijan el `menu order=` del gate (`scripts/shell-002.py`).
+    /// The names fix the gate's `menu order=` (`scripts/shell-002.py`).
     #[test]
     fn menu_navigation_wraps_over_the_five_items() {
         assert_eq!(MENU_ITEMS[MENU_NEW_GAME], "new-game");
@@ -1224,9 +1224,9 @@ mod tests {
         }
     }
 
-    /// El estado de opciones es UNO: el valor de la página sobrevive a cerrar
-    /// el panel y a la navegación menú → partida → pausa (la base de
-    /// `check_options_apply`, donde el segundo valor debe ser mayor).
+    /// The options state is ONE: the page value survives closing
+    /// the panel and the navigation menu → game → pause (the basis of
+    /// `check_options_apply`, where the second value must be greater).
     #[test]
     fn option_values_survive_panel_close_and_navigation() {
         let mut shell = Shell::new(
@@ -1260,9 +1260,9 @@ mod tests {
         assert_eq!(shell.state, ShellState::Paused);
     }
 
-    /// El destino es el asentamiento más cercano distinto del base, con
-    /// desempate `(x, y)`; sobre clima uniforme el plan de viaje cuesta tiempo
-    /// real (>0) y devuelve los píxeles recorridos del motor.
+    /// The destination is the nearest settlement different from the base, with
+    /// `(x, y)` tie-break; over uniform weather the travel plan costs real
+    /// time (>0) and returns the engine's traversed pixels.
     #[test]
     fn travel_targets_the_nearest_settlement_and_uses_the_engine() {
         let pixels = [[0, 0], [3, 4], [10, 10], [3, 2]];
@@ -1275,8 +1275,8 @@ mod tests {
         assert_eq!(facts.to, [3, 2]);
     }
 
-    /// El reloj `Paused` no lo mueve nadie: dos lecturas seguidas del mismo
-    /// shell son iguales (la base de `check_pause`).
+    /// Nobody moves the `Paused` clock: two consecutive reads of the same
+    /// shell are equal (the basis of `check_pause`).
     #[test]
     fn paused_ticks_do_not_advance_without_a_consumer() {
         let hud = HudFacts {
@@ -1305,22 +1305,22 @@ mod tests {
         assert_eq!(shell.units_total, 6);
     }
 
-    /// Anticuerpo del orden de emisión (`PROC-idempotent` de
+    /// Antibody for the emission order (`PROC-idempotent` of
     /// `scripts/shell-002.py`, CR-6d086222).
     ///
-    /// La pausa y el guardado caen en la **misma frame** —`Escape` y `s` sin
-    /// ningún frame entre ellos— y la secuencia publicada tiene que ser la
-    /// misma en todas las repeticiones, sea cual sea el reparto de `dt` entre
-    /// los frames. Antes de este arreglo `pause frozen=1` no se encolaba aquí:
-    /// esperaba `FROZEN_AFTER` (1.0 s de reloj real) en `shell_progress`, así
-    /// que su **posición** era función del frame y no del input — con el arnés
-    /// del gate salía detrás de `options close=1` a ~0.18 s por etapa y entre
-    /// `options open=1` y `options set` a ~0.55 s por etapa.
+    /// The pause and the save land on the **same frame** —`Escape` and `s` with
+    /// no frame between them— and the published sequence must be the
+    /// same on every repetition, whatever the split of `dt` across
+    /// frames. Before this fix `pause frozen=1` was not enqueued here:
+    /// it waited for `FROZEN_AFTER` (1.0 s of wall clock) in `shell_progress`, so
+    /// its **position** was a function of the frame and not of the input — with the gate
+    /// harness it came out behind `options close=1` at ~0.18 s per stage and between
+    /// `options open=1` and `options set` at ~0.55 s per stage.
     #[test]
     fn pause_and_save_in_one_frame_publish_one_sequence_in_every_run() {
-        // Tres líneas, cuatro ritmos: un frame corto por línea, frames de
-        // 250 ms, un frame de 1.4 s que ya cumple el retardo de la pausa y un
-        // frame de 3 s que cumple el de todas.
+        // Three lines, four rhythms: one short frame per line, 250 ms
+        // frames, a 1.4 s frame that already fulfils the pause delay and a
+        // 3 s frame that fulfils all of them.
         let schedules: [&[f32]; 4] = [
             &[0.016, 0.016, 0.016],
             &[0.25, 0.25, 0.25],
@@ -1348,7 +1348,7 @@ mod tests {
                     None,
                 );
                 shell.state = ShellState::Playing;
-                // Las dos teclas, la misma frame, el mismo orden de llegada.
+                // Both keys, the same frame, the same arrival order.
                 shell.pause_begin();
                 crate::shell_route::open_save(
                     &mut shell,
@@ -1360,8 +1360,8 @@ mod tests {
                         published.push(line);
                     }
                 }
-                // Cola completa: frames de 0.5 s publican lo que falte (una
-                // línea por frame, en orden de encolado).
+                // Full queue: 0.5 s frames publish whatever is left (one
+                // line per frame, in enqueue order).
                 for _ in 0..4 {
                     if let Some(line) = shell.next_line(0.5) {
                         published.push(line);

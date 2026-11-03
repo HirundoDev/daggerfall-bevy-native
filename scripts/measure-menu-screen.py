@@ -46,8 +46,8 @@ BAND_PX = 160
 CENTER = (640, 400)
 CORNER_PX = 40
 
-# Un píxel es «negro» cuando sus tres canales valen <= este umbral (ruido de
-# sincronía del servidor X, no contenido).
+#  A pixel is 'black' when its three channels are <= this threshold (X server
+#  sync noise, not content).
 BLACK_MAX = 8
 
 
@@ -133,10 +133,10 @@ def activate(d, X, win):
 
 
 def key(d, X, win, keysym_name: str):
-    """Pulsa una tecla por el camino que usan los gates de la casa: evento Core
-    sintético **directo a la ventana** (`shell-001.send_key`). XTEST va al foco
-    global y en la primera corrida el primer `Return` se perdió (el menú acabó
-    cerrando por `quit`): aquí no hace falta foco."""
+    """Presses a key on the path the house gates use: Core event
+        synthesized **directly to the window** (`shell-001.send_key`). XTEST goes to the global
+        focus and on the first run the first `Return` was lost (the menu ended up
+        closing on `quit`): here no focus is needed."""
     from Xlib import XK
     from Xlib.protocol import event as xevent
 
@@ -232,7 +232,7 @@ def measure_png(path: Path) -> dict:
     metrics = {"size": [w, h], "sha256": sha256_file(path), "regions": {}}
     for name, box in regions.items():
         metrics["regions"][name] = region_metrics(img, box)
-    # «píxeles de mundo»: cualquier píxel no negro fuera del panel central.
+    #  'world pixels': any non-black pixel outside the central panel.
     outside = 0
     outside_total = 0
     px = list(img.convert("RGB").getdata())
@@ -363,7 +363,7 @@ def run(args) -> int:
             png_play = out / "playing.png"
             if capture(display_name, win.id, png_play):
                 captures["playing"] = measure_png(png_play)
-            # teclas 1-6: cada una debe declarar su panel (evidencia del log)
+            #  keys 1-6: each must declare its panel (log evidence)
             for keysym in args.panel_keys.split(","):
                 activate(d, X, win)
                 key(d, X, win, keysym)
@@ -386,7 +386,7 @@ def run(args) -> int:
         result["lines"] = [(round(t, 3), line) for t, line in lines]
     result["log"] = str(log_path)
 
-    # contadores de simulación por fase (evidencia del requisito 2)
+    #  simulation counters per phase (requirement 2 evidence)
     ticks = [
         line for _, line in result["lines"] if "M18 VE: sim ticks=" in line
     ]

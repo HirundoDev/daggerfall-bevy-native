@@ -1,60 +1,60 @@
-//! **M-QST · ruta del disparador de la quest principal** (`CR-9b3e5d70`): la
-//! costura entre el estado puro ([`daggerfall_behavior::mainquest`]), el
-//! shell (cola de evidencia, reloj, sesión), el save v3 y las teclas.
+//! **M-QST · main-quest trigger route** (`CR-9b3e5d70`): the
+//! seam between the pure state ([`daggerfall_behavior::mainquest`]), the
+//! shell (evidence queue, clock, session), the v3 save and the keys.
 //!
-//! ## Qué es y qué NO es
+//! ## What it is and what it is NOT
 //!
-//! Aquí **no** hay reglas nuevas: la tabla legal vive en el órgano
-//! (`mainquest::apply`, 7 aristas) y este módulo solo
+//! There are **no** new rules here: the legal table lives in the organ
+//! (`mainquest::apply`, 7 edges) and this module only
 //!
-//! 1. dispara la oferta **una vez**, en la entrada al mundo
-//!    ([`offer`], llamado por [`crate::shell_route::enter_playing`] después de
-//!    `state = Playing` y **antes** del early-return de la escena ausente: con
-//!    `scene = None` el pase headless también la ve);
-//! 2. traduce teclas a acciones ([`QuestKey`], [`press`]) y el cierre del
-//!    objetivo ([`on_defeat`], llamado desde `m14_melee_sfx` cuando el motor
-//!    declara `target_died`);
-//! 3. persiste y rehidrata el estado como **una fila de texto** en
-//!    `QuestsSection::states` (`MQ-01.state=<token>`), la forma que el save v3
-//!    ya modela: **0 bump de versión, 0 migración, 0 sección nueva**.
+//! 1. fires the offer **once**, on entry to the world
+//!    ([`offer`], called by [`crate::shell_route::enter_playing`] after
+//!    `state = Playing` and **before** the missing-scene early return: with
+//!    `scene = None` the headless pass sees it too);
+//! 2. translates keys into actions ([`QuestKey`], [`press`]) and the closing of
+//!    the objective ([`on_defeat`], called from `m14_melee_sfx` when the engine
+//!    reports `target_died`);
+//! 3. persists and rehydrates the state as **one text row** in
+//!    `QuestsSection::states` (`MQ-01.state=<token>`), the shape the v3 save
+//!    already models: **0 version bump, 0 migration, 0 new section**.
 //!
-//! ## Mapeo de teclas (declarado, 4 teclas para 4 acciones)
+//! ## Key mapping (declared, 4 keys for 4 actions)
 //!
-//! | Tecla | Acción | Dónde es legal |
+//! | Key | Action | Where it is legal |
 //! |:---:|:---|:---|
-//! | `Y` | `Accept` | solo `Offered` |
-//! | `N` | `Decline` | solo `Offered` |
-//! | `P` | `Complete` (entregar la prueba) | solo `Act1Return` |
+//! | `Y` | `Accept` | only `Offered` |
+//! | `N` | `Decline` | only `Offered` |
+//! | `P` | `Complete` (deliver the proof) | only `Act1Return` |
 //! | `X` | `Abandon` | `Act1Hunt` · `Act1Return` |
 //!
-//! El HH-1 heredado fija el **conjunto** de teclas (`Y`/`N`/`P`/`X`); el
-//! reparto de `P` (entregar) y `X` (abandonar) es la lectura de esta lane: la
-//! entrega necesita una tecla y `X` es el abandono de las dos aristas que la
-//! tabla declara. Una tecla ilegal en el estado actual **no se traga**: publica
-//! `refused` con el par pedido y no mueve el estado.
+//! The inherited HH-1 fixes the **set** of keys (`Y`/`N`/`P`/`X`); the
+//! split of `P` (deliver) and `X` (abandon) is this lane's reading:
+//! delivery needs a key, and `X` is the abandonment of the two edges the
+//! table declares. An illegal key in the current state is **not swallowed**:
+//! it publishes `refused` with the requested pair and does not move the state.
 //!
-//! ## Texto
+//! ## Text
 //!
-//! El nombre y los objetivos de `MQ-01` son **inventados** en esta lane
-//! (0 bytes retail): el contrato de la quest no existe en los datos de
-//! Daggerfall y este árbol no copia prosa de nadie.
+//! The name and objectives of `MQ-01` are **invented** in this lane
+//! (0 retail bytes): the quest contract does not exist in Daggerfall's
+//! data and this tree copies nobody's prose.
 //!
-//! ## Prompt visible
+//! ## Visible prompt
 //!
-//! `prompt_lines()` es el único texto: la ventana lo compone con el `.FNT` del
-//! journal ([`prompt_overlay`]) y lo pinta sin que el jugador pulse `I`. El
-//! prompt es función del estado (oferta = título + `Y`/`N`; acto = objetivo +
-//! teclas; terminal = una línea) y `unstarted` no pinta nada. El probe
-//! `PROBE-MAINQUEST-002` mide esa superficie en píxeles, no en promesas.
+//! `prompt_lines()` is the only text: the window composes it with the journal's
+//! `.FNT` ([`prompt_overlay`]) and paints it without the player pressing `I`.
+//! The prompt is a function of the state (offer = title + `Y`/`N`; act = objective +
+//! keys; terminal = one line) and `unstarted` paints nothing. The
+//! `PROBE-MAINQUEST-002` probe measures that surface in pixels, not in promises.
 //!
-//! ## Evidencia
+//! ## Evidence
 //!
-//! Canal propio `MQ VE:` (no colisiona con `SHELL VE:`/`M18 VE:` ni con las
-//! formas que los gates ya capturan, así que no altera su espina estable):
-//! una línea por transición aplicada y una por rechazo, en orden de cola.
-//! Tras aceptar, el acto 1 es **1 muerte + entrega**: `compose_demo_fight`
-//! compone un enemigo por pelea y dos muertes lo dejarían incompletable fuera
-//! del probe.
+//! Own channel `MQ VE:` (it does not collide with `SHELL VE:`/`M18 VE:` nor with the
+//! shapes the gates already capture, so it does not alter their stable spine):
+//! one line per applied transition and one per refusal, in queue order.
+//! After accepting, act 1 is **1 death + delivery**: `compose_demo_fight`
+//! composes one enemy per fight, and two deaths would leave it uncompletable
+//! outside the probe.
 
 use std::path::Path;
 
@@ -66,28 +66,28 @@ use crate::m18_demo::DemoTexture;
 use crate::m18_phase::AppPhase;
 use crate::shell::{self, HudFacts, Shell, ShellState};
 
-/// Prefijo de evidencia de la quest (canal propio).
+/// Evidence prefix of the quest (own channel).
 pub const PREFIX: &str = "MQ VE:";
 
-/// Título inventado de `MQ-01` (0 bytes retail — ver el doc del módulo).
+/// Invented title of `MQ-01` (0 retail bytes — see the module docs).
 pub const TITLE: &str = "The court's summons";
 
-/// Teclas con significado para la quest, ya traducidas por la ventana.
+/// Keys with meaning for the quest, already translated by the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuestKey {
     /// `Y`: aceptar la oferta.
     Accept,
     /// `N`: rechazar la oferta.
     Decline,
-    /// `P`: entregar la prueba del acto 1.
+    /// `P`: deliver the act 1 proof.
     Deliver,
     /// `X`: abandonar el acto.
     Abandon,
 }
 
 impl QuestKey {
-    /// Acción de la tabla que pide esta tecla (sin decidir si es legal: eso lo
-    /// decide `mainquest::apply`).
+    /// Table action this key requests (it does not decide whether it is legal:
+    /// `mainquest::apply` decides that).
     pub const fn action(self) -> Action {
         match self {
             Self::Accept => Action::Accept,
@@ -98,13 +98,13 @@ impl QuestKey {
     }
 }
 
-/// Estado de la quest en la sesión + cuántas ofertas se emitieron en ella.
+/// Quest state in the session + how many offers were emitted in it.
 ///
-/// El estado **no** tiene setter: [`Self::apply`] es la única puerta y delega
-/// en la tabla del órgano. El contador de ofertas es el instrumento del
-/// invariante «la oferta no se repite»: solo [`Self::apply`] con
-/// [`mainquest::Action::Offer`] puede incrementarlo, y esa arista solo existe
-/// desde `Unstarted`.
+/// The state has **no** setter: [`Self::apply`] is the single door and delegates
+/// to the organ's table. The offer counter is the instrument of the
+/// "the offer does not repeat" invariant: only [`Self::apply`] with
+/// [`mainquest::Action::Offer`] can increment it, and that edge only exists
+/// from `Unstarted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MainQuest {
     state: State,
@@ -120,12 +120,12 @@ impl MainQuest {
         }
     }
 
-    /// Sesión rehidratada desde un save (`state` entra ya validado).
+    /// Session rehydrated from a save (`state` comes in already validated).
     ///
-    /// El contador arranca en 0: las ofertas de la sesión anterior no se
-    /// pueden re-emitir porque el estado persistido ya no es `Unstarted`, y un
-    /// contador que se heredara diría que esta sesión ofreció algo que no
-    /// ofreció.
+    /// The counter starts at 0: the previous session's offers cannot be
+    /// re-emitted because the persisted state is no longer `Unstarted`, and a
+    /// counter that were inherited would claim this session offered something it
+    /// did not offer.
     pub fn restored(state: State) -> Self {
         Self { state, offers: 0 }
     }
@@ -135,13 +135,13 @@ impl MainQuest {
         self.state
     }
 
-    /// Ofertas emitidas en esta sesión (instrumento del invariante).
+    /// Offers emitted in this session (instrument of the invariant).
     pub const fn offers(&self) -> u32 {
         self.offers
     }
 
-    /// **La única puerta**: aplica la acción si la tabla la declara y devuelve
-    /// el estado nuevo; si no, [`Refusal`] y el estado queda intacto.
+    /// **The single door**: applies the action if the table declares it and returns
+    /// the new state; otherwise [`Refusal`] and the state is left untouched.
     pub fn apply(&mut self, action: Action) -> Result<State, Refusal> {
         let next = mainquest::apply(self.state, action)?;
         self.state = next;
@@ -160,8 +160,8 @@ impl Default for MainQuest {
 
 // ── líneas de evidencia ─────────────────────────────────────────────────────
 
-/// Nota legible de cada arista aplicada (el bloque `from=/action=/state=` es
-/// el que el probe y el humano leen).
+/// Readable note of each applied edge (the `from=/action=/state=` block is
+/// what the probe and the human read).
 fn note(action: Action) -> &'static str {
     match action {
         Action::Offer => "Y accept / N decline",
@@ -215,12 +215,12 @@ pub fn refusal_line(refusal: &Refusal) -> String {
 
 // ── disparador y teclas ─────────────────────────────────────────────────────
 
-/// Dispara la oferta **una sola vez** (solo alcanzable desde `Unstarted`).
+/// Fires the offer **once** (only reachable from `Unstarted`).
 ///
-/// Lo llama [`crate::shell_route::enter_playing`] tras fijar `state = Playing`
-/// y antes del early-return de la escena ausente. Devuelve `true` si la oferta
-/// se emitió: la segunda llamada de la misma sesión ya no puede (el estado
-/// dejó `Unstarted`), y una sesión rehidratada tampoco.
+/// Called by [`crate::shell_route::enter_playing`] after setting `state = Playing`
+/// and before the missing-scene early return. Returns `true` if the offer
+/// was emitted: a second call in the same session cannot (the state left
+/// `Unstarted`), and neither can a rehydrated session.
 pub fn offer(shell: &mut Shell) -> bool {
     let from = shell.mainquest.state();
     match shell.mainquest.apply(Action::Offer) {
@@ -228,26 +228,26 @@ pub fn offer(shell: &mut Shell) -> bool {
             shell.say(0.0, transition_line(from, Action::Offer, to));
             true
         }
-        // La tabla no tiene otra arista desde `Unstarted`: un `Err` aquí es
-        // «ya se ofreció» (o terminal), silencio de diseño, no un fallo.
+        // The table has no other edge from `Unstarted`: an `Err` here is
+        // "already offered" (or terminal), silence by design, not a failure.
         Err(_) => false,
     }
 }
 
-/// Aplica la acción de una tecla y publica transición **o** rechazo.
-/// Devuelve `true` si la tabla la aceptó.
+/// Applies a key's action and publishes a transition **or** a refusal.
+/// Returns `true` if the table accepted it.
 pub fn press(shell: &mut Shell, key: QuestKey) -> bool {
     apply_action(shell, key.action())
 }
 
-/// El objetivo del acto 1 murió (`target_died` del motor): `Act1Hunt →
-/// Act1Return`. Una segunda muerte en `Act1Return` se publica como rechazo y
-/// no avanza el acto.
+/// The act 1 objective died (`target_died` from the engine): `Act1Hunt →
+/// Act1Return`. A second death in `Act1Return` is published as a refusal and
+/// does not advance the act.
 pub fn on_defeat(shell: &mut Shell) -> bool {
     apply_action(shell, Action::Slay)
 }
 
-/// Única ruta de las acciones del consumidor: puerta + evidencia.
+/// Single route for the consumer's actions: door + evidence.
 fn apply_action(shell: &mut Shell, action: Action) -> bool {
     let from = shell.mainquest.state();
     match shell.mainquest.apply(action) {
@@ -264,13 +264,13 @@ fn apply_action(shell: &mut Shell, action: Action) -> bool {
 
 // ── persistencia (0 bump, 0 migración) ──────────────────────────────────────
 
-/// Escribe `MQ-01.state=<token>` en `QuestsSection::states`.
+/// Writes `MQ-01.state=<token>` into `QuestsSection::states`.
 ///
-/// Idempotente: retira la fila previa (si existe) y la vuelve a insertar en
-/// orden por clave, que es el orden que el documento canónico exige. Una
-/// sesión que nunca disparó el disparador (`Unstarted`) **no** escribe fila:
-/// no hay estado que restaurar y un documento sin quest queda byte a byte
-/// como antes de esta lane.
+/// Idempotent: it removes the previous row (if any) and reinserts it in
+/// key order, the order the canonical document demands. A session that never
+/// fired the trigger (`Unstarted`) does **not** write a row: there is no state
+/// to restore, and a document without a quest stays byte for byte as it was
+/// before this lane.
 pub fn persist(doc: &mut SaveGameV2, state: State) {
     doc.quests
         .states
@@ -287,11 +287,11 @@ pub fn persist(doc: &mut SaveGameV2, state: State) {
         .sort_by(|left, right| left.0.cmp(&right.0));
 }
 
-/// Rehidrata el estado del documento.
+/// Rehydrates the state from the document.
 ///
-/// Fila ausente ⇒ `Unstarted` (un save anterior a esta lane es una sesión que
-/// nunca recibió la oferta). Token desconocido ⇒ `Unstarted`: se declara, no
-/// se adivina ni se aborta la carga por una fila de una versión futura.
+/// Missing row ⇒ `Unstarted` (a save from before this lane is a session that
+/// never received the offer). Unknown token ⇒ `Unstarted`: it is declared,
+/// not guessed, and the load is not aborted for a future-version row.
 pub fn restore(doc: &SaveGameV2) -> State {
     doc.quests
         .states
@@ -301,38 +301,38 @@ pub fn restore(doc: &SaveGameV2) -> State {
         .unwrap_or_default()
 }
 
-/// Rehidrata la sesión desde el documento **antes** de entrar al mundo, para
-/// que el disparador de [`crate::shell_route::enter_playing`] vea el estado
-/// real y no re-ofrezca.
+/// Rehydrates the session from the document **before** entering the world, so
+/// that [`crate::shell_route::enter_playing`]'s trigger sees the real state
+/// and does not offer again.
 pub fn restore_into(shell: &mut Shell, doc: &SaveGameV2) {
     shell.mainquest = MainQuest::restored(restore(doc));
 }
 
-// ── prompt en pantalla (la quest VISIBLE) ───────────────────────────────────
+// ── prompt on screen (the VISIBLE quest) ────────────────────────────────────
 //
-// M-QST medía la máquina de estados, el probe y el save; al jugador no le
-// llegaba nada porque la oferta sólo existía como línea `MQ VE:` de canal.
-// Esta sección pinta el prompt con la **vía que ya existe** (el `.FNT` retail
-// del journal y `m18_b3b::text_overlay`), sin `bevy_ui`, sin fuente nueva y
-// sin sistema de UI nuevo: una textura más, compuesta desde el estado.
+// M-QST measured the state machine, the probe and the save; nothing reached
+// the player because the offer only existed as a channel `MQ VE:` line.
+// This section paints the prompt through the **path that already exists** (the
+// journal's retail `.FNT` and `m18_b3b::text_overlay`), with no `bevy_ui`, no new
+// font and no new UI system: one more texture, composed from the state.
 
-/// Escala del prompt sobre la cámara 2D: la misma 2× que declaran los overlays
-/// retail. Vive aquí para que la ventana y el probe midan la MISMA región.
+/// Prompt scale over the 2D camera: the same 2× the retail overlays
+/// declare. It lives here so the window and the probe measure the SAME region.
 pub const PROMPT_SCALE: f32 = 2.0;
 
-/// Margen del prompt al borde de la ventana (el de los overlays retail).
+/// Prompt margin to the window edge (the one of the retail overlays).
 pub const PROMPT_MARGIN_PX: f32 = 8.0;
 
-/// Pantalla de referencia del probe: el tamaño que declara la ventana del
-/// producto (1280×720). Sólo la usa el probe; la ventana mide la suya.
+/// Reference screen of the probe: the size the product window declares
+/// (1280×720). Only the probe uses it; the window measures its own.
 pub const PROBE_SCREEN: (u32, u32) = (1280, 720);
 
-/// Líneas del prompt para el estado actual. Vacío ⇒ no hay nada que pintar
-/// (`unstarted`: un mundo que nunca recibió la oferta no enseña prompt).
+/// Prompt lines for the current state. Empty ⇒ there is nothing to paint
+/// (`unstarted`: a world that never received the offer shows no prompt).
 ///
-/// El texto de `MQ-01` es **nuestro** (ver el doc del módulo); las teclas que
-/// cada línea anuncia son las que la tabla legal acepta desde ese estado, así
-/// que el prompt no puede prometer una acción que `apply()` rechazaría.
+/// The `MQ-01` text is **ours** (see the module docs); the keys each line
+/// announces are the ones the legal table accepts from that state, so
+/// the prompt cannot promise an action `apply()` would refuse.
 pub fn prompt_lines(state: State) -> Vec<String> {
     let id = mainquest::QUEST_ID;
     match state {
@@ -349,10 +349,10 @@ pub fn prompt_lines(state: State) -> Vec<String> {
     }
 }
 
-/// Textura del prompt. `None` cuando el estado no pinta nada (`unstarted`).
+/// Prompt texture. `None` when the state paints nothing (`unstarted`).
 ///
-/// La composición es la del journal (`text_overlay`): misma fuente, misma
-/// tinta, mismo apilado — 0 antialiasing y 0 píxel fuera de la tinta.
+/// The composition is the journal's (`text_overlay`): same font, same
+/// ink, same stacking — 0 antialiasing and 0 pixel outside the ink.
 pub fn prompt_overlay(font: &FntFile, ink: [u8; 3], state: State) -> Option<DemoTexture> {
     let lines = prompt_lines(state);
     if lines.is_empty() {
@@ -361,9 +361,9 @@ pub fn prompt_overlay(font: &FntFile, ink: [u8; 3], state: State) -> Option<Demo
     Some(crate::m18_b3b::text_overlay(font, ink, &lines))
 }
 
-/// Centro del prompt en la cámara 2D (origen en el centro, `+y` arriba):
-/// esquina superior derecha, el hueco que ni el diálogo (arriba-izquierda) ni
-/// el journal (abajo-centro) ocupan.
+/// Prompt centre in the 2D camera (origin at the centre, `+y` up):
+/// top-right corner, the gap neither the dialogue (top-left) nor
+/// the journal (bottom-centre) occupies.
 pub fn prompt_center(screen_w: f32, screen_h: f32, size: (u16, u16), scale: f32) -> (f32, f32) {
     let width = f32::from(size.0) * scale;
     let height = f32::from(size.1) * scale;
@@ -373,8 +373,8 @@ pub fn prompt_center(screen_w: f32, screen_h: f32, size: (u16, u16), scale: f32)
     )
 }
 
-/// La misma posición vista desde el frame: rectángulo del prompt en píxeles de
-/// pantalla, origen arriba-izquierda (`x0, y0, w, h`) y ya escalado.
+/// The same position seen from the frame: prompt rectangle in screen
+/// pixels, origin top-left (`x0, y0, w, h`) and already scaled.
 pub fn prompt_rect(screen: (u32, u32), size: (u16, u16), scale: f32) -> (u32, u32, u32, u32) {
     let (center_x, center_y) = prompt_center(screen.0 as f32, screen.1 as f32, size, scale);
     let width = (f32::from(size.0) * scale).round() as u32;
@@ -389,14 +389,14 @@ pub fn prompt_rect(screen: (u32, u32), size: (u16, u16), scale: f32) -> (u32, u3
     )
 }
 
-/// Píxeles de tinta de la textura: opacos (el pintor sólo escribe la tinta con
-/// alfa 255).
+/// Ink pixels of the texture: opaque (the painter only writes ink with
+/// alpha 255).
 pub fn ink_pixels(texture: &DemoTexture) -> usize {
     texture.rgba.chunks_exact(4).filter(|px| px[3] == 255).count()
 }
 
-/// `(fuera_de_tinta, alfa_parcial)`: los dos deben ser 0 — el prompt pinta
-/// tinta y nada más.
+/// `(outside_ink, partial_alpha)`: both must be 0 — the prompt paints
+/// ink and nothing else.
 pub fn off_ink_pixels(texture: &DemoTexture, ink: [u8; 3]) -> (usize, usize) {
     let mut off_ink = 0usize;
     let mut partial = 0usize;
@@ -411,8 +411,8 @@ pub fn off_ink_pixels(texture: &DemoTexture, ink: [u8; 3]) -> (usize, usize) {
     (off_ink, partial)
 }
 
-/// Digest FNV-1a 64 de la textura (dimensiones + RGBA): dos pinturas distintas
-/// dan digests distintos y la misma pintura dos veces da el mismo.
+/// FNV-1a 64 digest of the texture (dimensions + RGBA): two different
+/// paintings give different digests and the same painting twice gives the same.
 pub fn texture_digest(texture: &DemoTexture) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for byte in texture
@@ -430,7 +430,7 @@ pub fn texture_digest(texture: &DemoTexture) -> u64 {
 
 // ── PROBE-MAINQUEST-001 (headless, --features probes) ───────────────────────
 
-/// Filas de veredicto del probe (una por aserción, con sus hechos medidos).
+/// Verdict rows of the probe (one per assertion, with its measured facts).
 #[derive(Default)]
 struct Rows {
     fails: usize,
@@ -447,13 +447,13 @@ impl Rows {
     }
 }
 
-/// Directorio del probe: `temp/dfl-mainquest-<pid>` (borrado al terminar).
+/// Probe directory: `temp/dfl-mainquest-<pid>` (deleted at the end).
 fn probe_dir() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("dfl-mainquest-{}", std::process::id()))
 }
 
-/// Shell headless: sin escena, sin HUD medido, sin ubicación retail (los
-/// campos que no se miden quedan declarados ausentes, no rellenados).
+/// Headless shell: no scene, no measured HUD, no retail location (the
+/// fields that are not measured stay declared absent, not filled in).
 fn fresh_shell() -> Shell {
     Shell::new(
         Vec::new(),
@@ -469,9 +469,9 @@ fn fresh_shell() -> Shell {
     )
 }
 
-/// Nueva partida por la **ruta de producción** (`create_begin` →
-/// `create_next_step` → `confirm_create`), que es quien entra en `Playing` y
-/// por tanto quien dispara la oferta. Devuelve el token del personaje.
+/// New game through the **production route** (`create_begin` →
+/// `create_next_step` → `confirm_create`), which is what enters `Playing` and
+/// therefore what fires the offer. Returns the character token.
 fn new_game(shell: &mut Shell, phase: &mut AppPhase, dir: &Path) -> Result<String, String> {
     shell.state = ShellState::Menu {
         selection: shell::MENU_NEW_GAME,
@@ -483,16 +483,16 @@ fn new_game(shell: &mut Shell, phase: &mut AppPhase, dir: &Path) -> Result<Strin
         .ok_or_else(|| "create: the wizard was not open".to_string())
 }
 
-/// Publica la cola ya lista (una línea por transición) y devuelve cuántas.
+/// Publishes the queue already prepared (one line per transition) and returns how many.
 fn publish(shell: &mut Shell) -> usize {
     shell.drain()
 }
 
-/// `PROBE-MAINQUEST-001` — disparador + acto 1 + persistencia, headless.
+/// `PROBE-MAINQUEST-001` — trigger + act 1 + persistence, headless.
 ///
-/// Recorrido declarado: nueva partida → oferta → acepta → muerte real del
-/// motor → entrega → guarda → carga → estado preservado y **sin re-oferta**.
-/// Después, los tres falsificadores con su medición, no con su promesa.
+/// Declared walkthrough: new game → offer → accept → real engine death →
+/// delivery → save → load → state preserved and **no re-offer**.
+/// Then the three falsifiers with their measurement, not with their promise.
 pub fn run_mainquest_001() -> i32 {
     println!(
         "PROBE-MAINQUEST-001 — M-QST main quest trigger: new game → offer → accept → slay → \
@@ -549,8 +549,8 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
             shell.mainquest.offers()
         ),
     );
-    // La segunda llamada del mismo gancho no puede ofrecer: el estado ya no
-    // es `Unstarted`.
+    // The second call of the same hook cannot offer: the state is no longer
+    // `Unstarted`.
     let offered_again = offer(&mut shell);
     publish(&mut shell);
     rows.check(
@@ -573,7 +573,7 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
             shell.mainquest.state().token()
         ),
     );
-    // `N` deja de tener sentido cuando ya se aceptó: no se traga, se publica.
+    // `N` stops making sense once accepted: it is not swallowed, it is published.
     let declined_after_accept = press(&mut shell, QuestKey::Decline);
     publish(&mut shell);
     rows.check(
@@ -585,7 +585,7 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
         ),
     );
 
-    // ── C: muerte REAL del motor (no un `apply` de mentira) ─────────────────
+    // ── C: REAL engine death (not a fake `apply`) ────────────────────────────
     let (strikes, died) = strike_until_dead();
     rows.check(
         "C1 the engine killed the target",
@@ -602,7 +602,7 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
             shell.mainquest.state().token()
         ),
     );
-    // Una segunda muerte no avanza el acto (la arista no existe).
+    // A second death does not advance the act (the edge does not exist).
     let second = on_defeat(&mut shell);
     publish(&mut shell);
     rows.check(
@@ -664,7 +664,7 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
             restored.token()
         ),
     );
-    // La carga real: rehidratar y entrar al mundo por el mismo gancho.
+    // The real load: rehydrate and enter the world through the same hook.
     let mut loaded = fresh_shell();
     restore_into(&mut loaded, &doc);
     let mut loaded_phase = AppPhase::Menu;
@@ -718,7 +718,7 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
         ),
     );
 
-    // ── G: falsificadores (a) y (c) sobre la tabla pura ─────────────────────
+    // ── G: falsifiers (a) and (c) over the pure table ──────────────────────
     let offered_complete = mainquest::apply(State::Offered, Action::Complete);
     let offered_reaches_done = Action::ALL
         .into_iter()
@@ -745,7 +745,7 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
             "apply(declined, slay)={declined_slay:?} apply(declined, accept)={declined_accept:?}"
         ),
     );
-    // La misma lección con la sesión viva: rechazar y luego intentar cerrar.
+    // The same lesson with the live session: refuse and then try to close.
     let mut decliner = fresh_shell();
     let mut decliner_phase = AppPhase::Menu;
     new_game(&mut decliner, &mut decliner_phase, dir)?;
@@ -782,7 +782,7 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
         &format!("pairs=42 legal={accepted} refused={refused}"),
     );
 
-    // ── I: abandono, la otra arista de salida ───────────────────────────────
+    // ── I: abandonment, the other exit edge ───────────────────────────────
     let mut abandoner = fresh_shell();
     let mut abandoner_phase = AppPhase::Menu;
     new_game(&mut abandoner, &mut abandoner_phase, dir)?;
@@ -800,7 +800,7 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
             State::Abandoned.is_terminal()
         ),
     );
-    // El abandono también se persiste (una terminal no se re-abre al cargar).
+    // Abandonment is persisted too (a terminal does not reopen on load).
     let mut doc = SaveGameV2::new();
     persist(&mut doc, abandoner.mainquest.state());
     let restored_abandon = restore(&doc);
@@ -817,9 +817,9 @@ fn probe_body(dir: &Path, rows: &mut Rows) -> Result<(), String> {
     Ok(())
 }
 
-/// Muerte real por el motor de producción: un `CombatSession` con el jugador
-/// desarmado y un enemigo de clase, golpeado hasta caer. Sin tablas retail y
-/// sin ventana: la sesión es la misma que usa `m14_melee_sfx`.
+/// Real death through the production engine: a `CombatSession` with the player
+/// unarmed and a class enemy, struck until it falls. No retail tables and
+/// no window: the session is the same one `m14_melee_sfx` uses.
 fn strike_until_dead() -> (usize, bool) {
     use daggerfall_combat::{Combatant, DeathSequence, EntityKind};
 
@@ -829,8 +829,8 @@ fn strike_until_dead() -> (usize, bool) {
         Combatant::new(1, EntityKind::Player),
         DeathSequence::for_player_height(1.7),
     );
-    // El golpe a mano es el de producción; los modificadores solo evitan que
-    // la lotería de 200 tiradas haga del probe un test de suerte.
+    // The manual strike is the production one; the modifiers only keep the
+    // lottery of 200 rolls from turning the probe into a luck test.
     player.chance_mod = 100;
     player.damage_mods = 300;
     let enemy = Fighter::new(
@@ -854,8 +854,8 @@ fn strike_until_dead() -> (usize, bool) {
 
 // ── PROBE-MAINQUEST-002 (headless, --features probes) ───────────────────────
 
-/// Los siete estados de la tabla legal, en orden: el probe los recorre todos
-/// (uno de ellos, `unstarted`, **no** debe pintar nada).
+/// The seven states of the legal table, in order: the probe walks them all
+/// (one of them, `unstarted`, must **not** paint anything).
 fn paint_states() -> [State; 7] {
     [
         State::Unstarted,
@@ -868,10 +868,10 @@ fn paint_states() -> [State; 7] {
     ]
 }
 
-/// Compone el frame del probe: pantalla [`PROBE_SCREEN`] (RGBA, origen
-/// arriba-izquierda) con el prompt del estado pegado en su rectángulo y
-/// escalado con muestreo nearest, que es lo que hace el sprite 2× de la
-/// ventana. Devuelve el frame y el rectángulo ocupado (`None` = no pintó).
+/// Composes the probe frame: screen [`PROBE_SCREEN`] (RGBA, origin
+/// top-left) with the state's prompt pasted into its rectangle and
+/// scaled with nearest sampling, which is what the window's 2× sprite
+/// does. Returns the frame and the occupied rectangle (`None` = it painted nothing).
 fn probe_frame(
     font: &FntFile,
     ink: [u8; 3],
@@ -908,8 +908,8 @@ fn probe_frame(
     (frame, Some(rect))
 }
 
-/// Píxeles de tinta del frame: `(dentro del rectángulo, fuera del rectángulo)`.
-/// Tinta = opaco y del color de la tinta (lo único que el pintor escribe).
+/// Ink pixels of the frame: `(inside the rectangle, outside the rectangle)`.
+/// Ink = opaque and of the ink colour (the only thing the painter writes).
 fn count_ink(
     frame: &[u8],
     ink: [u8; 3],
@@ -939,13 +939,13 @@ fn count_ink(
     (inside, outside)
 }
 
-/// `PROBE-MAINQUEST-002` — el prompt de la quest, medido en píxeles.
+/// `PROBE-MAINQUEST-002` — the quest prompt, measured in pixels.
 ///
-/// Compone el frame de **cada** estado con la fuente retail que ya carga el
-/// journal y cuenta la tinta dentro de la región que declara la ventana
-/// (esquina superior derecha). `unstarted` no pinta: 0 píxeles. El
-/// falsificador fuerza el estado sin repintar: si dos estados dieran la misma
-/// textura, la fila de dependencia caería en rojo — y aquí se enseña ese rojo.
+/// Composes the frame of **each** state with the retail font the journal
+/// already loads and counts the ink inside the region the window declares
+/// (top-right corner). `unstarted` paints nothing: 0 pixels. The
+/// falsifier forces the state without repainting: if two states gave the same
+/// texture, the dependency row would go red — and that red is shown here.
 pub fn run_mainquest_002() -> i32 {
     println!("PROBE-MAINQUEST-002 — M-QST quest prompt painted per state (ink pixels, not promises)");
     println!(
@@ -978,7 +978,7 @@ pub fn run_mainquest_002() -> i32 {
     let ink = [255u8, 255, 255];
     let mut rows = Rows::default();
 
-    // ── A · un frame por estado, tinta DENTRO de la región del overlay ──────
+    // ── A · one frame per state, ink INSIDE the overlay region ──────────────
     let mut digests: Vec<(State, u64)> = Vec::new();
     let mut off_ink_total = 0usize;
     let mut partial_total = 0usize;
@@ -1031,7 +1031,7 @@ pub fn run_mainquest_002() -> i32 {
         }
     }
 
-    // ── B · el falsificador: el pintor LEE el estado (o el probe cae) ───────
+    // ── B · the falsifier: the painter READS the state (or the probe falls) ──
     let digest_of = |state: State| -> Option<u64> {
         digests
             .iter()
@@ -1056,11 +1056,11 @@ pub fn run_mainquest_002() -> i32 {
             offered == hunt
         ),
     );
-    // Falsificador: un pintor congelado devuelve la textura de `offered` aunque
-    // el estado ya sea `act1-hunt` (es el defecto real: cachear la textura y no
-    // mirar el estado). Se fuerza el estado SIN repintar y se evalúa **el mismo
-    // predicado de B1** sobre ese pintor: si no cae en rojo, el falsificador no
-    // muerde.
+    // Falsifier: a frozen painter returns the `offered` texture even though
+    // the state is already `act1-hunt` (that is the real defect: caching the texture
+    // and not looking at the state). The state is forced WITHOUT repainting and the
+    // **same predicate of B1** is evaluated over that painter: if it does not go red,
+    // the falsifier does not bite.
     let stale = prompt_overlay(&font, ink, State::Offered).map(|texture| texture_digest(&texture));
     let real = prompt_overlay(&font, ink, State::Act1Hunt).map(|texture| texture_digest(&texture));
     let frozen_paint = |_state: State| prompt_overlay(&font, ink, State::Offered);

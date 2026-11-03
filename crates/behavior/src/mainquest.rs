@@ -1,26 +1,26 @@
-//! **M-QST · la quest principal y su primer acto** (`CR-9b3e5d70`): estado y
-//! tabla legal de transiciones, sin ECS, sin I/O y sin relojes.
+//! **M-QST · the main quest and its first act** (`CR-9b3e5d70`): state and
+//! legal transition table, no ECS, no I/O and no clocks.
 //!
-//! ## Por qué existe este módulo
+//! ## Why this module exists
 //!
-//! El disparador y el acto 1 son **reglas**, no presentación: qué acciones
-//! acepta cada estado y cuál es el destino. Eso se decide aquí, puro, y la
-//! ventana (`m18_window`) y la ruta sin ventana (`mainquest_route`) solo
-//! traducen teclas y mueren de un enemigo a las entradas de la tabla. Sin esta
-//! separación cada consumidor tendría su propia copia del grafo y dos
-//! consumidores podrían aceptar aristas distintas — el defecto que la tabla
-//! única hace imposible.
+//! The trigger and act 1 are **rules**, not presentation: which actions
+//! each state accepts and where each one leads. That is decided here, pure,
+//! and the window (`m18_window`) and the windowless route (`mainquest_route`)
+//! only translate keys and enemy deaths into entries of the table. Without
+//! this separation every consumer would keep its own copy of the graph and
+//! two consumers could accept different edges — the defect the single table
+//! makes impossible.
 //!
-//! ## Una sola puerta
+//! ## A single door
 //!
-//! [`apply`] es la **única** función que produce un estado nuevo. No hay
-//! mutadores sueltos (`set_state`, `accept()`, `advance()`…): cualquier
-//! escritura del estado pasa por la tabla de [`TRANSITIONS`], y cualquier par
-//! que no esté en ella devuelve [`Refusal`] **con el estado intacto**. En
-//! particular `Declined` no es «aceptada»: sin `Accept` el acto no puede
-//! completarse.
+//! [`apply`] is the **only** function that produces a new state. There are no
+//! loose mutators (`set_state`, `accept()`, `advance()`…): any write of the
+//! state goes through the [`TRANSITIONS`] table, and any pair that is not in
+//! it returns [`Refusal`] **with the state untouched**. In particular
+//! `Declined` does not mean accepted: without `Accept` the act cannot
+//! complete.
 //!
-//! ## Las 7 aristas (contrato heredado, `HH-20261031-mquesttrigger-6d21b8e7`)
+//! ## The 7 edges (inherited contract, `HH-20261031-mquesttrigger-6d21b8e7`)
 //!
 //! ```text
 //! Unstarted --Offer----> Offered
@@ -32,49 +32,49 @@
 //! Act1Return--Abandon--> Abandoned
 //! ```
 //!
-//! Todo lo demás (35 pares de los 42 posibles) es [`Refusal`].
+//! Everything else (35 of the 42 possible pairs) is [`Refusal`].
 //!
-//! ## Persistencia
+//! ## Persistence
 //!
-//! El estado viaja al save v3 como **una fila de texto** en
-//! `QuestsSection.states` (`MQ-01.state=<token>`), que es la forma que el
-//! documento ya modela: 0 bump de versión, 0 migración, 0 sección nueva. El
-//! token es parte del contrato de datos ([`State::token`]) y no cambia sin
-//! migración: [`STATE_KEY`] + token son la identidad persistida.
+//! The state travels to the v3 save as **one text row** in
+//! `QuestsSection.states` (`MQ-01.state=<token>`), which is the shape the
+//! document already models: 0 version bump, 0 migration, 0 new section. The
+//! token is part of the data contract ([`State::token`]) and does not change
+//! without a migration: [`STATE_KEY`] + token are the persisted identity.
 
 use std::fmt;
 
-/// Identificador de la quest en el registro de quests del save.
+/// Identifier of the quest in the save's quest registry.
 pub const QUEST_ID: &str = "MQ-01";
 
-/// Clave de la fila del estado en `QuestsSection::states`.
+/// Key of the state row in `QuestsSection::states`.
 ///
-/// El documento no admite claves repetidas de sección, así que la quest
-/// escribe **una** fila con clave propia; el valor es el token del estado.
+/// The document rejects repeated section keys, so the quest writes **one**
+/// row with its own key; the value is the state token.
 pub const STATE_KEY: &str = "MQ-01.state";
 
-/// Estados del ciclo de vida de la quest principal.
+/// Lifecycle states of the main quest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum State {
-    /// Nadie ha ofrecido la quest todavía (estado inicial de una sesión).
+    /// Nobody has offered the quest yet (initial state of a session).
     #[default]
     Unstarted,
-    /// La oferta está en pantalla y espera `Y`/`N`.
+    /// The offer is on screen and waits for `Y`/`N`.
     Offered,
-    /// Acto 1 en curso: hay que matar al objetivo.
+    /// Act 1 in progress: the target has to die.
     Act1Hunt,
-    /// El objetivo cayó: hay que entregar la prueba.
+    /// The target fell: the proof has to be delivered.
     Act1Return,
     /// Acto 1 cerrado y entregado.
     Act1Done,
-    /// La oferta fue rechazada: no se repite en esta sesión ni en el save.
+    /// The offer was declined: it does not repeat in this session nor in the save.
     Declined,
     /// El acto se abandonó: terminal, sin retorno.
     Abandoned,
 }
 
 impl State {
-    /// Todos los estados, en orden de ciclo de vida.
+    /// All states, in lifecycle order.
     pub const ALL: [Self; 7] = [
         Self::Unstarted,
         Self::Offered,
@@ -98,47 +98,47 @@ impl State {
         }
     }
 
-    /// Reconstruye un estado desde su token; `None` si el token no es del
-    /// contrato (un documento de otra época no se adivina).
+    /// Rebuilds a state from its token; `None` if the token is not part of the
+    /// contract (a document from another era is never guessed).
     pub fn from_token(token: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|state| state.token() == token)
     }
 
-    /// ¿El acto 1 está en curso (aceptado y sin cerrar)?
+    /// Is act 1 in progress (accepted and not closed)?
     pub const fn is_active(self) -> bool {
         matches!(self, Self::Act1Hunt | Self::Act1Return)
     }
 
-    /// ¿El ciclo no admite más acciones?
+    /// Does the cycle accept no further actions?
     pub const fn is_terminal(self) -> bool {
         matches!(self, Self::Act1Done | Self::Declined | Self::Abandoned)
     }
 
-    /// ¿La oferta ya se emitió y sigue viva en pantalla o en curso?
+    /// Was the offer already emitted and is it still on screen or in progress?
     pub const fn is_offered(self) -> bool {
         !matches!(self, Self::Unstarted)
     }
 }
 
-/// Acciones que un consumidor puede pedir a la máquina.
+/// Actions a consumer may ask the machine to perform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
-    /// El disparador ofrece la quest (solo desde `Unstarted`).
+    /// The trigger offers the quest (only from `Unstarted`).
     Offer,
     /// El jugador acepta (`Y`).
     Accept,
     /// El jugador rechaza (`N`).
     Decline,
-    /// El objetivo del acto 1 murió.
+    /// The act 1 target died.
     Slay,
     /// La prueba se entrega (acto 1 completo).
     Complete,
-    /// El jugador abandona el acto (`X`).
+    /// The player abandons the act (`X`).
     Abandon,
 }
 
 impl Action {
-    /// Todas las acciones, en el orden de la tabla.
+    /// All actions, in the order of the table.
     pub const ALL: [Self; 6] = [
         Self::Offer,
         Self::Accept,
@@ -161,7 +161,7 @@ impl Action {
     }
 }
 
-/// Las 7 aristas legales, en el orden del contrato heredado.
+/// The 7 legal edges, in the order of the inherited contract.
 pub const TRANSITIONS: [(State, Action, State); 7] = [
     (State::Unstarted, Action::Offer, State::Offered),
     (State::Offered, Action::Accept, State::Act1Hunt),
@@ -172,13 +172,13 @@ pub const TRANSITIONS: [(State, Action, State); 7] = [
     (State::Act1Return, Action::Abandon, State::Abandoned),
 ];
 
-/// Rechazo tipado de una arista que la tabla no declara.
+/// Typed refusal of an edge the table does not declare.
 ///
-/// Lleva el par pedido para que el consumidor pueda publicarlo: un rechazo
-/// silencioso sería indistinguible de una acción que nadie pulsó.
+/// It carries the requested pair so the consumer can publish it: a silent
+/// refusal would be indistinguishable from an action nobody pressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Refusal {
-    /// Estado desde el que se intentó la acción (sin cambios).
+    /// State from which the action was attempted (unchanged).
     pub from: State,
     /// Acción rechazada.
     pub action: Action,
@@ -197,12 +197,12 @@ impl fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
-/// **La única puerta**: aplica `action` sobre `from` y devuelve el estado
-/// nuevo, o el [`Refusal`] del par que la tabla no declara.
+/// **The single door**: applies `action` to `from` and returns the new
+/// state, or the [`Refusal`] of the pair the table does not declare.
 ///
-/// `from` entra por valor y no se muta: un rechazo no puede dejar el estado
-/// a medias, porque no hay nada que dejar a medias — el llamante conserva el
-/// suyo y decide qué publicar.
+/// `from` comes in by value and is never mutated: a refusal cannot leave the
+/// state half-applied, because there is nothing to half-apply — the caller
+/// keeps its own and decides what to publish.
 pub fn apply(from: State, action: Action) -> Result<State, Refusal> {
     TRANSITIONS
         .iter()
@@ -211,12 +211,12 @@ pub fn apply(from: State, action: Action) -> Result<State, Refusal> {
         .ok_or(Refusal { from, action })
 }
 
-/// ¿La tabla declara esta arista? (consulta pura; no sustituye a [`apply`]).
+/// Does the table declare this edge? (pure query; it does not replace [`apply`]).
 pub fn is_legal(from: State, action: Action) -> bool {
     apply(from, action).is_ok()
 }
 
-/// Acciones legales desde `from`, en el orden de la tabla.
+/// Legal actions from `from`, in the order of the table.
 pub fn legal_actions(from: State) -> impl Iterator<Item = Action> {
     TRANSITIONS
         .iter()
@@ -228,9 +228,9 @@ pub fn legal_actions(from: State) -> impl Iterator<Item = Action> {
 mod tests {
     use super::*;
 
-    /// La tabla tiene exactamente 7 aristas y ninguna repite el par
-    /// `(from, action)` — un par duplicado haría que el orden de la tabla
-    /// decidiera el destino.
+    /// The table holds exactly 7 edges and none repeats the pair
+    /// `(from, action)` — a duplicated pair would let the order of the table
+    /// decide the destination.
     #[test]
     fn the_table_has_seven_unique_edges() {
         assert_eq!(TRANSITIONS.len(), 7);
@@ -244,8 +244,8 @@ mod tests {
         }
     }
 
-    /// Matriz exhaustiva: 7 estados × 6 acciones = 42 pares; exactamente los 7
-    /// de la tabla pasan y los otros 35 devuelven `Refusal` con el par pedido.
+    /// Exhaustive matrix: 7 states × 6 actions = 42 pairs; exactly the 7 in the
+    /// table pass and the other 35 return `Refusal` with the requested pair.
     #[test]
     fn the_matrix_is_exactly_the_table() {
         let legal: Vec<(State, Action)> = TRANSITIONS
@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(accepted + 35, State::ALL.len() * Action::ALL.len());
     }
 
-    /// Tokens: ida y vuelta para los 7 estados, y un token ajeno no se adivina.
+    /// Tokens: round trip for the 7 states, and a foreign token is not guessed.
     #[test]
     fn state_tokens_round_trip_and_unknown_tokens_are_rejected() {
         for state in State::ALL {
@@ -287,8 +287,8 @@ mod tests {
         assert_eq!(State::from_token("Act1Hunt"), None, "tokens are data, not Debug");
     }
 
-    /// Falsificador (a): `Offered --Complete-->` no existe. Si la tabla
-    /// tuviera esa arista, este test caería.
+    /// Falsifier (a): `Offered --Complete-->` does not exist. If the table
+    /// had that edge, this test would fall.
     #[test]
     fn falsifier_a_offered_cannot_complete() {
         let refusal = apply(State::Offered, Action::Complete).unwrap_err();
@@ -305,9 +305,9 @@ mod tests {
         }
     }
 
-    /// Falsificador (c): `Declined` no es «aceptada». Sin `Accept` el acto no
-    /// puede completarse: desde `Declined` solo hay rechazos, y el único
-    /// camino a `Act1Done` exige pasar por `Act1Hunt`/`Act1Return`.
+    /// Falsifier (c): `Declined` is not "accepted". Without `Accept` the act
+    /// cannot complete: from `Declined` there are only refusals, and the only
+    /// path to `Act1Done` goes through `Act1Hunt`/`Act1Return`.
     #[test]
     fn falsifier_c_declined_cannot_be_completed_without_accepting() {
         for action in Action::ALL {
@@ -320,7 +320,7 @@ mod tests {
                 action: Action::Slay
             })
         );
-        // El único ingreso al acto es `Accept` desde `Offered`.
+        // The only entry into the act is `Accept` from `Offered`.
         let entries: Vec<State> = TRANSITIONS
             .iter()
             .filter(|(_, action, to)| *action == Action::Accept && *to == State::Act1Hunt)
@@ -329,9 +329,9 @@ mod tests {
         assert_eq!(entries, vec![State::Offered]);
     }
 
-    /// La consulta de acciones legales coincide con la tabla, estado por
-    /// estado (si las dos fuentes divergieran, el consumidor ofrecería una
-    /// tecla que la puerta rechaza).
+    /// The legal-action query matches the table, state by state (if the two
+    /// sources diverged, the consumer would offer a key that the door
+    /// refuses).
     #[test]
     fn legal_actions_agree_with_the_table() {
         for from in State::ALL {
@@ -348,7 +348,7 @@ mod tests {
         }
     }
 
-    /// Un terminal no acepta nada: `is_terminal` es la lectura del mismo grafo.
+    /// A terminal state accepts nothing: `is_terminal` is a read of the same graph.
     #[test]
     fn terminal_states_have_no_outgoing_edge() {
         for state in State::ALL {

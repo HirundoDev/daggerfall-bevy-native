@@ -411,7 +411,7 @@ observable effect of their own: `SH-02` (loading screen, `N≥3` steps with `uni
 the menu's clock stays still), `SH-05` (`world scene=Exterior buildings>0 panels>0` in the product
 window), `SH-06` (`hud visible=0` in MENU → `visible=1` in PLAYING), `SH-08` (`travel delta_px>0`,
 `minutes>0`, position changed) and `SH-10` (`exit state=Exit code=0` and the process exits 0). Rows 2, 3,
-4, 6, 9, 11 and 13 therefore leave the shell's open list; every CUBIERTA row carries `no-medido: píxeles`
+4, 6, 9, 11 and 13 therefore leave the shell's open list; every CUBIERTA row carries `no-medido: pixels`
 where the gate reads state and not the framebuffer. Two rows do **not** move, and for a measured reason:
 **10** — the `map-local` panel opens and closes from `Playing` (`SH-07`), but the live automap census is
 still **0** at this HEAD; **12** — `SH-09` freezes the ticks in `Paused` with the same `n`, but the 11
