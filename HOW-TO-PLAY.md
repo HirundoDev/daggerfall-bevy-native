@@ -1,8 +1,8 @@
 # How to play and how to probe
 
-This guide is for the **`v0.3.0-alpha`** build, and it also covers the untagged tree that follows it
-(save fidelity generation 4: `CONTINUE` restores the saved world; measured, unsigned): how to start
-it, what the keys actually do, how to
+This guide is for the **`v0.4.0-alpha`** build — the tagged pre-release cut on 2026-11-02 and published
+on 2026-11-03, which carries save fidelity generation 4 (`CONTINUE` restores the saved world; measured,
+unsigned): how to start it, what the keys actually do, how to
 read a behaviour probe, and what is knowingly broken. Every binding below is read from the code that
 consumes it (file names are given), not from memory; nothing here is a promise of parity with the
 original game.
@@ -11,7 +11,7 @@ original game.
 > an executable probe. M18 — the global acceptance gate — is **`DONE` at technical level and
 > `PARTIAL-TAG-PENDING`**: its **acceptance signature was recorded on 2026-10-26 by delegation**
 > (8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL), the one row still pending is `T-RELEASE-TAG`,
-> and the tag is **none**. The ORIGINAL side
+> and no `M18` tag exists — the release tag is `v0.4.0-alpha`. The ORIGINAL side
 > (Daggerfall 1.07.213 in DOSBox) is **not certified**, and that comparison is still the owner's own
 > act, so the alpha carries no `M18` tag and makes **no claim of visual parity**. See
 > [Status: what is actually done](docs/acknowledgments/status.md).
@@ -52,9 +52,12 @@ It opens on the **main-menu panel** (the 1996 title screen composition, an overl
 `Enter` transitions `MENU` to `PLAYING` (measured capture `01-enter-playing` in the owner pack); until
 then the world is frozen (0 world frames, 0 clock minutes).
 
-> The published `v0.3.0-alpha` artifact is cut from an earlier tree than this one: it carries the M18
-> B1/B2/B3 parity fixes (the menu overlay and the `,` / `.` / `T` bindings below), but not the
-> playable-window fixes landed since. M39 is **`DONE` at gate level** — its 3 gate rows close on
+> The published `v0.4.0-alpha` artifact is cut from this tree, and the commits above the tag translate
+> comments and documentation without changing engine behaviour (`crates/` differs only inside
+> comments), so every binding below is what that artifact does. The earlier `v0.3.0-alpha` artifact is
+> a different tree: it carries the M18 B1/B2/B3 parity fixes (the menu overlay and the `,` / `.` / `T`
+> bindings below) but **not** the pause/save work behind the daggers, whose `Esc` only releases the
+> cursor. M39 is **`DONE` at gate level** — its 3 gate rows close on
 > `ui-jugable-001` **9/9 PASS ×2** and AXIS A5 `focus-rows=153` **×2** (HEAD `5803297`), with
 > coverage **0.857** and **K7** open — but it is not signed and carries no tag, so neither state is
 > owner-accepted.
@@ -84,13 +87,13 @@ consume the actions live in `crates/app/src/m18_window.rs`.
 | `Enter` | activate the selected menu row — `new-game`, `continue` (resumes the saved session), `load`, `options`, `quit`; a session row takes the window from `Menu` to `Playing` | `m18_phase_keys` (m18_window.rs), `shell::MENU_ITEMS` |
 | `W` `A` `S` `D` | walk / strafe (locomotion engine decides the step, not the renderer) | `m2_player.rs`, `m18_apply_player_action` |
 | Mouse move | look (raw motion; pitch clamped to +/-1.55 rad) | `m2_player.rs` (`LOOK_SENSITIVITY = 0.0025` rad/px) |
-| `Esc` | release the cursor to the desktop. In the **published `v0.3.0-alpha`** it is **not** a pause and opens no menu | `m2_escape_cursor` |
+| `Esc` | release the cursor to the desktop; in this build it also pauses (next row). In the published `v0.3.0-alpha` artifact it is **only** the release and opens no menu | `m2_escape_cursor` |
 | `Esc` † | **pause / resume**: the world freezes (`SHELL pause — world frozen`) and resumes on the next press. With a save, load, options or map panel open it closes that panel first | `shell_keys` (m18_window.rs), `shell::pause_line` |
 | `S` (paused) † | open the save browser over the occupied slots; `Enter` writes the session slot | `shell_open_save` |
 | `B` (paused) † | back to the start menu, selection reset to `new-game` | `shell_back_to_menu` |
 | `Q` (paused) † | exit the engine | `ShellState::Exit` |
 | `O` (paused) † | options panel (the same one the menu opens) | `shell_open_options` |
-| `M` (playing) † | open / close the local map panel; with it open, `T` travels | `shell_keys`, `m18_local_map` |
+| `M` (playing) † | open / close the local map panel; with it open, `T` travels | `shell_keys`, `shell::map_panel` |
 | `,` / `.` | rotate the view 5 degrees left / right (keyboard yaw) | `m18_yaw_keys` |
 | `Space` | jump | `m18_apply_player_action` (M19 engine) |
 | `Shift` (left or right) | run | same |
@@ -106,9 +109,10 @@ consume the actions live in `crates/app/src/m18_window.rs`.
 | `3` | quests panel | same |
 | `4` | main-menu panel (the same title screen, over the world) | same |
 
-† **Current tree only.** These bindings arrive with the pause/save work described in
-[Status](docs/acknowledgments/status.md#save-fidelity-generation-4--measured-unsigned-2026-11-02) and are
-**not** in the published `v0.3.0-alpha` artifact, whose `Esc` only releases the cursor.
+† **Save fidelity generation 4.** These bindings arrive with the pause/save work described in
+[Status](docs/acknowledgments/status.md#save-fidelity-generation-4--measured-unsigned-2026-11-02): they
+are **in** the published `v0.4.0-alpha` artifact and **not** in `v0.3.0-alpha`, whose `Esc` only
+releases the cursor.
 
 The first four panels follow the composition order returned by `ui_spec::build_all_panels`
 (`crates/parser-bevy-bridge/src/ui_spec.rs`): hud, inventory, quests, main-menu. Two further map
@@ -268,7 +272,7 @@ no UI code.
 
 ## 7. What is not in this alpha
 
-`v0.3.0-alpha`, no parity claim. The public probe suite is **`ALL-001`'s 40 entries across M2–M34** -
+`v0.4.0-alpha`, no parity claim. The public probe suite is **`ALL-001`'s 40 entries across M2–M34** -
 the 37 of M2–M29 plus the three demo probes M34 added - and the organs of M30–M33 ship their own probes
 in the same binary (see section 5); the count is the `[SuiteEntry; 40]` table in
 `crates/app/src/m6_probe.rs`, also stated in
@@ -284,13 +288,13 @@ act, and the tag is a separate later act too. So no `M18` tag exists.
 The M33 total savegame is **implemented at technical level** in this alpha (closure 2026-10-26):
 savegame v2, the v1→v2 migration and the classic `SAVEGAME` read/write, measured by `SAVE-ALL-001`
 (24/24 byte-identical round trips, five corruption mutations rejected), `SAVE-MIGRATION-001`,
-`SAVEGAME-READ-001`, `SAVEGAME-WRITE-001` and `M33-DEMO-001`. In the **current tree** the running window
+`SAVEGAME-READ-001`, `SAVEGAME-WRITE-001` and `M33-DEMO-001`. In the published `v0.4.0-alpha` the running window
 writes its own session slot (`DFL-SESSION 3`, generation `fidelity=4`, under `DF_SAVE_DIR`): `Esc`
 pauses, `S` opens the save browser, `Enter` writes a slot, and `continue` in the start menu restores the
 saved position, orientation and world minutes — measured `delta pos_mm=[0, 0, 0]` · `delta mundo=0 min`,
 reproducible with `scripts/new-game-semantics.py`, and **unsigned** (the register rows stay
-`candidato`). The published `v0.3.0-alpha` artifact does not surface save/load yet; the M33 total
-savegame remains a probe surface there.
+`candidato`). What that artifact does **not** surface is the M33 total savegame, which remains a probe
+surface there.
 M34 closed at technical level on 2026-10-26 — **`PARTIAL-TECHNICAL-CLOSURE`** — with one named row
 still open, **`AUDIO-RT-001-DEVICE`**: `AUDIO-RT-001` reproduces `PASS(degraded)` (`[SKIP-DEVICE]`, the
 binary built without the `audio` feature), so its two-process measure covers only the degraded branch

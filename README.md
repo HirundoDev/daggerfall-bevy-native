@@ -7,19 +7,21 @@ reproduction with golden vectors instead of screenshots.
 The engine itself contains **no game data**. It reads a copy of Daggerfall that you already own and
 keep outside this repository. See [Data, legal and trademarks](docs/acknowledgments/legal-and-trademarks.md).
 
-> **Release status (honest): `v0.3.0-alpha`, published 2026-10-27.** Two pre-releases sit above it and
-> neither carries a tag: `v0.3.1-alpha`, the documentation correction, and **`v0.4.0-alpha`, the first
-> behaviour change since the published alpha** — a session saved from the running window now carries
-> its world and `CONTINUE` restores the position, the orientation and the world minutes
-> (`slot fidelity=4`; measured `delta pos_mm=[0, 0, 0]` · `delta mundo=0 min`, reproducible in ~70 s
-> with `scripts/new-game-semantics.py`). That work is **measured and unsigned**: its two handoff rows
-> stay `candidato`, so nothing here calls it `DONE`. The closure register carries the state, and it is the only authority quoted
+> **Release status (honest): `v0.4.0-alpha`, tagged from `304c6a6a` on 2026-11-02 and published
+> 2026-11-03.** It is the first behaviour change since `v0.3.0-alpha`: a session saved from the running
+> window now carries its world and `CONTINUE` restores the position, the orientation and the world
+> minutes (`slot fidelity=4`; measured `delta pos_mm=[0, 0, 0]` · `delta mundo=0 min`, reproducible in
+> ~70 s with `scripts/new-game-semantics.py`). That work is **measured and unsigned**: its two handoff
+> rows stay `candidato`, so nothing here calls it `DONE`. The tag is immutable, and what it carries is
+> fixed — including the third-party mark its CI reported and the fix that landed **above** it, both
+> recorded in the CHANGELOG. `v0.3.1-alpha` stays the untagged documentation correction, and
+> `v0.3.2-alpha` (tagged 2026-10-27) is the immutable cut of it. The closure register carries the state, and it is the only authority quoted
 > here — `docs/sintergic/validation/closure-register-CR-03390267.md`, which `scripts/closure-gate.py` reports with `VERDICT: PASS` (0 prose↔register contradictions,
 > falsifiers 3/3 red): M0–M17 **DONE**
 > and tagged; M18 **`PARTIAL-TAG-PENDING`**; M19–M33 **DONE** at gate level; M34
 > **`PARTIAL-TECHNICAL-CLOSURE`** with the named row `AUDIO-RT-001-DEVICE`; M35
-> **`PARTIAL`** with `GAP-TAX-11` deferred to M44; M36–M40 **DONE** at gate level; M41–M48
-> **`AUSENTE`**; E8 **`AUSENTE`**. Everywhere on this page `DONE` means **gate-level technical
+> **`PARTIAL`** with `GAP-TAX-11` deferred to M44; M36–M40 **DONE** at gate level; M41–M44 **DONE**
+> at gate level; M45–M48, `M-SHELL` and `M-PLAY` **`AUSENTE`**; E8 **`AUSENTE`**. Everywhere on this page `DONE` means **gate-level technical
 > closure, never owner acceptance**. M18 — the global acceptance gate
 > — has its **acceptance signature recorded on 2026-10-26 by delegation**: its 21 acceptance rows are
 > signed **8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL**, and `NOT-COMPARABLE` is a declared class,
@@ -30,7 +32,7 @@ keep outside this repository. See [Data, legal and trademarks](docs/acknowledgme
 > ("living country, fully offline") remains in progress. A technical closure is not an accepted
 > milestone, and this README does not blur the two.
 
-## What `v0.3.0-alpha` means
+## What `v0.4.0-alpha` means
 
 This is the current public pre-release. The mechanism is playable end to end and every claim below is
 backed by an executable probe or golden vector, but the acceptance gates are not yet the owner's own
@@ -208,8 +210,8 @@ of truth, real state, closure rule, limits, how to continue).
 State against the register
 `docs/sintergic/validation/closure-register-CR-03390267.md` (`scripts/closure-gate.py` → `VERDICT:
 PASS`, 0 prose↔register contradictions, falsifiers 3/3 red):
-**51 milestones · 85 gate rows · 39 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1
-PARTIAL-TECHNICAL-CLOSURE · 9 AUSENTE**, `program_closure: OPEN`. M0–M17 **DONE and tagged** ·
+**53 milestones · 112 gate rows · 43 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1
+PARTIAL-TECHNICAL-CLOSURE · 7 AUSENTE**, `program_closure: OPEN`. M0–M17 **DONE and tagged** ·
 **M18 `PARTIAL-TAG-PENDING`** (acceptance signature recorded 2026-10-26 by delegation — 8 PASS / 9
 NC-ACEPTA / 4 NOT-COMPARABLE / 0 FAIL; tag none; comparing the rows against the original is the
 owner's) · **M19–M33 DONE** at gate level (no milestone tags; M30–M33 closed 2026-10-23, M33 on
@@ -221,9 +223,11 @@ and **M40 DONE**, all five at gate level and without a tag (M39: coverage 0.857,
 contract.
 
 A milestone marked above is at **gate-level technical closure — never owner acceptance**.
-Public tags: `v0.3.0-alpha`, published 2026-10-27 · `v0.3.1-alpha` (documentation correction) and
-`v0.4.0-alpha` (save fidelity generation 4: `CONTINUE` restores the world; measured, unsigned) in
-preparation, neither tagged. No milestone tag exists from M18 on; M18's acceptance signature is recorded by delegation
+Public tags: `v0.3.0-alpha`, published 2026-10-27 · `v0.3.2-alpha`, tagged 2026-10-27, the immutable cut
+of the documentation correction · `v0.4.0-alpha`, tagged 2026-11-02 and published 2026-11-03 (save
+fidelity generation 4: `CONTINUE` restores the world; measured, unsigned). `v0.3.1-alpha` was never
+tagged: it names the changelog section for the correction that `v0.3.2-alpha` cuts. No milestone tag
+exists from M18 on; M18's acceptance signature is recorded by delegation
 on 2026-10-26.
 
 | M | Epic | Scope | State | `u` nominal (range) | Gate |
@@ -233,10 +237,10 @@ on 2026-10-26.
 | **M38** | UI-2 | 16 creation + 11 configuration + menus (27 surfaces) | DONE (technical closure 2026-10-27, no tag) | 6.50 (4.95–8.40) | `UI-CREATE-001` 16/16 · `UI-CONFIG-001` 11/11 |
 | **M39** | UI-3 | 51 interactive playable windows | DONE at gate level (0.857, K7 open; no tag) | 7.50 (5.65–9.40) | `UI-JUGABLE-001` A–H |
 | **M40** | UI-4 | UI gate + side-by-side + input + accessibility | DONE (technical closure 2026-10-27, no tag) | 3.50 (2.45–4.55) | `UI-FULL-001` 85/85 |
-| **M41** | SYS-1 | depth: combat, magic, items, stats, resistances | DONE (technic: gate-rows ×2 procesos; sin tag — acceptance = owner) | 63.00 (41.30–84.70) | work-package gates (§3.6) |
-| **M42** | SYS-2 | depth: NPCs, guilds, crime and law, quests | DONE (technic: gate-rows ×2 procesos; sin tag — acceptance = owner) | 42.00 (28.00–56.00) | work-package gates (§3.7) — technical closure (gate-rows, 8 gates ×2, CR-c71b453d) |
-| **M43** | SYS-3 | depth: economy, travel, weather, calendar, conditions | AUSENTE (no code, no dispatch, no tag) | 51.00 (33.50–67.50) | work-package gates (§3.8) |
-| **M44** | DUN-1 | dungeon content: grid + loot/respawn/bosses/instances | AUSENTE (no code, no dispatch, no tag) | 39.00 (25.50–52.00) | work-package gates (§3.9) |
+| **M41** | SYS-1 | depth: combat, magic, items, stats, resistances | DONE (gate rows ×2 processes; no tag — acceptance = owner) | 63.00 (41.30–84.70) | work-package gates (§3.6) |
+| **M42** | SYS-2 | depth: NPCs, guilds, crime and law, quests | DONE (gate rows ×2 processes; no tag — acceptance = owner) | 42.00 (28.00–56.00) | work-package gates (§3.7) — technical closure (gate-rows, 8 gates ×2, CR-c71b453d) |
+| **M43** | SYS-3 | depth: economy, travel, weather, calendar, conditions | DONE (gate rows ×2 processes 2026-10-30; no tag — acceptance = owner) | 51.00 (33.50–67.50) | work-package gates (§3.8) |
+| **M44** | DUN-1 | dungeon content: grid + loot/respawn/bosses/instances | DONE (gate rows ×2 processes 2026-10-30; no tag — acceptance = owner) | 39.00 (25.50–52.00) | work-package gates (§3.9) |
 | **M45** | E4 MODS | declarative mod pipeline | AUSENTE (no code, no dispatch, no tag) | 39.00 (26.00–52.00) | `MODS-001` · `MODS-002` |
 | **M46** | E5 ONLINE | optional online: lobby, instances, authority (**owner go required**) | AUSENTE (no code, no dispatch, no tag) | 78.00 (51.00–104.00) | `ONLINE-001`–`003` |
 | **M47** | E6 PLATFORM | packaging, multi-OS CI, sustained perf, accessibility | AUSENTE (no code, no dispatch, no tag) | 15.50 (10.00–21.00) | `PLATFORM-001`–`003` |

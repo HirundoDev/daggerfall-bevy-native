@@ -2,10 +2,12 @@
 
 *Case file split from [`docs/ACKNOWLEDGMENTS.md`](../ACKNOWLEDGMENTS.md): the body was moved and later cleaned of working notes; the verified facts are unchanged.*
 
-**Public release line: `v0.3.0-alpha`, published 2026-10-27.** Above it sit two untagged
-pre-releases: `v0.3.1-alpha`, the **documentation correction** that fixes this page and its siblings and
-adds no feature, and **`v0.4.0-alpha`**, the first behaviour change since the published alpha — the
-session slot family `fidelity=4`, described below and **unsigned**. The alpha
+**Public release line: `v0.4.0-alpha`, tagged from `304c6a6a` on 2026-11-02 and published 2026-11-03.**
+It is the first behaviour change since `v0.3.0-alpha` — the session slot family `fidelity=4`, described
+below and **unsigned** — and the tag is immutable: what it carries is fixed, including the third-party
+mark its CI reported and the fix that landed above it (see the CHANGELOG). `v0.3.1-alpha` stays the
+untagged **documentation correction** that fixes this page and its siblings and adds no feature, and
+`v0.3.2-alpha` (tagged 2026-10-27) is the immutable cut of it. The alpha
 publishes the mechanism measured below; it does **not** claim visual parity. M18 — the global
 acceptance gate — has its **acceptance signature recorded on 2026-10-26 by delegation**: its 21
 acceptance rows are signed **8 PASS · 9 NC-ACEPTA · 4 NOT-COMPARABLE · 0 FAIL**. Two acts remain the
@@ -15,8 +17,8 @@ so no `M18` tag exists and nothing here claims the game looks like 1996.
 M0–M17 carry annotated git tags of the form `M<n>-YYYY-MM-DD`, with matching `release/M<n>`
 branches (`M13b` is a tagged parity follow-up). From M18 on no milestone tag exists. The closure
 register — checked by `scripts/closure-gate.py` with
-`VERDICT: PASS` (0 prose↔register contradictions, falsifiers 3/3 red) — holds **51 milestones and 100 gate
-rows: 41 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1 PARTIAL-TECHNICAL-CLOSURE · 7 AUSENTE**, with
+`VERDICT: PASS` (0 prose↔register contradictions, falsifiers 3/3 red) — holds **53 milestones and 112 gate
+rows: 43 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1 PARTIAL-TECHNICAL-CLOSURE · 7 AUSENTE**, with
 `program_closure: OPEN`. Its states, milestone by milestone:
 
 - **M18 — `PARTIAL-TAG-PENDING`.** DONE at technical level: its acceptance signature is recorded
@@ -26,9 +28,10 @@ rows: 41 DONE · 1 PARTIAL · 1 PARTIAL-TAG-PENDING · 1 PARTIAL-TECHNICAL-CLOSU
   `AUDIO-RT-001-DEVICE`.
 - **M35 — `PARTIAL`**, with `GAP-TAX-11` deferred to M44.
 - **M36–M40 — DONE at gate level.** Acceptance pending, no tag.
-- **M41–M42 — DONE at gate level.** Acceptance pending, no tag (M42's is a technical closure on its
-  gate rows).
-- **M43 — `AUSENTE`**, in flight under `CR-39d656e1`; **M44 — `AUSENTE`**, next, whole and unblocked.
+- **M41–M44 — DONE at gate level.** Acceptance pending, no tag; M42, M43 and M44 are technical closures
+  on their gate rows (M43 measured at `de94974` on 2026-10-30, M44 at `3d25278` the same day).
+- **`M-SHELL`, then `M-PLAY` — `AUSENTE`**, and next in the sequence in force: the application and the
+  session (13 capabilities), then one complete playthrough as the only gate.
 - **M45–M48 — `AUSENTE`.** M45, M46 and M48 are `DEFERRED`, M47 is `OPTIONAL`, and M46 additionally
   carries the owner's `T-M46-GO`; none of the four opens before the playthrough probe passes.
 - **`M-SHELL` and `M-PLAY` — `PLANNED`, and not rows of this recount**: the register's schema stops at

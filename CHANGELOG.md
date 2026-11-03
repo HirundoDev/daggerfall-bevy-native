@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A public clone can run its own scripts.** The exporter wrote every blob with `write_bytes`, which
+  drops the file mode, so the published tree carried `100644` for scripts that are `100755` in the
+  source index: `./scripts/ci/run-ci.sh` could not execute its own sub-scripts and
+  `./scripts/guard/install-hooks.sh` was not runnable as documented (measured on the `v0.4.0-alpha`
+  tree: `git ls-tree 304c6a6 -- scripts/ci/run-ci.sh` → `100644`). The exporter now reads the mode
+  from the HEAD index — never the working tree, so a stray `chmod` cannot leak — and restores `0755`
+  on those paths, and `run-ci.sh` invokes its three checks through `bash`, so the runner no longer
+  depends on the bit.
+
 ### Changed
 
 - **The exportable surface is English-only.** Every file the public export ships was translated to
@@ -30,9 +41,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zero hits. A row that outlives its debt is an allowance that never shrinks; the table now declares
   the one frozen file and nothing else. The `framework-sync` corpus needs no row because it leaves the
   surface by name in `tools/public-export/exclude.txt`.
+- **The public record states the gate verdicts measured today, not the campaign's starting point.**
+  `status.md` carried `spanish_stopwords_absent: FAIL` and `C_regeneration: FAIL` as if they were
+  current. The historical table stays — it is the record of the release push, and rewriting it would
+  falsify history — and a dated update states what the gates report now on the exported tree, keeping
+  `E_internal_refs` red with its real count. `docs/i18n/STATUS.md` §E no longer claims zero Spanish
+  prose blocks: one file is Spanish by declaration (`scripts/shell-002.py`, frozen-by-design), so the
+  claim names it and gives the measured line.
 
 ### Fixed
 
+- **Every quoted gate line is verbatim again, and the example fences are English.**
+  `docs/NIGHT-RUN-GUARDRAILS.md` §3 quoted `GUARD-DEFERIDO: pre-commit does not evaluate the
+  exception`, but `scripts/guard/pre-commit.sh` prints that line in Spanish: runtime output stays in
+  the language it is printed in, so the quote is verbatim again and the five example fences were
+  translated. Literal tokens stay as printed (`RESUMEN ... AUSENTE=0 CAMBIADO=0 NUEVO=0`,
+  `entradas medidas`, `0 toques a instrumentos`, `SIN EVIDENCIA`).
+- **The anchor page's `file:line` citations were re-checked after the translation moved lines.**
+  `docs/acknowledgments/export-limits.md` cited four drifted anchors (`m18_window.rs` 689 → 885,
+  `trademark-check.sh` 70/81 → 71/86, `verify-export.py` 212/290/405 → 222/302/417,
+  `export-public.py` 86 → 99) and one stale range (`m18_window.rs` 702 → 900-905). The page's whole
+  claim is anchor accuracy, so every remaining `file:line` on it was re-verified against the tree —
+  the rest hold — and the eight tolerance rows were repinned instead of deleted.
+- **A Python docstring is prose, so pass E now reads it the way the language gate does.** Pass E called
+  every line of a `.py` file code unless a `#` started earlier on the line, so a docstring counted as
+  a functional reference while `scripts/ci/language-check.py` read the same bytes as prose through
+  `ast`. Both now take their spans from `ast`: one contract for the two gates, with a synthetic case
+  that fails if the spans cover too much or too little. The functional references that remain are
+  classified one by one in the tolerance file — *cited* (printed or compared, never opened) versus
+  *read* (opened at runtime, with the reason saying whether the instrument degrades, reports the
+  absence or aborts) — seven rows whose subject was a docstring are deleted and two repinned. On the
+  exported tree the tolerance file now matches the measurement exactly (141 functional references,
+  141 allowlisted, 0 unallowlisted, 0 stale), where the drift had left 148 unclassified.
 - **`scripts/ci/language-check.py` counted a shell `/*` case pattern as a C block comment.** The
   block-comment branch ran before the `#` branch for every extension, so a `case` arm like `/*) ;;`
   opened a phantom block that swallowed the rest of the script (three false positives, measured
@@ -53,6 +93,24 @@ The first pre-release after `v0.3.0-alpha` that changes behaviour instead of onl
 session saved from the running window now carries its world, and `CONTINUE` restores it. The date is
 the landing commit's date and no release act or tag is claimed by this entry — the tag, the export
 and the push remain the owner's act, and `v0.3.1-alpha` stays the untagged record correction.
+
+> **Update, 2026-11-03 — the tag exists, and this is what it carries.** `refs/tags/v0.4.0-alpha`
+> (annotated object `9124a2d2`) was cut from `304c6a6a64dcd57533928f9209384117778e05f7` on 2026-11-02 and
+> pushed on 2026-11-03. The paragraph above keeps what was true when it was written: this entry is dated
+> by its landing commit, and the tag was **not** moved afterwards. Its tree was exercised by the public
+> CI run `41665676799` for `304c6a6a` (2026-11-03T15:36:41Z), and not every step passed:
+> `Content scan (no packaged game data)` **success**, `Trademark check (no third-party marks)`
+> **failure**, `Language check (English-only exportable surface)` **skipped** — the failing step
+> cancelled the one after it. So the tagged tree packages no game bytes, it did carry third-party marks,
+> and the language gate never ran on it.
+>
+> The marks are reproducible with that tree's own gate (`bash scripts/ci/trademark-check.sh` in it →
+> `gate_file_hits: 2`, `FAIL`): a probe docstring quoted the retail title of the plate, and the
+> `DataRoot` resolver named the Steam library paths a user's own copy lives in. Both were corrected
+> **above** the tag, in `452a367`: the citation is gone, and the path strings are a declared nominative
+> use that still prints in the advisory band, so nothing is hidden. Today the gate reports `PASS`,
+> `gate_file_hits: 0`, `advisory_hits: 43`. The tag stays where it is — it is immutable, and this entry
+> describes it as it is, not as a later tree would make it.
 
 The save-fidelity work is **measured and unsigned**: its two handoff rows
 (`HH-20261101-savefidelity-7a3e9c14`, `HH-20261101-saverestore-7a3e9c14`) remain `candidato` in
@@ -112,6 +170,19 @@ and `NEW-GAME FRESH`.
 - `scripts/new-game-semantics.py` captures the world **before** the pause key (`world-saved.png`)
   and reports the slot's declared position/world minutes against the resumed ones, so "resumes
   where it was saved" is a measured row instead of an inference.
+
+## [0.3.2-alpha] - 2026-10-27
+
+The tag for the record correction above, cut as an immutable target so a release has something to point
+at: its tree is `858e8f6` plus documentation only (`crates/` and `scripts/` are untouched in the cut
+commit), it removes the export measurements that had become circular — a page quoting a figure that only
+the export itself prints — and it pins the release cut to content commit `9f9cc3b`. No feature, no
+behaviour change.
+
+### Changed
+
+- `README.md`, `status.md`, `export-limits.md` and this file: the export figures name the commit the
+  tree was cut from instead of quoting each other.
 
 ## [0.3.1-alpha] - 2026-10-27
 
@@ -382,8 +453,9 @@ tree, not of this one. clippy clean for headless and window features; content/tr
 **Verification:** 582 tests passed / 0 failed at the M27 close; anti-screen suite 28/28;
 content and trademark scans clean.
 
-[0.4.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...HEAD
-[0.3.1-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...HEAD
+[0.4.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...v0.4.0-alpha
+[0.3.2-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...v0.3.2-alpha
+[0.3.1-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.3.0-alpha...858e8f6
 [0.3.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.2.0-alpha...v0.3.0-alpha
 [0.2.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.1.0-alpha...v0.2.0-alpha
 [0.1.0-alpha]: https://github.com/HirundoDev/daggerfall-bevy-native/compare/v0.0.0-alpha.1...v0.1.0-alpha
