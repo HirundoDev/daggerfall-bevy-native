@@ -1,5 +1,9 @@
 # Translation status
 
+> Commit shas on this page name commits of the private engineering history unless the object
+> resolves in your clone (`git cat-file -t <sha>`); the published history is grafted, so a
+> source-tree sha does not resolve here.
+
 Snapshot: **2026-10-21**. Scope: the documents published in this repository. Priorities are defined
 in [`POLICY.md`](POLICY.md#when-a-translation-is-produced): **P0** entry door, **P1** published file
 still in Spanish, **P2** nice to have, **—** not a translation target.

@@ -1,5 +1,9 @@
 # Executor contract
 
+> Commit shas on this page name commits of the private engineering history unless the object
+> resolves in your clone (`git cat-file -t <sha>`); the published history is grafted, so a
+> source-tree sha does not resolve here.
+
 > **Purpose:** define what an **executor** (cheap producing model) may and may not do
 > versus an **auditor** (the captain, who certifies). The contract governs every run without renegotiation
 > and does not depend on the model's memory.

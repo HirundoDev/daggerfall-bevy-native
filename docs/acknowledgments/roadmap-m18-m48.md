@@ -1,5 +1,9 @@
 # Roadmap — M18 to M48, plus E8
 
+> Commit shas on this page name commits of the private engineering history unless the object
+> resolves in your clone (`git cat-file -t <sha>`); the published history is grafted, so a
+> source-tree sha does not resolve here.
+
 > **What this is.** The complete, single plan of the program up to its declared ending:
 > **Plan A** (M18–M35 — foundation and vertical slice: M18 DONE at technical level, verdict
 > `PARTIAL-TAG-PENDING`, signed by delegation on 2026-10-26 with the comparison against the original and

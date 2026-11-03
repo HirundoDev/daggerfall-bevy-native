@@ -1,5 +1,9 @@
 # How to play and how to probe
 
+> Commit shas on this page name commits of the private engineering history unless the object
+> resolves in your clone (`git cat-file -t <sha>`); the published history is grafted, so a
+> source-tree sha does not resolve here.
+
 This guide is for the **`v0.4.0-alpha`** build — the tagged pre-release cut on 2026-11-02 and published
 on 2026-11-03, which carries save fidelity generation 4 (`CONTINUE` restores the saved world; measured,
 unsigned): how to start it, what the keys actually do, how to

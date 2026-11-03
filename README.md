@@ -1,5 +1,9 @@
 # daggerfall-bevy-native
 
+> Commit shas on this page name commits of the private engineering history unless the object
+> resolves in your clone (`git cat-file -t <sha>`); the published history is grafted, so a
+> source-tree sha does not resolve here.
+
 A data-driven, first-person 2.5D RPG engine written in Rust on top of Bevy, built to reproduce the
 look, rules and world of **Daggerfall** from the original retail data files — and to verify that
 reproduction with golden vectors instead of screenshots.
@@ -92,7 +96,8 @@ excluded four critical rows; the erratum is recorded in [Status](docs/acknowledg
 **The suite of the exported tree.** `cargo test --workspace` prints **1,528 passed / 0 failed / 3
 ignored** across **59** test binaries on the exported tree of `c63f342` (exit 0), and **1,606
 passed / 0 failed / 3 ignored** across **66** in the private workspace at `137e30a`. `crates/` is
-byte-identical at `c63f342` and at the release cut `9f9cc3b` (`git diff --stat c63f342..9f9cc3b --
+byte-identical at `c63f342` and at the release cut `9f9cc3b` (source tree; the tag `v0.3.1-alpha` itself is `858e8f6`)
+(`git diff --stat c63f342..9f9cc3b --
 crates/` is empty), so the count describes that code and not one commit's prose. The **78**-test delta is the
 set of test files excluded from the export, declared in
 [Export limits](docs/acknowledgments/export-limits.md), which names them, counts their `#[test]`

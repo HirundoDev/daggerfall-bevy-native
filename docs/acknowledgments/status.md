@@ -1,5 +1,9 @@
 # Status: what is actually done
 
+> Commit shas on this page name commits of the private engineering history unless the object
+> resolves in your clone (`git cat-file -t <sha>`); the published history is grafted, so a
+> source-tree sha does not resolve here.
+
 *Case file split from [`docs/ACKNOWLEDGMENTS.md`](../ACKNOWLEDGMENTS.md): the body was moved and later cleaned of working notes; the verified facts are unchanged.*
 
 **Public release line: `v0.4.0-alpha`, tagged from `304c6a6a` on 2026-11-02 and published 2026-11-03.**

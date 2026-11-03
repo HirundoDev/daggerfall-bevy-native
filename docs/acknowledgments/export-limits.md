@@ -12,11 +12,17 @@ the tolerances in `tools/public-export/internal-refs-allowlist.txt`, and the exc
 `tools/public-export/exclude.txt`.
 
 Every figure on this page names the commit it was measured from. A release is identified by its
-name and the commit it was cut from — `v0.3.1-alpha` was cut from content commit `9f9cc3b` — and
+name and the commit it was cut from — `v0.3.1-alpha` is the tag `1bdd2f2c` on `858e8f6`, a commit
+that resolves in this clone — and
 never by a figure printed on this page: pass E is printed by
 `python3 tools/public-export/verify-export.py --export <dir>` over the finished tree, at the moment
 of the export, and the line is not repeated here because this page travels inside the export and is
 part of the surface that pass measures. Writing the count into the page moves the count.
+
+Commit shas in this record name commits of the private engineering history unless the object
+resolves in this clone (`git cat-file -t <sha>`); the published history is grafted onto new
+commits, so a source-tree sha does not resolve here. The release tags do resolve: `v0.3.0-alpha`,
+`v0.3.1-alpha` at `858e8f6`, `v0.3.2-alpha` and `v0.4.0-alpha`.
 
 The measurements quoted below belong to earlier, immutable commits and stay attributed to them: the
 cut of `673b8a92f2ec7dbe9663d443fd91e91c75cd50b6`, exported with

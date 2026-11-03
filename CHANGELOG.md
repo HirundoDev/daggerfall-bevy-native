@@ -1,5 +1,9 @@
 # Changelog
 
+> Commit shas on this page name commits of the private engineering history unless the object
+> resolves in your clone (`git cat-file -t <sha>`); the published history is grafted, so a
+> source-tree sha does not resolve here.
+
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -128,7 +132,7 @@ and `NEW-GAME FRESH`.
 The tag for the record correction above, cut as an immutable target so a release has something to point
 at: its tree is `858e8f6` plus documentation only (`crates/` and `scripts/` are untouched in the cut
 commit), it removes the export measurements that had become circular — a page quoting a figure that only
-the export itself prints — and it pins the release cut to content commit `9f9cc3b`. No feature, no
+the export itself prints — and it pins the release cut to content commit `9f9cc3b` (source tree; the tag is `858e8f6`). No feature, no
 behaviour change.
 
 ### Changed
@@ -205,7 +209,7 @@ by it.
   differs from the register, the register wins, and the correction lives in this entry and in the
   public pages it names.
 
-**Verification:** the release is cut from the content commit `9f9cc3b` — a clean detached
+**Verification:** the release is cut from the content commit `9f9cc3b` (source tree; the tag is `858e8f6`) — a clean detached
 worktree — and exports **516 files** with tree `e465804a…`. Exported twice and verified by
 `tools/public-export/verify-export.py --export <dir> --regen-dir <dir2>`, the run returns **PASS on
 all five passes**:
@@ -234,7 +238,7 @@ the commit that carries these sentences.
 **Test count of the exported tree:** `cargo test --workspace` prints **1,528 passed / 0 failed / 3
 ignored** on the exported tree of `c63f342` across **59** test binaries, and **1,606 passed / 0
 failed / 3 ignored** in the private workspace at `137e30a` across **66**; `crates/` is
-byte-identical at `c63f342` and at the release cut `9f9cc3b`, so the count belongs to the code
+byte-identical at `c63f342` and at the release cut `9f9cc3b` (source tree), so the count belongs to the code
 and not to one commit's prose. The **78**-test delta is
 the set of test files excluded from the export by exact path;
 [Export limits](docs/acknowledgments/export-limits.md) names them, counts their `#[test]` attributes
